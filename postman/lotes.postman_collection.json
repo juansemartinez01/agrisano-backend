@@ -1,0 +1,659 @@
+{
+  "info": {
+    "_postman_id": "cc0f0281-fec2-40f1-9a50-b7bfeff7693c",
+    "name": "Agrisano Backend - Lotes",
+    "description": "Coleccion para probar el modulo de lotes. Importar en Postman, configurar variables de email/password/tenant y ejecutar Login antes de los endpoints protegidos.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "pm.request.headers.upsert({ key: 'Accept', value: 'application/json' });",
+          "if (!pm.request.headers.has('Content-Type') && ['POST', 'PATCH', 'PUT'].includes(pm.request.method)) {",
+          "  pm.request.headers.upsert({ key: 'Content-Type', value: 'application/json' });",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Login exitoso', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.access_token) pm.collectionVariables.set('token', json.access_token);",
+                  "if (json.refresh_token) pm.collectionVariables.set('refreshToken', json.refresh_token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}",
+                "description": "Usar si TENANCY_REQUIRED=true o si el login necesita contexto de tenant."
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Obtiene access_token y refresh_token. El test los guarda en las variables token y refreshToken."
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Refresh exitoso', function () {",
+                  "  pm.response.to.be.success;",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.access_token) pm.collectionVariables.set('token', json.access_token);",
+                  "if (json.refresh_token) pm.collectionVariables.set('refreshToken', json.refresh_token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refreshToken}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/refresh",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "refresh"
+              ]
+            },
+            "description": "Renueva tokens y actualiza variables."
+          }
+        },
+        {
+          "name": "Me",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "me"
+              ]
+            },
+            "description": "Prueba rapida del bearer token."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Lotes",
+      "description": "Endpoints de src/modules/lotes/lotes.controller.ts. Requieren JWT. Listar y obtener: cualquier usuario autenticado. Crear/actualizar: supervisor o admin_global. Eliminar: admin_global.",
+      "item": [
+        {
+          "name": "Listar lotes",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Respuesta paginada', function () {",
+                  "  pm.response.to.be.success;",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json).to.have.property('ok', true);",
+                  "  pm.expect(json.data).to.be.an('array');",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data[0] && json.data[0].id) {",
+                  "  pm.collectionVariables.set('loteId', json.data[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/lotes?page={{page}}&limit={{limit}}&q={{search}}&tipo={{loteTipo}}&activo={{activo}}&sortBy={{sortBy}}&sortOrder={{sortOrder}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "lotes"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "{{page}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "{{limit}}"
+                },
+                {
+                  "key": "q",
+                  "value": "{{search}}",
+                  "description": "Busca por numero_lote o proveedor."
+                },
+                {
+                  "key": "tipo",
+                  "value": "{{loteTipo}}",
+                  "description": "Valores permitidos: semilla, sustrato."
+                },
+                {
+                  "key": "activo",
+                  "value": "{{activo}}",
+                  "description": "true o false."
+                },
+                {
+                  "key": "sortBy",
+                  "value": "{{sortBy}}",
+                  "description": "Permitidos: numero_lote, proveedor, created_at."
+                },
+                {
+                  "key": "sortOrder",
+                  "value": "{{sortOrder}}",
+                  "description": "ASC o DESC."
+                }
+              ]
+            },
+            "description": "Lista lotes del tenant actual. Requiere JWT, sin rol especifico adicional."
+          }
+        },
+        {
+          "name": "Obtener lote por ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/lotes/{{loteId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "lotes",
+                "{{loteId}}"
+              ]
+            },
+            "description": "Obtiene un lote por ID dentro del tenant actual. Requiere JWT."
+          }
+        },
+        {
+          "name": "Crear lote",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Creado', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.id) {",
+                  "  pm.collectionVariables.set('loteId', json.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tipo\": \"{{loteTipo}}\",\n  \"numero_lote\": \"{{numeroLote}}\",\n  \"proveedor\": \"{{proveedor}}\",\n  \"observaciones\": \"{{observaciones}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/lotes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "lotes"
+              ]
+            },
+            "description": "Requiere rol supervisor o admin_global. tipo acepta semilla o sustrato. numero_lote es unico por tenant + tipo."
+          }
+        },
+        {
+          "name": "Actualizar lote",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"numero_lote\": \"{{numeroLoteActualizado}}\",\n  \"proveedor\": \"{{proveedor}}\",\n  \"observaciones\": \"{{observaciones}}\",\n  \"activo\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/lotes/{{loteId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "lotes",
+                "{{loteId}}"
+              ]
+            },
+            "description": "Requiere rol supervisor o admin_global. No enviar tipo: el backend lo rechaza porque es inmutable."
+          }
+        },
+        {
+          "name": "Desactivar lote",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"activo\": false\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/lotes/{{loteId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "lotes",
+                "{{loteId}}"
+              ]
+            },
+            "description": "Requiere rol supervisor o admin_global. Baja logica por activo=false."
+          }
+        },
+        {
+          "name": "Intentar cambiar tipo (debe fallar)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Tipo inmutable', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.error.code).to.eql('LOTE_TIPO_IMMUTABLE');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tipo\": \"sustrato\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/lotes/{{loteId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "lotes",
+                "{{loteId}}"
+              ]
+            },
+            "description": "Caso negativo para validar la regla de negocio: tipo no puede modificarse despues de creado."
+          }
+        },
+        {
+          "name": "Eliminar lote",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/lotes/{{loteId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "lotes",
+                "{{loteId}}"
+              ]
+            },
+            "description": "Requiere rol admin_global. Hace soft delete. Si el lote esta referenciado por bandejas, responde 409 LOTE_REFERENCED_BY_BANDEJA."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin Lotes",
+      "description": "Endpoint de src/modules/lotes/admin-lotes.controller.ts. Requiere rol admin_global.",
+      "item": [
+        {
+          "name": "Admin - Listar lotes",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Respuesta paginada admin', function () {",
+                  "  pm.response.to.be.success;",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json).to.have.property('ok', true);",
+                  "  pm.expect(json.data).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/lotes?page={{page}}&limit={{limit}}&q={{search}}&tipo={{loteTipo}}&activo={{activo}}&sortBy={{sortBy}}&sortOrder={{sortOrder}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "lotes"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "{{page}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "{{limit}}"
+                },
+                {
+                  "key": "q",
+                  "value": "{{search}}"
+                },
+                {
+                  "key": "tipo",
+                  "value": "{{loteTipo}}"
+                },
+                {
+                  "key": "activo",
+                  "value": "{{activo}}"
+                },
+                {
+                  "key": "sortBy",
+                  "value": "{{sortBy}}"
+                },
+                {
+                  "key": "sortOrder",
+                  "value": "{{sortOrder}}"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "refreshToken",
+      "value": ""
+    },
+    {
+      "key": "email",
+      "value": "admin@example.com"
+    },
+    {
+      "key": "password",
+      "value": "password123"
+    },
+    {
+      "key": "tenantId",
+      "value": ""
+    },
+    {
+      "key": "tenantKey",
+      "value": ""
+    },
+    {
+      "key": "page",
+      "value": "1"
+    },
+    {
+      "key": "limit",
+      "value": "20"
+    },
+    {
+      "key": "search",
+      "value": ""
+    },
+    {
+      "key": "loteTipo",
+      "value": "semilla"
+    },
+    {
+      "key": "activo",
+      "value": "true"
+    },
+    {
+      "key": "sortBy",
+      "value": "created_at"
+    },
+    {
+      "key": "sortOrder",
+      "value": "DESC"
+    },
+    {
+      "key": "loteId",
+      "value": ""
+    },
+    {
+      "key": "numeroLote",
+      "value": "SEM-POSTMAN-001"
+    },
+    {
+      "key": "numeroLoteActualizado",
+      "value": "SEM-POSTMAN-001-A"
+    },
+    {
+      "key": "proveedor",
+      "value": "Proveedor Postman"
+    },
+    {
+      "key": "observaciones",
+      "value": "Lote generado desde Postman"
+    }
+  ]
+}

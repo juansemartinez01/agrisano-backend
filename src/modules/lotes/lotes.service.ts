@@ -1,0 +1,130 @@
+import { Injectable } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Brackets, Repository } from 'typeorm';
+import { BaseCrudTenantService } from 'src/common/crud/base-crud.service';
+import { AppError } from 'src/common/errors/app-error';
+import { ErrorCodes } from 'src/common/errors/error-codes';
+import { Lote, LoteTipo } from './entities/lote.entity';
+import { CreateLoteDto } from './dto/create-lote.dto';
+import { UpdateLoteDto } from './dto/update-lote.dto';
+import { QueryLotesDto } from './dto/query-lotes.dto';
+
+export const AUDIT = {
+  CREATED: 'lote_created',
+  UPDATED: 'lote_updated',
+  DELETED: 'lote_deleted',
+} as const;
+
+@Injectable()
+export class LotesService extends BaseCrudTenantService<Lote> {
+  constructor(
+    @InjectRepository(Lote)
+    private readonly loteRepo: Repository<Lote>,
+  ) {
+    super(loteRepo);
+  }
+
+  async listLotes(
+    q: QueryLotesDto,
+  ): Promise<{ items: Lote[]; total: number }> {
+    const filters: Record<string, unknown> = {};
+    if (q.tipo !== undefined) filters['tipo'] = q.tipo;
+    if (q.activo !== undefined) filters['activo'] = q.activo;
+
+    return this.list(
+      { ...q, filters },
+      {
+        filterAllowed: ['tipo', 'activo'],
+        sortAllowed: ['numero_lote', 'proveedor', 'created_at'],
+        sortFallback: { by: 'created_at', order: 'DESC' },
+        strictTenant: true,
+        customizeQb: q.q
+          ? (qb, alias) => {
+              qb.andWhere(
+                new Brackets((b) =>
+                  b
+                    .where(`${alias}.numero_lote ILIKE :search`, {
+                      search: `%${q.q}%`,
+                    })
+                    .orWhere(`${alias}.proveedor ILIKE :search`),
+                ),
+              );
+            }
+          : undefined,
+      },
+    );
+  }
+
+  async createLote(dto: CreateLoteDto): Promise<Lote> {
+    const tenantId = this.getTenantId({ strictTenant: true }) as string;
+
+    const conflict = await this.loteRepo.findOne({
+      where: {
+        tenant_id: tenantId,
+        tipo: dto.tipo,
+        numero_lote: dto.numero_lote,
+      },
+    });
+    if (conflict) {
+      throw new AppError({
+        code: ErrorCodes.LOTE_NUMERO_DUPLICADO,
+        message: `Ya existe un lote con numero_lote '${dto.numero_lote}' para tipo '${dto.tipo}'`,
+        status: 409,
+      });
+    }
+
+    return this.create(dto, { strictTenant: true });
+  }
+
+  async updateLote(id: string, dto: UpdateLoteDto): Promise<Lote> {
+    if (dto.numero_lote) {
+      const current = await this.mustFindById(id, { strictTenant: true });
+      const tenantId = this.getTenantId({ strictTenant: true }) as string;
+
+      const conflict = await this.loteRepo
+        .createQueryBuilder('l')
+        .where('l.tenant_id = :tenantId', { tenantId })
+        .andWhere('l.tipo = :tipo', { tipo: current.tipo as LoteTipo })
+        .andWhere('l.numero_lote = :numero_lote', {
+          numero_lote: dto.numero_lote,
+        })
+        .andWhere('l.id != :id', { id })
+        .getOne();
+
+      if (conflict) {
+        throw new AppError({
+          code: ErrorCodes.LOTE_NUMERO_DUPLICADO,
+          message: `Ya existe un lote con numero_lote '${dto.numero_lote}' para ese tipo`,
+          status: 409,
+        });
+      }
+    }
+
+    return this.update(id, dto, { strictTenant: true });
+  }
+
+  async deleteLote(id: string): Promise<void> {
+    await this.mustFindById(id, { strictTenant: true });
+
+    try {
+      const result = (await this.loteRepo.manager.query(
+        `SELECT COUNT(*)::int AS cnt FROM bandejas WHERE lote_semilla_id = $1 OR lote_sustrato_id = $1`,
+        [id],
+      )) as [{ cnt: number }];
+
+      if (result[0]?.cnt > 0) {
+        throw new AppError({
+          code: ErrorCodes.LOTE_REFERENCED_BY_BANDEJA,
+          message:
+            'El lote está referenciado por una o más bandejas y no puede ser eliminado',
+          status: 409,
+        });
+      }
+    } catch (err: unknown) {
+      if (err instanceof AppError) throw err;
+      // bandejas table does not yet exist (M04 not deployed) — skip gracefully
+    }
+
+    await this.softDelete(id, { strictTenant: true });
+  }
+}

@@ -1,0 +1,754 @@
+{
+  "info": {
+    "_postman_id": "590402c1-8c52-4f49-b1fc-dc69fc5c3a88",
+    "name": "Agrisano Backend - Siembra y Bandejas",
+    "description": "Coleccion para probar el modulo de siembra y bandejas. Importar en Postman, configurar variables de email/password/tenant, establecimientoId, loteSemillaId y loteSustratoId, y ejecutar Login antes de los endpoints protegidos.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "pm.request.headers.upsert({ key: 'Accept', value: 'application/json' });",
+          "if (!pm.request.headers.has('Content-Type') && ['POST', 'PATCH', 'PUT'].includes(pm.request.method)) {",
+          "  pm.request.headers.upsert({ key: 'Content-Type', value: 'application/json' });",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Login exitoso', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.access_token) pm.collectionVariables.set('token', json.access_token);",
+                  "if (json.refresh_token) pm.collectionVariables.set('refreshToken', json.refresh_token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}",
+                "description": "Usar si TENANCY_REQUIRED=true o si el login necesita contexto de tenant."
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Obtiene access_token y refresh_token. El test los guarda en las variables token y refreshToken."
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Refresh exitoso', function () {",
+                  "  pm.response.to.be.success;",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.access_token) pm.collectionVariables.set('token', json.access_token);",
+                  "if (json.refresh_token) pm.collectionVariables.set('refreshToken', json.refresh_token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refreshToken}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/refresh",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "refresh"
+              ]
+            },
+            "description": "Renueva tokens y actualiza variables."
+          }
+        },
+        {
+          "name": "Me",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "me"
+              ]
+            },
+            "description": "Prueba rapida del bearer token."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Siembras",
+      "description": "Endpoints de src/modules/siembra/siembra.controller.ts. Requieren JWT. Crear: operario, supervisor o admin_global. Actualizar observaciones: supervisor o admin_global. Eliminar: admin_global.",
+      "item": [
+        {
+          "name": "Listar siembras",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Respuesta paginada', function () {",
+                  "  pm.response.to.be.success;",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json).to.have.property('ok', true);",
+                  "  pm.expect(json.data).to.be.an('array');",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data[0] && json.data[0].id) {",
+                  "  pm.collectionVariables.set('siembraId', json.data[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/siembras?page={{page}}&limit={{limit}}&establecimiento_id={{establecimientoId}}&fecha_desde={{fechaDesde}}&fecha_hasta={{fechaHasta}}&sortBy={{siembraSortBy}}&sortOrder={{sortOrder}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "siembras"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "{{page}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "{{limit}}"
+                },
+                {
+                  "key": "establecimiento_id",
+                  "value": "{{establecimientoId}}",
+                  "description": "UUID del establecimiento."
+                },
+                {
+                  "key": "fecha_desde",
+                  "value": "{{fechaDesde}}",
+                  "description": "Fecha ISO YYYY-MM-DD."
+                },
+                {
+                  "key": "fecha_hasta",
+                  "value": "{{fechaHasta}}",
+                  "description": "Fecha ISO YYYY-MM-DD."
+                },
+                {
+                  "key": "sortBy",
+                  "value": "{{siembraSortBy}}",
+                  "description": "Permitidos: fecha, created_at."
+                },
+                {
+                  "key": "sortOrder",
+                  "value": "{{sortOrder}}",
+                  "description": "ASC o DESC."
+                }
+              ]
+            },
+            "description": "Lista siembras del tenant actual. Requiere JWT."
+          }
+        },
+        {
+          "name": "Crear siembra con bandejas",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Creada', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.id) {",
+                  "  pm.collectionVariables.set('siembraId', json.data.id);",
+                  "}",
+                  "if (json.data && json.data.bandejas && json.data.bandejas[0] && json.data.bandejas[0].id) {",
+                  "  pm.collectionVariables.set('bandejaId', json.data.bandejas[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"establecimiento_id\": \"{{establecimientoId}}\",\n  \"fecha\": \"{{fechaSiembra}}\",\n  \"observaciones\": \"{{siembraObservaciones}}\",\n  \"bandejas\": [\n    {\n      \"lote_semilla_id\": \"{{loteSemillaId}}\",\n      \"lote_sustrato_id\": \"{{loteSustratoId}}\",\n      \"cantidad\": {{cantidadBandejas}}\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/siembras",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "siembras"
+              ]
+            },
+            "description": "Requiere rol operario, supervisor o admin_global. Crea una siembra y genera bandejas en estado en_nursery. lote_semilla_id debe ser lote tipo semilla y lote_sustrato_id debe ser lote tipo sustrato."
+          }
+        },
+        {
+          "name": "Obtener siembra por ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Siembra encontrada', function () {",
+                  "  pm.response.to.be.success;",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.bandejas && json.data.bandejas[0] && json.data.bandejas[0].id) {",
+                  "  pm.collectionVariables.set('bandejaId', json.data.bandejas[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/siembras/{{siembraId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "siembras",
+                "{{siembraId}}"
+              ]
+            },
+            "description": "Devuelve la siembra con sus bandejas y referencias basicas a lote_semilla/lote_sustrato."
+          }
+        },
+        {
+          "name": "Actualizar observaciones de siembra",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"observaciones\": \"{{siembraObservacionesActualizadas}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/siembras/{{siembraId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "siembras",
+                "{{siembraId}}"
+              ]
+            },
+            "description": "Requiere rol supervisor o admin_global. Solo se puede modificar observaciones."
+          }
+        },
+        {
+          "name": "Intentar modificar campo inmutable (debe fallar)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Campo inmutable', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.error.code).to.eql('SIEMBRA_FIELD_IMMUTABLE');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fecha\": \"{{fechaSiembra}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/siembras/{{siembraId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "siembras",
+                "{{siembraId}}"
+              ]
+            },
+            "description": "Caso negativo para validar la regla: solo se puede modificar observaciones."
+          }
+        },
+        {
+          "name": "Crear siembra con lote semilla incorrecto (debe fallar)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Tipo de lote incorrecto', function () {",
+                  "  pm.response.to.have.status(422);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.error.code).to.eql('LOTE_TIPO_INCORRECTO');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"establecimiento_id\": \"{{establecimientoId}}\",\n  \"fecha\": \"{{fechaSiembra}}\",\n  \"observaciones\": \"Caso negativo: semilla incorrecta\",\n  \"bandejas\": [\n    {\n      \"lote_semilla_id\": \"{{loteSustratoId}}\",\n      \"lote_sustrato_id\": \"{{loteSustratoId}}\",\n      \"cantidad\": 1\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/siembras",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "siembras"
+              ]
+            },
+            "description": "Caso negativo opcional: usa un lote sustrato como semilla y debe devolver LOTE_TIPO_INCORRECTO."
+          }
+        },
+        {
+          "name": "Eliminar siembra",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/siembras/{{siembraId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "siembras",
+                "{{siembraId}}"
+              ]
+            },
+            "description": "Requiere rol admin_global. Hace soft delete de la siembra y sus bandejas. Si tiene bandejas trasplantadas responde 409 SIEMBRA_HAS_TRASPLANTADAS."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Bandejas",
+      "description": "Endpoints de src/modules/siembra/bandeja.controller.ts. Requieren JWT. Actualmente son de solo lectura.",
+      "item": [
+        {
+          "name": "Listar bandejas",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Respuesta paginada', function () {",
+                  "  pm.response.to.be.success;",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json).to.have.property('ok', true);",
+                  "  pm.expect(json.data).to.be.an('array');",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data[0] && json.data[0].id) {",
+                  "  pm.collectionVariables.set('bandejaId', json.data[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bandejas?page={{page}}&limit={{limit}}&establecimiento_id={{establecimientoId}}&siembra_id={{siembraId}}&lote_semilla_id={{loteSemillaId}}&estado={{bandejaEstado}}&sortBy={{bandejaSortBy}}&sortOrder={{sortOrder}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bandejas"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "{{page}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "{{limit}}"
+                },
+                {
+                  "key": "establecimiento_id",
+                  "value": "{{establecimientoId}}"
+                },
+                {
+                  "key": "siembra_id",
+                  "value": "{{siembraId}}"
+                },
+                {
+                  "key": "lote_semilla_id",
+                  "value": "{{loteSemillaId}}"
+                },
+                {
+                  "key": "estado",
+                  "value": "{{bandejaEstado}}",
+                  "description": "Valores permitidos: en_nursery, trasplantada. Si se omite, default backend: en_nursery."
+                },
+                {
+                  "key": "sortBy",
+                  "value": "{{bandejaSortBy}}",
+                  "description": "Permitidos: fecha_entrada_nursery, created_at."
+                },
+                {
+                  "key": "sortOrder",
+                  "value": "{{sortOrder}}",
+                  "description": "ASC o DESC."
+                }
+              ]
+            },
+            "description": "Lista bandejas del tenant actual. Si no se envia estado, el backend filtra por en_nursery por default."
+          }
+        },
+        {
+          "name": "Obtener bandeja por ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bandejas/{{bandejaId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bandejas",
+                "{{bandejaId}}"
+              ]
+            },
+            "description": "Obtiene una bandeja por ID dentro del tenant actual."
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "refreshToken",
+      "value": ""
+    },
+    {
+      "key": "email",
+      "value": "admin@example.com"
+    },
+    {
+      "key": "password",
+      "value": "password123"
+    },
+    {
+      "key": "tenantId",
+      "value": ""
+    },
+    {
+      "key": "tenantKey",
+      "value": ""
+    },
+    {
+      "key": "page",
+      "value": "1"
+    },
+    {
+      "key": "limit",
+      "value": "20"
+    },
+    {
+      "key": "sortOrder",
+      "value": "DESC"
+    },
+    {
+      "key": "establecimientoId",
+      "value": ""
+    },
+    {
+      "key": "loteSemillaId",
+      "value": ""
+    },
+    {
+      "key": "loteSustratoId",
+      "value": ""
+    },
+    {
+      "key": "siembraId",
+      "value": ""
+    },
+    {
+      "key": "bandejaId",
+      "value": ""
+    },
+    {
+      "key": "fechaSiembra",
+      "value": "2026-06-04"
+    },
+    {
+      "key": "fechaDesde",
+      "value": "2026-01-01"
+    },
+    {
+      "key": "fechaHasta",
+      "value": "2026-12-31"
+    },
+    {
+      "key": "siembraObservaciones",
+      "value": "Siembra generada desde Postman"
+    },
+    {
+      "key": "siembraObservacionesActualizadas",
+      "value": "Observaciones actualizadas desde Postman"
+    },
+    {
+      "key": "cantidadBandejas",
+      "value": "2"
+    },
+    {
+      "key": "siembraSortBy",
+      "value": "created_at"
+    },
+    {
+      "key": "bandejaEstado",
+      "value": "en_nursery"
+    },
+    {
+      "key": "bandejaSortBy",
+      "value": "created_at"
+    }
+  ]
+}

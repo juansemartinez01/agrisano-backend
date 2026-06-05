@@ -1,0 +1,298 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Establecimientos API — M01",
+    "version": "1.0.0",
+    "description": "Endpoints for managing greenhouse establishments and user assignments within a tenant."
+  },
+  "tags": [
+    { "name": "Establecimientos", "description": "Establishment CRUD and assignment operations" },
+    { "name": "Admin", "description": "Admin panel endpoints (admin_global only)" }
+  ],
+  "security": [{ "bearerAuth": [] }],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "Establecimiento": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "tenant_id": { "type": "string", "format": "uuid" },
+          "nombre": { "type": "string", "maxLength": 150 },
+          "ubicacion": { "type": "string", "maxLength": 300, "nullable": true },
+          "activo": { "type": "boolean" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" },
+          "deleted_at": { "type": "string", "format": "date-time", "nullable": true }
+        },
+        "required": ["id", "tenant_id", "nombre", "activo", "created_at", "updated_at"]
+      },
+      "CreateEstablecimientoDto": {
+        "type": "object",
+        "properties": {
+          "nombre": { "type": "string", "minLength": 1, "maxLength": 150 },
+          "ubicacion": { "type": "string", "maxLength": 300, "nullable": true }
+        },
+        "required": ["nombre"]
+      },
+      "UpdateEstablecimientoDto": {
+        "type": "object",
+        "properties": {
+          "nombre": { "type": "string", "minLength": 1, "maxLength": 150 },
+          "ubicacion": { "type": "string", "maxLength": 300, "nullable": true },
+          "activo": { "type": "boolean" }
+        }
+      },
+      "UserAssignment": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid", "description": "Assignment record ID" },
+          "user_id": { "type": "string", "format": "uuid" },
+          "establecimiento_id": { "type": "string", "format": "uuid" },
+          "assigned_at": { "type": "string", "format": "date-time" },
+          "user": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string", "format": "uuid" },
+              "email": { "type": "string" },
+              "is_active": { "type": "boolean" }
+            }
+          }
+        },
+        "required": ["id", "user_id", "establecimiento_id", "assigned_at"]
+      },
+      "PagedEstablecimientos": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean", "example": true },
+          "data": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Establecimiento" }
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "page": { "type": "integer" },
+              "limit": { "type": "integer" },
+              "total": { "type": "integer" }
+            }
+          }
+        }
+      },
+      "SingleEstablecimiento": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean", "example": true },
+          "data": { "$ref": "#/components/schemas/Establecimiento" }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean", "example": false },
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": { "type": "string", "example": "NOT_FOUND" },
+              "message": { "type": "string" },
+              "details": {}
+            }
+          }
+        }
+      }
+    },
+    "parameters": {
+      "EstablecimientoId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string", "format": "uuid" },
+        "description": "Establishment UUID"
+      },
+      "UserId": {
+        "name": "userId",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string", "format": "uuid" },
+        "description": "User UUID"
+      }
+    }
+  },
+  "paths": {
+    "/establecimientos": {
+      "get": {
+        "tags": ["Establecimientos"],
+        "summary": "List establishments (role-scoped)",
+        "description": "admin_global: returns all tenant establishments. supervisor/operario: returns only assigned establishments. Supports pagination, nombre search, and activo filter.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "page", "in": "query", "schema": { "type": "integer", "default": 1, "minimum": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 20, "minimum": 1, "maximum": 200 } },
+          { "name": "q", "in": "query", "schema": { "type": "string" }, "description": "Search by nombre (ILIKE)" },
+          { "name": "activo", "in": "query", "schema": { "type": "boolean" }, "description": "Filter by activo flag" },
+          { "name": "sortBy", "in": "query", "schema": { "type": "string", "enum": ["nombre", "created_at"] } },
+          { "name": "sortOrder", "in": "query", "schema": { "type": "string", "enum": ["ASC", "DESC"] } }
+        ],
+        "responses": {
+          "200": { "description": "Paginated list", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PagedEstablecimientos" } } } },
+          "401": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      },
+      "post": {
+        "tags": ["Establecimientos"],
+        "summary": "Create establishment (admin_global only)",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateEstablecimientoDto" } } }
+        },
+        "responses": {
+          "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SingleEstablecimiento" } } } },
+          "400": { "description": "Validation error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+          "401": { "description": "Unauthorized" },
+          "403": { "description": "Forbidden — caller does not have admin_global role" }
+        }
+      }
+    },
+    "/establecimientos/{id}": {
+      "get": {
+        "tags": ["Establecimientos"],
+        "summary": "Get establishment by ID (role-scoped)",
+        "description": "admin_global: returns any tenant establishment. supervisor/operario: returns 404 if not assigned.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/EstablecimientoId" }],
+        "responses": {
+          "200": { "description": "Found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SingleEstablecimiento" } } } },
+          "401": { "description": "Unauthorized" },
+          "404": {
+            "description": "Not found — establishment does not exist in this tenant, OR caller (supervisor/operario) is not assigned to it.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          }
+        }
+      },
+      "patch": {
+        "tags": ["Establecimientos"],
+        "summary": "Update establishment (admin_global only)",
+        "description": "Partial update. Setting activo=false triggers a separate audit event (establecimiento_deactivated).",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/EstablecimientoId" }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateEstablecimientoDto" } } }
+        },
+        "responses": {
+          "200": { "description": "Updated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SingleEstablecimiento" } } } },
+          "400": { "description": "Validation error" },
+          "401": { "description": "Unauthorized" },
+          "403": { "description": "Forbidden" },
+          "404": { "description": "Establishment not found in tenant" }
+        }
+      },
+      "delete": {
+        "tags": ["Establecimientos"],
+        "summary": "Soft-delete establishment (admin_global only)",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/EstablecimientoId" }],
+        "responses": {
+          "200": { "description": "Soft deleted", "content": { "application/json": { "schema": { "type": "object", "properties": { "ok": { "type": "boolean", "example": true } } } } } },
+          "401": { "description": "Unauthorized" },
+          "403": { "description": "Forbidden" },
+          "404": { "description": "Establishment not found in tenant" }
+        }
+      }
+    },
+    "/establecimientos/{id}/usuarios": {
+      "get": {
+        "tags": ["Establecimientos"],
+        "summary": "List users assigned to an establishment (admin_global, supervisor)",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/EstablecimientoId" }],
+        "responses": {
+          "200": {
+            "description": "List of assignments with user details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": { "type": "boolean" },
+                    "data": { "type": "array", "items": { "$ref": "#/components/schemas/UserAssignment" } }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
+          "403": { "description": "Forbidden — operario cannot list users" },
+          "404": { "description": "Establishment not found or supervisor not assigned to it" }
+        }
+      }
+    },
+    "/establecimientos/{id}/usuarios/{userId}": {
+      "post": {
+        "tags": ["Establecimientos"],
+        "summary": "Assign user to establishment (admin_global only)",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/EstablecimientoId" },
+          { "$ref": "#/components/parameters/UserId" }
+        ],
+        "responses": {
+          "201": {
+            "description": "Assignment created",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "ok": { "type": "boolean" }, "data": { "$ref": "#/components/schemas/UserAssignment" } } } } }
+          },
+          "400": { "description": "User belongs to different tenant" },
+          "401": { "description": "Unauthorized" },
+          "403": { "description": "Forbidden" },
+          "404": { "description": "Establishment or user not found" },
+          "409": {
+            "description": "Conflict — user already assigned to this establishment",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          }
+        }
+      },
+      "delete": {
+        "tags": ["Establecimientos"],
+        "summary": "Remove user from establishment (admin_global only)",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/EstablecimientoId" },
+          { "$ref": "#/components/parameters/UserId" }
+        ],
+        "responses": {
+          "200": { "description": "Assignment removed", "content": { "application/json": { "schema": { "type": "object", "properties": { "ok": { "type": "boolean", "example": true } } } } } },
+          "401": { "description": "Unauthorized" },
+          "403": { "description": "Forbidden" },
+          "404": { "description": "Establishment not found or assignment does not exist" }
+        }
+      }
+    },
+    "/admin/establecimientos": {
+      "get": {
+        "tags": ["Admin"],
+        "summary": "Admin panel: list all tenant establishments with full details (admin_global only)",
+        "description": "Returns all establishments for the current tenant including soft-deleted and inactive. Full details including user count.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "page", "in": "query", "schema": { "type": "integer", "default": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 20, "maximum": 200 } },
+          { "name": "q", "in": "query", "schema": { "type": "string" } },
+          { "name": "activo", "in": "query", "schema": { "type": "boolean" } },
+          { "name": "withDeleted", "in": "query", "schema": { "type": "boolean", "default": false } }
+        ],
+        "responses": {
+          "200": { "description": "Paginated full-detail list", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PagedEstablecimientos" } } } },
+          "401": { "description": "Unauthorized" },
+          "403": { "description": "Forbidden — admin_global role required" }
+        }
+      }
+    }
+  }
+}
