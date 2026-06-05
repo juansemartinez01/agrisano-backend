@@ -20,6 +20,7 @@ import { EstablecimientosModule } from './modules/establecimientos/establecimien
 import { LotesModule } from './modules/lotes/lotes.module';
 import { SiembraModule } from './modules/siembra/siembra.module';
 import { RecetasModule } from './modules/recetas/recetas.module';
+import { QuimicosModule } from './modules/quimicos/quimicos.module';
 
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { ObservabilityModule } from './infra/observability/observability.module';
@@ -56,6 +57,7 @@ import { ObservabilityModule } from './infra/observability/observability.module'
     LotesModule,
     SiembraModule,
     RecetasModule,
+    QuimicosModule,
     ObservabilityModule,
   ],
   controllers: [AppController],

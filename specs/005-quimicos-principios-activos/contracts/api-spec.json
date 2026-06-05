@@ -1,0 +1,480 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "M05 — Quimicos y Principios Activos API",
+    "version": "1.0.0",
+    "description": "Endpoints for managing chemical products and global active principles catalog."
+  },
+  "tags": [
+    { "name": "quimicos", "description": "Chemical products (tenant-scoped)" },
+    { "name": "principios-activos", "description": "Global active principles catalog" },
+    { "name": "admin", "description": "Admin panel endpoints (admin_global only)" }
+  ],
+  "security": [{ "bearerAuth": [] }],
+  "paths": {
+    "/quimicos": {
+      "get": {
+        "tags": ["quimicos"],
+        "summary": "List chemicals (paginated)",
+        "description": "All authenticated users. Filterable by establecimiento_id and activo. Searchable by nombre.",
+        "parameters": [
+          { "name": "q", "in": "query", "schema": { "type": "string" }, "description": "Search by nombre (partial, case-insensitive)" },
+          { "name": "establecimiento_id", "in": "query", "schema": { "type": "string", "format": "uuid" } },
+          { "name": "activo", "in": "query", "schema": { "type": "boolean" } },
+          { "name": "sortBy", "in": "query", "schema": { "type": "string", "enum": ["nombre", "created_at"] } },
+          { "name": "sortOrder", "in": "query", "schema": { "type": "string", "enum": ["ASC", "DESC"] } },
+          { "name": "page", "in": "query", "schema": { "type": "integer", "default": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 20, "maximum": 200 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated list of chemicals",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/QuimicoPageResponse" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      },
+      "post": {
+        "tags": ["quimicos"],
+        "summary": "Create a new chemical",
+        "description": "Requires role: supervisor or admin_global.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateQuimicoDto" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Chemical created",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/QuimicoDetailResponse" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "409": { "$ref": "#/components/responses/Conflict" }
+        }
+      }
+    },
+    "/quimicos/{id}": {
+      "get": {
+        "tags": ["quimicos"],
+        "summary": "Get one chemical with principios_activos nested",
+        "description": "All authenticated users.",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Chemical detail with principios_activos[]",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/QuimicoDetailResponse" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "patch": {
+        "tags": ["quimicos"],
+        "summary": "Update a chemical",
+        "description": "Requires role: supervisor or admin_global. Allowed fields: nombre, unidad_medida, activo, principios_activos. Sending establecimiento_id or stock_actual returns 400.",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/UpdateQuimicoDto" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated chemical with principios_activos[]",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/QuimicoDetailResponse" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" }
+        }
+      },
+      "delete": {
+        "tags": ["quimicos"],
+        "summary": "Soft-delete a chemical",
+        "description": "Requires role: admin_global.",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": { "type": "boolean", "example": true },
+                    "data": {
+                      "type": "object",
+                      "properties": { "deleted": { "type": "boolean", "example": true } }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/admin/quimicos": {
+      "get": {
+        "tags": ["admin"],
+        "summary": "Admin list of all non-deleted chemicals across all establishments in tenant",
+        "description": "Requires role: admin_global. No mandatory filter. Returns all non-deleted (active and inactive) chemicals.",
+        "parameters": [
+          { "name": "q", "in": "query", "schema": { "type": "string" } },
+          { "name": "establecimiento_id", "in": "query", "schema": { "type": "string", "format": "uuid" } },
+          { "name": "activo", "in": "query", "schema": { "type": "boolean" } },
+          { "name": "page", "in": "query", "schema": { "type": "integer", "default": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 20, "maximum": 200 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated list of chemicals",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/QuimicoPageResponse" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/principios-activos": {
+      "get": {
+        "tags": ["principios-activos"],
+        "summary": "List all active principles (full catalog, no pagination)",
+        "description": "All authenticated users. Returns full global catalog ordered by nombre.",
+        "responses": {
+          "200": {
+            "description": "Full active principles catalog",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": { "type": "boolean", "example": true },
+                    "data": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/PrincipioActivo" }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      },
+      "post": {
+        "tags": ["principios-activos"],
+        "summary": "Create a new active principle",
+        "description": "Requires role: admin_global.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreatePrincipioActivoDto" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Active principle created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": { "type": "boolean" },
+                    "data": { "$ref": "#/components/schemas/PrincipioActivo" }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "409": { "$ref": "#/components/responses/Conflict" }
+        }
+      }
+    },
+    "/principios-activos/{id}": {
+      "patch": {
+        "tags": ["principios-activos"],
+        "summary": "Update an active principle's nombre",
+        "description": "Requires role: admin_global.",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/UpdatePrincipioActivoDto" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated active principle",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": { "type": "boolean" },
+                    "data": { "$ref": "#/components/schemas/PrincipioActivo" }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" }
+        }
+      },
+      "delete": {
+        "tags": ["principios-activos"],
+        "summary": "Hard-delete an active principle (only if unreferenced)",
+        "description": "Requires role: admin_global. Rejected with 409 if referenced by any chemical.",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": { "type": "boolean", "example": true },
+                    "data": {
+                      "type": "object",
+                      "properties": { "deleted": { "type": "boolean", "example": true } }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": {
+            "description": "Conflict — active principle is referenced by one or more chemicals",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "PrincipioActivo": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "nombre": { "type": "string", "maxLength": 100 },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        },
+        "required": ["id", "nombre", "created_at", "updated_at"]
+      },
+      "Quimico": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "tenant_id": { "type": "string", "format": "uuid" },
+          "establecimiento_id": { "type": "string", "format": "uuid" },
+          "nombre": { "type": "string", "maxLength": 150 },
+          "unidad_medida": { "type": "string", "maxLength": 30 },
+          "stock_actual": { "type": "number", "format": "decimal" },
+          "activo": { "type": "boolean" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" },
+          "deleted_at": { "type": "string", "format": "date-time", "nullable": true }
+        },
+        "required": ["id", "tenant_id", "establecimiento_id", "nombre", "unidad_medida", "stock_actual", "activo"]
+      },
+      "QuimicoWithPrincipios": {
+        "allOf": [
+          { "$ref": "#/components/schemas/Quimico" },
+          {
+            "type": "object",
+            "properties": {
+              "principios_activos": {
+                "type": "array",
+                "items": { "$ref": "#/components/schemas/PrincipioActivo" }
+              }
+            }
+          }
+        ]
+      },
+      "CreateQuimicoDto": {
+        "type": "object",
+        "required": ["establecimiento_id", "nombre", "unidad_medida"],
+        "properties": {
+          "establecimiento_id": { "type": "string", "format": "uuid" },
+          "nombre": { "type": "string", "maxLength": 150 },
+          "unidad_medida": { "type": "string", "maxLength": 30 },
+          "principios_activos": {
+            "type": "array",
+            "items": { "type": "string", "format": "uuid" },
+            "description": "Array of existing PrincipioActivo IDs to link"
+          }
+        }
+      },
+      "UpdateQuimicoDto": {
+        "type": "object",
+        "properties": {
+          "nombre": { "type": "string", "maxLength": 150 },
+          "unidad_medida": { "type": "string", "maxLength": 30 },
+          "activo": { "type": "boolean" },
+          "principios_activos": {
+            "type": "array",
+            "items": { "type": "string", "format": "uuid" },
+            "description": "When provided (even empty), fully replaces existing links. When omitted, existing links are untouched."
+          }
+        },
+        "description": "Do NOT include establecimiento_id or stock_actual — they will return 400 QUIMICO_FIELD_IMMUTABLE."
+      },
+      "CreatePrincipioActivoDto": {
+        "type": "object",
+        "required": ["nombre"],
+        "properties": {
+          "nombre": { "type": "string", "maxLength": 100 }
+        }
+      },
+      "UpdatePrincipioActivoDto": {
+        "type": "object",
+        "required": ["nombre"],
+        "properties": {
+          "nombre": { "type": "string", "maxLength": 100 }
+        }
+      },
+      "QuimicoDetailResponse": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean", "example": true },
+          "data": { "$ref": "#/components/schemas/QuimicoWithPrincipios" }
+        }
+      },
+      "QuimicoPageResponse": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean", "example": true },
+          "data": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Quimico" }
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "page": { "type": "integer" },
+              "limit": { "type": "integer" },
+              "total": { "type": "integer" }
+            }
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean", "example": false },
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": { "type": "string" },
+              "message": { "type": "string" },
+              "details": { "type": "object" }
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "Unauthorized": {
+        "description": "Missing or invalid authentication token",
+        "content": {
+          "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } }
+        }
+      },
+      "Forbidden": {
+        "description": "Authenticated but insufficient role",
+        "content": {
+          "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } }
+        }
+      },
+      "NotFound": {
+        "description": "Resource not found",
+        "content": {
+          "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } }
+        }
+      },
+      "BadRequest": {
+        "description": "Validation error or immutable field violation",
+        "content": {
+          "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } }
+        }
+      },
+      "Conflict": {
+        "description": "Uniqueness constraint violation",
+        "content": {
+          "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } }
+        }
+      }
+    }
+  }
+}

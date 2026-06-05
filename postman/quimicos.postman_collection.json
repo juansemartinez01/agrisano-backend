@@ -1,0 +1,1052 @@
+{
+  "info": {
+    "_postman_id": "96be1a92-6203-44c1-ae4a-fd68f88d7ef2",
+    "name": "Agrisano Backend - Quimicos",
+    "description": "Coleccion para probar el modulo de quimicos y principios activos. Importar en Postman, configurar variables de email/password/tenant y establecimientoId, y ejecutar Login antes de los endpoints protegidos.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "pm.request.headers.upsert({ key: 'Accept', value: 'application/json' });",
+          "if (!pm.request.headers.has('Content-Type') && ['POST', 'PATCH', 'PUT'].includes(pm.request.method)) {",
+          "  pm.request.headers.upsert({ key: 'Content-Type', value: 'application/json' });",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Login exitoso', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.access_token) pm.collectionVariables.set('token', json.access_token);",
+                  "if (json.refresh_token) pm.collectionVariables.set('refreshToken', json.refresh_token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}",
+                "description": "Usar si TENANCY_REQUIRED=true o si el login necesita contexto de tenant."
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Obtiene access_token y refresh_token. El test los guarda en las variables token y refreshToken."
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Refresh exitoso', function () {",
+                  "  pm.response.to.be.success;",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.access_token) pm.collectionVariables.set('token', json.access_token);",
+                  "if (json.refresh_token) pm.collectionVariables.set('refreshToken', json.refresh_token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refreshToken}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/refresh",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "refresh"
+              ]
+            },
+            "description": "Renueva tokens y actualiza variables."
+          }
+        },
+        {
+          "name": "Me",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "me"
+              ]
+            },
+            "description": "Prueba rapida del bearer token."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Principios Activos",
+      "description": "Endpoints de src/modules/quimicos/principios-activos.controller.ts. Requieren JWT. Listar: cualquier usuario autenticado. Crear/actualizar/eliminar: admin_global.",
+      "item": [
+        {
+          "name": "Listar principios activos",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Lista obtenida', function () {",
+                  "  pm.response.to.be.success;",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json).to.have.property('ok', true);",
+                  "  pm.expect(json.data).to.be.an('array');",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data[0] && json.data[0].id) {",
+                  "  pm.collectionVariables.set('principioActivoId', json.data[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/principios-activos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "principios-activos"
+              ]
+            },
+            "description": "Lista todos los principios activos, ordenados por nombre ASC."
+          }
+        },
+        {
+          "name": "Crear principio activo",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Creado', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.id) {",
+                  "  pm.collectionVariables.set('principioActivoId', json.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"{{principioActivoNombre}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/principios-activos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "principios-activos"
+              ]
+            },
+            "description": "Requiere rol admin_global. nombre es unico globalmente."
+          }
+        },
+        {
+          "name": "Actualizar principio activo",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"{{principioActivoNombreActualizado}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/principios-activos/{{principioActivoId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "principios-activos",
+                "{{principioActivoId}}"
+              ]
+            },
+            "description": "Requiere rol admin_global. nombre obligatorio, no vacio, maximo 100 caracteres."
+          }
+        },
+        {
+          "name": "Crear principio activo duplicado (debe fallar si ya existe)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Duplicado esperado', function () {",
+                  "  pm.response.to.have.status(409);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.error.code).to.eql('PRINCIPIO_ACTIVO_NOMBRE_DUPLICADO');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"{{principioActivoNombre}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/principios-activos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "principios-activos"
+              ]
+            },
+            "description": "Caso negativo opcional: ejecutar despues de crear un principio activo con el mismo nombre."
+          }
+        },
+        {
+          "name": "Eliminar principio activo",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/principios-activos/{{principioActivoId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "principios-activos",
+                "{{principioActivoId}}"
+              ]
+            },
+            "description": "Requiere rol admin_global. Si el principio activo esta asociado a quimicos, responde 409 PRINCIPIO_ACTIVO_REFERENCIADO."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Quimicos",
+      "description": "Endpoints de src/modules/quimicos/quimicos.controller.ts. Requieren JWT. Listar y obtener: cualquier usuario autenticado. Crear/actualizar: supervisor o admin_global. Eliminar: admin_global.",
+      "item": [
+        {
+          "name": "Listar quimicos",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Respuesta paginada', function () {",
+                  "  pm.response.to.be.success;",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json).to.have.property('ok', true);",
+                  "  pm.expect(json.data).to.be.an('array');",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data[0] && json.data[0].id) {",
+                  "  pm.collectionVariables.set('quimicoId', json.data[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/quimicos?page={{page}}&limit={{limit}}&q={{search}}&establecimiento_id={{establecimientoId}}&activo={{activo}}&sortBy={{sortBy}}&sortOrder={{sortOrder}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "quimicos"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "{{page}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "{{limit}}"
+                },
+                {
+                  "key": "q",
+                  "value": "{{search}}",
+                  "description": "Busca por nombre."
+                },
+                {
+                  "key": "establecimiento_id",
+                  "value": "{{establecimientoId}}",
+                  "description": "UUID del establecimiento."
+                },
+                {
+                  "key": "activo",
+                  "value": "{{activo}}",
+                  "description": "true o false. No hay default backend."
+                },
+                {
+                  "key": "sortBy",
+                  "value": "{{sortBy}}",
+                  "description": "Permitidos: nombre, created_at."
+                },
+                {
+                  "key": "sortOrder",
+                  "value": "{{sortOrder}}",
+                  "description": "ASC o DESC."
+                }
+              ]
+            },
+            "description": "Lista quimicos del tenant actual. Requiere JWT."
+          }
+        },
+        {
+          "name": "Obtener quimico por ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/quimicos/{{quimicoId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "quimicos",
+                "{{quimicoId}}"
+              ]
+            },
+            "description": "Obtiene un quimico por ID con principios_activos asociados."
+          }
+        },
+        {
+          "name": "Crear quimico",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Creado', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.id) {",
+                  "  pm.collectionVariables.set('quimicoId', json.data.id);",
+                  "}",
+                  "if (json.data && json.data.principios_activos && json.data.principios_activos[0] && json.data.principios_activos[0].id) {",
+                  "  pm.collectionVariables.set('principioActivoId', json.data.principios_activos[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"establecimiento_id\": \"{{establecimientoId}}\",\n  \"nombre\": \"{{quimicoNombre}}\",\n  \"unidad_medida\": \"{{unidadMedida}}\",\n  \"principios_activos\": [\n    \"{{principioActivoId}}\"\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/quimicos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "quimicos"
+              ]
+            },
+            "description": "Requiere rol supervisor o admin_global. El establecimiento debe existir en el tenant. nombre es unico por establecimiento dentro del tenant. stock_actual inicia en 0."
+          }
+        },
+        {
+          "name": "Crear quimico sin principios activos",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Creado sin principios', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.id) {",
+                  "  pm.collectionVariables.set('quimicoId', json.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"establecimiento_id\": \"{{establecimientoId}}\",\n  \"nombre\": \"{{quimicoNombreSinPrincipios}}\",\n  \"unidad_medida\": \"{{unidadMedida}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/quimicos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "quimicos"
+              ]
+            },
+            "description": "Variante valida: principios_activos es opcional."
+          }
+        },
+        {
+          "name": "Actualizar quimico",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"{{quimicoNombreActualizado}}\",\n  \"unidad_medida\": \"{{unidadMedida}}\",\n  \"activo\": true,\n  \"principios_activos\": [\n    \"{{principioActivoId}}\"\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/quimicos/{{quimicoId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "quimicos",
+                "{{quimicoId}}"
+              ]
+            },
+            "description": "Requiere rol supervisor o admin_global. Solo se pueden modificar nombre, unidad_medida, activo y principios_activos. principios_activos reemplaza la asociacion completa."
+          }
+        },
+        {
+          "name": "Desactivar quimico",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"activo\": false\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/quimicos/{{quimicoId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "quimicos",
+                "{{quimicoId}}"
+              ]
+            },
+            "description": "Requiere rol supervisor o admin_global. Baja logica por activo=false."
+          }
+        },
+        {
+          "name": "Intentar modificar campo inmutable (debe fallar)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Campo inmutable', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.error.code).to.eql('QUIMICO_FIELD_IMMUTABLE');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"establecimiento_id\": \"{{establecimientoId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/quimicos/{{quimicoId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "quimicos",
+                "{{quimicoId}}"
+              ]
+            },
+            "description": "Caso negativo: establecimiento_id no puede modificarse desde PATCH."
+          }
+        },
+        {
+          "name": "Crear quimico duplicado (debe fallar si ya existe)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Duplicado esperado', function () {",
+                  "  pm.response.to.have.status(409);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.error.code).to.eql('QUIMICO_NOMBRE_DUPLICADO');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"establecimiento_id\": \"{{establecimientoId}}\",\n  \"nombre\": \"{{quimicoNombre}}\",\n  \"unidad_medida\": \"{{unidadMedida}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/quimicos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "quimicos"
+              ]
+            },
+            "description": "Caso negativo opcional: ejecutar despues de crear un quimico con el mismo nombre y establecimiento."
+          }
+        },
+        {
+          "name": "Crear quimico con principio activo inexistente (debe fallar)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Principio activo inexistente', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.error.code).to.eql('BAD_REQUEST');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"establecimiento_id\": \"{{establecimientoId}}\",\n  \"nombre\": \"{{quimicoNombreInvalido}}\",\n  \"unidad_medida\": \"{{unidadMedida}}\",\n  \"principios_activos\": [\n    \"00000000-0000-4000-8000-000000000000\"\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/quimicos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "quimicos"
+              ]
+            },
+            "description": "Caso negativo: si algun ID de principios_activos no existe, responde 400 BAD_REQUEST con details.unknown_ids."
+          }
+        },
+        {
+          "name": "Eliminar quimico",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/quimicos/{{quimicoId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "quimicos",
+                "{{quimicoId}}"
+              ]
+            },
+            "description": "Requiere rol admin_global. Hace soft delete."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin Quimicos",
+      "description": "Endpoint de src/modules/quimicos/admin-quimicos.controller.ts. Requiere rol admin_global.",
+      "item": [
+        {
+          "name": "Admin - Listar quimicos",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Respuesta paginada admin', function () {",
+                  "  pm.response.to.be.success;",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json).to.have.property('ok', true);",
+                  "  pm.expect(json.data).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/quimicos?page={{page}}&limit={{limit}}&q={{search}}&establecimiento_id={{establecimientoId}}&activo={{activo}}&sortBy={{sortBy}}&sortOrder={{sortOrder}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "quimicos"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "{{page}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "{{limit}}"
+                },
+                {
+                  "key": "q",
+                  "value": "{{search}}"
+                },
+                {
+                  "key": "establecimiento_id",
+                  "value": "{{establecimientoId}}"
+                },
+                {
+                  "key": "activo",
+                  "value": "{{activo}}"
+                },
+                {
+                  "key": "sortBy",
+                  "value": "{{sortBy}}"
+                },
+                {
+                  "key": "sortOrder",
+                  "value": "{{sortOrder}}"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "refreshToken",
+      "value": ""
+    },
+    {
+      "key": "email",
+      "value": "admin@example.com"
+    },
+    {
+      "key": "password",
+      "value": "password123"
+    },
+    {
+      "key": "tenantId",
+      "value": ""
+    },
+    {
+      "key": "tenantKey",
+      "value": ""
+    },
+    {
+      "key": "page",
+      "value": "1"
+    },
+    {
+      "key": "limit",
+      "value": "20"
+    },
+    {
+      "key": "search",
+      "value": ""
+    },
+    {
+      "key": "establecimientoId",
+      "value": ""
+    },
+    {
+      "key": "activo",
+      "value": "true"
+    },
+    {
+      "key": "sortBy",
+      "value": "created_at"
+    },
+    {
+      "key": "sortOrder",
+      "value": "DESC"
+    },
+    {
+      "key": "principioActivoId",
+      "value": ""
+    },
+    {
+      "key": "principioActivoNombre",
+      "value": "Principio Activo Postman"
+    },
+    {
+      "key": "principioActivoNombreActualizado",
+      "value": "Principio Activo Postman Actualizado"
+    },
+    {
+      "key": "quimicoId",
+      "value": ""
+    },
+    {
+      "key": "quimicoNombre",
+      "value": "Quimico Postman"
+    },
+    {
+      "key": "quimicoNombreSinPrincipios",
+      "value": "Quimico Postman Sin Principios"
+    },
+    {
+      "key": "quimicoNombreActualizado",
+      "value": "Quimico Postman Actualizado"
+    },
+    {
+      "key": "quimicoNombreInvalido",
+      "value": "Quimico Postman Invalido"
+    },
+    {
+      "key": "unidadMedida",
+      "value": "ml"
+    }
+  ]
+}
