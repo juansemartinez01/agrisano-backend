@@ -1,0 +1,180 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Tuneles API — M07",
+    "version": "1.0.0",
+    "description": "Endpoints for managing physical greenhouse tunnels."
+  },
+  "tags": [
+    { "name": "Tuneles", "description": "Tunnel catalog operations" },
+    { "name": "Admin", "description": "Admin-only tunnel operations" }
+  ],
+  "security": [{ "bearerAuth": [] }],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT" }
+    },
+    "schemas": {
+      "Tunel": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "tenant_id": { "type": "string", "format": "uuid" },
+          "establecimiento_id": { "type": "string", "format": "uuid" },
+          "nombre": { "type": "string", "maxLength": 100 },
+          "capacidad_maxima": { "type": "integer", "minimum": 1 },
+          "activo": { "type": "boolean" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "CreateTunelDto": {
+        "type": "object",
+        "required": ["establecimiento_id", "nombre", "capacidad_maxima"],
+        "properties": {
+          "establecimiento_id": { "type": "string", "format": "uuid" },
+          "nombre": { "type": "string", "maxLength": 100 },
+          "capacidad_maxima": { "type": "integer", "minimum": 1 }
+        }
+      },
+      "UpdateTunelDto": {
+        "type": "object",
+        "description": "Only nombre, capacidad_maxima, activo are accepted. Any other field (e.g. establecimiento_id) causes 400 TUNEL_FIELD_IMMUTABLE.",
+        "properties": {
+          "nombre": { "type": "string", "maxLength": 100 },
+          "capacidad_maxima": { "type": "integer", "minimum": 1 },
+          "activo": { "type": "boolean" }
+        }
+      },
+      "PagedTuneles": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean" },
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/Tunel" } },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "page": { "type": "integer" },
+              "limit": { "type": "integer" },
+              "total": { "type": "integer" }
+            }
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean", "example": false },
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": { "type": "string" },
+              "message": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/tuneles": {
+      "get": {
+        "tags": ["Tuneles"],
+        "summary": "List tunnels — all authenticated users",
+        "description": "Returns all non-deleted tunnels. No default activo filter — pass ?activo=true or ?activo=false to filter by status.",
+        "parameters": [
+          { "name": "page", "in": "query", "schema": { "type": "integer", "default": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 20, "maximum": 200 } },
+          { "name": "q", "in": "query", "description": "Search by nombre (ILIKE)", "schema": { "type": "string" } },
+          { "name": "establecimiento_id", "in": "query", "schema": { "type": "string", "format": "uuid" } },
+          { "name": "activo", "in": "query", "description": "No default — omit to return all non-deleted; pass true/false to filter", "schema": { "type": "boolean" } },
+          { "name": "sortBy", "in": "query", "schema": { "type": "string", "enum": ["nombre", "created_at"] } },
+          { "name": "sortOrder", "in": "query", "schema": { "type": "string", "enum": ["ASC", "DESC"] } }
+        ],
+        "responses": {
+          "200": { "description": "Paginated list", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PagedTuneles" } } } },
+          "401": { "description": "Unauthorized" }
+        }
+      },
+      "post": {
+        "tags": ["Tuneles"],
+        "summary": "Create tunnel — supervisor, admin_global",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateTunelDto" } } }
+        },
+        "responses": {
+          "201": { "description": "Created", "content": { "application/json": { "schema": { "type": "object", "properties": { "ok": { "type": "boolean" }, "data": { "$ref": "#/components/schemas/Tunel" } } } } } },
+          "400": { "description": "Validation error (e.g. capacidad_maxima < 1)" },
+          "401": { "description": "Unauthorized" },
+          "403": { "description": "Forbidden — supervisor or admin_global required" },
+          "404": { "description": "Establishment not found in tenant" },
+          "409": { "description": "TUNEL_NOMBRE_DUPLICADO — nombre already exists for this establishment in tenant", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/tuneles/{id}": {
+      "get": {
+        "tags": ["Tuneles"],
+        "summary": "Get tunnel by ID — all authenticated",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": {
+          "200": { "description": "Tunnel record", "content": { "application/json": { "schema": { "type": "object", "properties": { "ok": { "type": "boolean" }, "data": { "$ref": "#/components/schemas/Tunel" } } } } } },
+          "401": { "description": "Unauthorized" },
+          "404": { "description": "Not found" }
+        }
+      },
+      "patch": {
+        "tags": ["Tuneles"],
+        "summary": "Update tunnel — supervisor, admin_global",
+        "description": "Only nombre, capacidad_maxima, activo are accepted. Sending establecimiento_id returns 400 TUNEL_FIELD_IMMUTABLE.",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateTunelDto" } } }
+        },
+        "responses": {
+          "200": { "description": "Updated", "content": { "application/json": { "schema": { "type": "object", "properties": { "ok": { "type": "boolean" }, "data": { "$ref": "#/components/schemas/Tunel" } } } } } },
+          "400": { "description": "TUNEL_FIELD_IMMUTABLE — body contains establecimiento_id or other immutable field" },
+          "401": { "description": "Unauthorized" },
+          "403": { "description": "Forbidden — supervisor or admin_global required" },
+          "404": { "description": "Tunnel not found in tenant" },
+          "409": { "description": "TUNEL_NOMBRE_DUPLICADO — new nombre conflicts with existing tunnel in same establishment" }
+        }
+      },
+      "delete": {
+        "tags": ["Tuneles"],
+        "summary": "Soft-delete tunnel — admin_global only",
+        "description": "Sets deleted_at. No cascade to mesas — mesas retain their tunel_id reference. No pre-delete check on mesa count.",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": {
+          "200": { "description": "Deleted" },
+          "401": { "description": "Unauthorized" },
+          "403": { "description": "Forbidden — admin_global only" },
+          "404": { "description": "Tunnel not found in tenant" }
+        }
+      }
+    },
+    "/admin/tuneles": {
+      "get": {
+        "tags": ["Admin"],
+        "summary": "Admin list — admin_global only",
+        "description": "Returns all non-deleted tenant tunnels (both activo=true and activo=false). No mandatory filters.",
+        "parameters": [
+          { "name": "page", "in": "query", "schema": { "type": "integer", "default": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 20, "maximum": 200 } },
+          { "name": "q", "in": "query", "schema": { "type": "string" } },
+          { "name": "establecimiento_id", "in": "query", "schema": { "type": "string", "format": "uuid" } },
+          { "name": "activo", "in": "query", "schema": { "type": "boolean" } },
+          { "name": "sortBy", "in": "query", "schema": { "type": "string", "enum": ["nombre", "created_at"] } },
+          { "name": "sortOrder", "in": "query", "schema": { "type": "string", "enum": ["ASC", "DESC"] } }
+        ],
+        "responses": {
+          "200": { "description": "Paginated list", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PagedTuneles" } } } },
+          "401": { "description": "Unauthorized" },
+          "403": { "description": "Forbidden — admin_global only" }
+        }
+      }
+    }
+  }
+}

@@ -1,5 +1,5 @@
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/006-stock-movimientos/plan.md
+at specs/007-tuneles/plan.md
 <!-- SPECKIT END -->

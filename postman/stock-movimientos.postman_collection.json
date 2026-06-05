@@ -1,0 +1,700 @@
+{
+  "info": {
+    "_postman_id": "4a0b56e1-64b5-4dfd-a9b9-f5fa681e6c6b",
+    "name": "Agrisano Backend - Stock Movimientos",
+    "description": "Coleccion para probar el modulo de movimientos de stock. Importar en Postman, configurar variables de email/password/tenant y quimicoId, y ejecutar Login antes de los endpoints protegidos.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "pm.request.headers.upsert({ key: 'Accept', value: 'application/json' });",
+          "if (!pm.request.headers.has('Content-Type') && ['POST', 'PATCH', 'PUT'].includes(pm.request.method)) {",
+          "  pm.request.headers.upsert({ key: 'Content-Type', value: 'application/json' });",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Login exitoso', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.access_token) pm.collectionVariables.set('token', json.access_token);",
+                  "if (json.refresh_token) pm.collectionVariables.set('refreshToken', json.refresh_token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}",
+                "description": "Usar si TENANCY_REQUIRED=true o si el login necesita contexto de tenant."
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Obtiene access_token y refresh_token. El test los guarda en las variables token y refreshToken."
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Refresh exitoso', function () {",
+                  "  pm.response.to.be.success;",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.access_token) pm.collectionVariables.set('token', json.access_token);",
+                  "if (json.refresh_token) pm.collectionVariables.set('refreshToken', json.refresh_token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refreshToken}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/refresh",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "refresh"
+              ]
+            },
+            "description": "Renueva tokens y actualiza variables."
+          }
+        },
+        {
+          "name": "Me",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "me"
+              ]
+            },
+            "description": "Prueba rapida del bearer token."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Stock Movimientos",
+      "description": "Endpoints de src/modules/stock-movimientos/stock-movimientos.controller.ts. Requieren JWT. Crear movimientos: supervisor o admin_global. Listar y obtener: cualquier usuario autenticado.",
+      "item": [
+        {
+          "name": "Crear ingreso de stock",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Ingreso creado', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.movimiento && json.data.movimiento.id) {",
+                  "  pm.collectionVariables.set('movimientoId', json.data.movimiento.id);",
+                  "}",
+                  "if (json.data && json.data.quimico_stock_actual !== undefined) {",
+                  "  pm.collectionVariables.set('quimicoStockActual', String(json.data.quimico_stock_actual));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quimico_id\": \"{{quimicoId}}\",\n  \"tipo\": \"ingreso\",\n  \"cantidad\": {{cantidadIngreso}},\n  \"numero_remito\": \"{{numeroRemito}}\",\n  \"observaciones\": \"{{observacionesIngreso}}\",\n  \"fecha\": \"{{fechaMovimiento}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/stock-movimientos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "stock-movimientos"
+              ]
+            },
+            "description": "Requiere rol supervisor o admin_global. Crea movimiento tipo ingreso y suma stock_actual del quimico."
+          }
+        },
+        {
+          "name": "Crear egreso manual de stock",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Egreso creado', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.movimiento && json.data.movimiento.id) {",
+                  "  pm.collectionVariables.set('movimientoId', json.data.movimiento.id);",
+                  "}",
+                  "if (json.data && json.data.quimico_stock_actual !== undefined) {",
+                  "  pm.collectionVariables.set('quimicoStockActual', String(json.data.quimico_stock_actual));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quimico_id\": \"{{quimicoId}}\",\n  \"tipo\": \"egreso_manual\",\n  \"cantidad\": {{cantidadEgreso}},\n  \"observaciones\": \"{{observacionesEgreso}}\",\n  \"fecha\": \"{{fechaMovimiento}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/stock-movimientos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "stock-movimientos"
+              ]
+            },
+            "description": "Requiere rol supervisor o admin_global. Crea movimiento tipo egreso_manual y resta stock_actual del quimico."
+          }
+        },
+        {
+          "name": "Crear egreso que deja stock negativo",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Egreso creado con warning', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.data.warning).to.eql('Stock resultante negativo');",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.movimiento && json.data.movimiento.id) {",
+                  "  pm.collectionVariables.set('movimientoId', json.data.movimiento.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quimico_id\": \"{{quimicoId}}\",\n  \"tipo\": \"egreso_manual\",\n  \"cantidad\": {{cantidadEgresoGrande}},\n  \"observaciones\": \"Caso warning: stock negativo\",\n  \"fecha\": \"{{fechaMovimiento}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/stock-movimientos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "stock-movimientos"
+              ]
+            },
+            "description": "Caso de negocio: el backend permite stock negativo y devuelve warning Stock resultante negativo."
+          }
+        },
+        {
+          "name": "Crear movimiento con cantidad invalida (debe fallar)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Cantidad invalida', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.error.code).to.eql('BAD_REQUEST');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quimico_id\": \"{{quimicoId}}\",\n  \"tipo\": \"ingreso\",\n  \"cantidad\": 0,\n  \"fecha\": \"{{fechaMovimiento}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/stock-movimientos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "stock-movimientos"
+              ]
+            },
+            "description": "Caso negativo: cantidad debe ser >= 0.001."
+          }
+        },
+        {
+          "name": "Listar movimientos",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Respuesta paginada', function () {",
+                  "  pm.response.to.be.success;",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json).to.have.property('ok', true);",
+                  "  pm.expect(json.data).to.be.an('array');",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data[0] && json.data[0].id) {",
+                  "  pm.collectionVariables.set('movimientoId', json.data[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/stock-movimientos?page={{page}}&limit={{limit}}&quimico_id={{quimicoId}}&establecimiento_id={{establecimientoId}}&tipo={{movimientoTipo}}&fecha_desde={{fechaDesde}}&fecha_hasta={{fechaHasta}}&sortBy={{sortBy}}&sortOrder={{sortOrder}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "stock-movimientos"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "{{page}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "{{limit}}"
+                },
+                {
+                  "key": "quimico_id",
+                  "value": "{{quimicoId}}"
+                },
+                {
+                  "key": "establecimiento_id",
+                  "value": "{{establecimientoId}}"
+                },
+                {
+                  "key": "tipo",
+                  "value": "{{movimientoTipo}}",
+                  "description": "Valores permitidos: ingreso, egreso_manual."
+                },
+                {
+                  "key": "fecha_desde",
+                  "value": "{{fechaDesde}}",
+                  "description": "Fecha ISO YYYY-MM-DD."
+                },
+                {
+                  "key": "fecha_hasta",
+                  "value": "{{fechaHasta}}",
+                  "description": "Fecha ISO YYYY-MM-DD."
+                },
+                {
+                  "key": "sortBy",
+                  "value": "{{sortBy}}",
+                  "description": "Permitidos: fecha, created_at."
+                },
+                {
+                  "key": "sortOrder",
+                  "value": "{{sortOrder}}",
+                  "description": "ASC o DESC."
+                }
+              ]
+            },
+            "description": "Lista movimientos del tenant actual con filtros opcionales."
+          }
+        },
+        {
+          "name": "Obtener movimiento por ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/stock-movimientos/{{movimientoId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "stock-movimientos",
+                "{{movimientoId}}"
+              ]
+            },
+            "description": "Obtiene un movimiento por ID dentro del tenant actual."
+          }
+        },
+        {
+          "name": "Listar movimientos por quimico",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Respuesta paginada por quimico', function () {",
+                  "  pm.response.to.be.success;",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json).to.have.property('ok', true);",
+                  "  pm.expect(json.data).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/quimicos/{{quimicoId}}/movimientos?page={{page}}&limit={{limit}}&tipo={{movimientoTipo}}&fecha_desde={{fechaDesde}}&fecha_hasta={{fechaHasta}}&sortBy={{sortBy}}&sortOrder={{sortOrder}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "quimicos",
+                "{{quimicoId}}",
+                "movimientos"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "{{page}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "{{limit}}"
+                },
+                {
+                  "key": "tipo",
+                  "value": "{{movimientoTipo}}"
+                },
+                {
+                  "key": "fecha_desde",
+                  "value": "{{fechaDesde}}"
+                },
+                {
+                  "key": "fecha_hasta",
+                  "value": "{{fechaHasta}}"
+                },
+                {
+                  "key": "sortBy",
+                  "value": "{{sortBy}}"
+                },
+                {
+                  "key": "sortOrder",
+                  "value": "{{sortOrder}}"
+                }
+              ]
+            },
+            "description": "Valida que el quimico exista en el tenant y lista sus movimientos."
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "refreshToken",
+      "value": ""
+    },
+    {
+      "key": "email",
+      "value": "admin@example.com"
+    },
+    {
+      "key": "password",
+      "value": "password123"
+    },
+    {
+      "key": "tenantId",
+      "value": ""
+    },
+    {
+      "key": "tenantKey",
+      "value": ""
+    },
+    {
+      "key": "page",
+      "value": "1"
+    },
+    {
+      "key": "limit",
+      "value": "20"
+    },
+    {
+      "key": "quimicoId",
+      "value": ""
+    },
+    {
+      "key": "establecimientoId",
+      "value": ""
+    },
+    {
+      "key": "movimientoId",
+      "value": ""
+    },
+    {
+      "key": "movimientoTipo",
+      "value": "ingreso"
+    },
+    {
+      "key": "cantidadIngreso",
+      "value": "10.5"
+    },
+    {
+      "key": "cantidadEgreso",
+      "value": "2.25"
+    },
+    {
+      "key": "cantidadEgresoGrande",
+      "value": "999999"
+    },
+    {
+      "key": "numeroRemito",
+      "value": "REM-POSTMAN-001"
+    },
+    {
+      "key": "observacionesIngreso",
+      "value": "Ingreso generado desde Postman"
+    },
+    {
+      "key": "observacionesEgreso",
+      "value": "Egreso manual generado desde Postman"
+    },
+    {
+      "key": "fechaMovimiento",
+      "value": "2026-06-05"
+    },
+    {
+      "key": "fechaDesde",
+      "value": "2026-01-01"
+    },
+    {
+      "key": "fechaHasta",
+      "value": "2026-12-31"
+    },
+    {
+      "key": "sortBy",
+      "value": "fecha"
+    },
+    {
+      "key": "sortOrder",
+      "value": "DESC"
+    },
+    {
+      "key": "quimicoStockActual",
+      "value": ""
+    }
+  ]
+}

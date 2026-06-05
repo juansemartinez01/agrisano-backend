@@ -1,0 +1,759 @@
+{
+  "info": {
+    "_postman_id": "48ee6a82-00fb-43e9-9815-46d31dcf0283",
+    "name": "Agrisano Backend - Tuneles",
+    "description": "Coleccion para probar el modulo de tuneles. Importar en Postman, configurar variables de email/password/tenant y establecimientoId, y ejecutar Login antes de los endpoints protegidos.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "pm.request.headers.upsert({ key: 'Accept', value: 'application/json' });",
+          "if (!pm.request.headers.has('Content-Type') && ['POST', 'PATCH', 'PUT'].includes(pm.request.method)) {",
+          "  pm.request.headers.upsert({ key: 'Content-Type', value: 'application/json' });",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Login exitoso', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.access_token) pm.collectionVariables.set('token', json.access_token);",
+                  "if (json.refresh_token) pm.collectionVariables.set('refreshToken', json.refresh_token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}",
+                "description": "Usar si TENANCY_REQUIRED=true o si el login necesita contexto de tenant."
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Obtiene access_token y refresh_token. El test los guarda en las variables token y refreshToken."
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Refresh exitoso', function () {",
+                  "  pm.response.to.be.success;",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.access_token) pm.collectionVariables.set('token', json.access_token);",
+                  "if (json.refresh_token) pm.collectionVariables.set('refreshToken', json.refresh_token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refreshToken}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/refresh",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "refresh"
+              ]
+            },
+            "description": "Renueva tokens y actualiza variables."
+          }
+        },
+        {
+          "name": "Me",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "me"
+              ]
+            },
+            "description": "Prueba rapida del bearer token."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Tuneles",
+      "description": "Endpoints de src/modules/tuneles/tuneles.controller.ts. Requieren JWT. Listar y obtener: cualquier usuario autenticado. Crear/actualizar: supervisor o admin_global. Eliminar: admin_global.",
+      "item": [
+        {
+          "name": "Listar tuneles",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Respuesta paginada', function () {",
+                  "  pm.response.to.be.success;",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json).to.have.property('ok', true);",
+                  "  pm.expect(json.data).to.be.an('array');",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data[0] && json.data[0].id) {",
+                  "  pm.collectionVariables.set('tunelId', json.data[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tuneles?page={{page}}&limit={{limit}}&q={{search}}&establecimiento_id={{establecimientoId}}&activo={{activo}}&sortBy={{sortBy}}&sortOrder={{sortOrder}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tuneles"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "{{page}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "{{limit}}"
+                },
+                {
+                  "key": "q",
+                  "value": "{{search}}",
+                  "description": "Busca por nombre."
+                },
+                {
+                  "key": "establecimiento_id",
+                  "value": "{{establecimientoId}}",
+                  "description": "UUID del establecimiento."
+                },
+                {
+                  "key": "activo",
+                  "value": "{{activo}}",
+                  "description": "true o false. No hay default backend."
+                },
+                {
+                  "key": "sortBy",
+                  "value": "{{sortBy}}",
+                  "description": "Permitidos: nombre, created_at."
+                },
+                {
+                  "key": "sortOrder",
+                  "value": "{{sortOrder}}",
+                  "description": "ASC o DESC."
+                }
+              ]
+            },
+            "description": "Lista tuneles del tenant actual. Requiere JWT."
+          }
+        },
+        {
+          "name": "Obtener tunel por ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tuneles/{{tunelId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tuneles",
+                "{{tunelId}}"
+              ]
+            },
+            "description": "Obtiene un tunel por ID dentro del tenant actual."
+          }
+        },
+        {
+          "name": "Crear tunel",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Creado', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.id) {",
+                  "  pm.collectionVariables.set('tunelId', json.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"establecimiento_id\": \"{{establecimientoId}}\",\n  \"nombre\": \"{{tunelNombre}}\",\n  \"capacidad_maxima\": {{capacidadMaxima}}\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/tuneles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tuneles"
+              ]
+            },
+            "description": "Requiere rol supervisor o admin_global. El establecimiento debe existir en el tenant. nombre es unico por establecimiento dentro del tenant."
+          }
+        },
+        {
+          "name": "Actualizar tunel",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"{{tunelNombreActualizado}}\",\n  \"capacidad_maxima\": {{capacidadMaximaActualizada}},\n  \"activo\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/tuneles/{{tunelId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tuneles",
+                "{{tunelId}}"
+              ]
+            },
+            "description": "Requiere rol supervisor o admin_global. Solo se pueden modificar nombre, capacidad_maxima y activo."
+          }
+        },
+        {
+          "name": "Desactivar tunel",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"activo\": false\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/tuneles/{{tunelId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tuneles",
+                "{{tunelId}}"
+              ]
+            },
+            "description": "Requiere rol supervisor o admin_global. Baja logica por activo=false."
+          }
+        },
+        {
+          "name": "Intentar modificar campo inmutable (debe fallar)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Campo inmutable', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.error.code).to.eql('TUNEL_FIELD_IMMUTABLE');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"establecimiento_id\": \"{{establecimientoId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/tuneles/{{tunelId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tuneles",
+                "{{tunelId}}"
+              ]
+            },
+            "description": "Caso negativo: establecimiento_id no puede modificarse desde PATCH."
+          }
+        },
+        {
+          "name": "Crear tunel duplicado (debe fallar si ya existe)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Duplicado esperado', function () {",
+                  "  pm.response.to.have.status(409);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.error.code).to.eql('TUNEL_NOMBRE_DUPLICADO');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"establecimiento_id\": \"{{establecimientoId}}\",\n  \"nombre\": \"{{tunelNombre}}\",\n  \"capacidad_maxima\": {{capacidadMaxima}}\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/tuneles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tuneles"
+              ]
+            },
+            "description": "Caso negativo opcional: ejecutar despues de crear un tunel con el mismo nombre y establecimiento."
+          }
+        },
+        {
+          "name": "Crear tunel con capacidad invalida (debe fallar)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Capacidad invalida', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.error.code).to.eql('BAD_REQUEST');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"establecimiento_id\": \"{{establecimientoId}}\",\n  \"nombre\": \"Tunel Capacidad Invalida\",\n  \"capacidad_maxima\": 0\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/tuneles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tuneles"
+              ]
+            },
+            "description": "Caso negativo: capacidad_maxima debe ser entero >= 1."
+          }
+        },
+        {
+          "name": "Eliminar tunel",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tuneles/{{tunelId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tuneles",
+                "{{tunelId}}"
+              ]
+            },
+            "description": "Requiere rol admin_global. Hace soft delete."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin Tuneles",
+      "description": "Endpoint de src/modules/tuneles/admin-tuneles.controller.ts. Requiere rol admin_global.",
+      "item": [
+        {
+          "name": "Admin - Listar tuneles",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Respuesta paginada admin', function () {",
+                  "  pm.response.to.be.success;",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json).to.have.property('ok', true);",
+                  "  pm.expect(json.data).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/tuneles?page={{page}}&limit={{limit}}&q={{search}}&establecimiento_id={{establecimientoId}}&activo={{activo}}&sortBy={{sortBy}}&sortOrder={{sortOrder}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "tuneles"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "{{page}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "{{limit}}"
+                },
+                {
+                  "key": "q",
+                  "value": "{{search}}"
+                },
+                {
+                  "key": "establecimiento_id",
+                  "value": "{{establecimientoId}}"
+                },
+                {
+                  "key": "activo",
+                  "value": "{{activo}}"
+                },
+                {
+                  "key": "sortBy",
+                  "value": "{{sortBy}}"
+                },
+                {
+                  "key": "sortOrder",
+                  "value": "{{sortOrder}}"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "refreshToken",
+      "value": ""
+    },
+    {
+      "key": "email",
+      "value": "admin@example.com"
+    },
+    {
+      "key": "password",
+      "value": "password123"
+    },
+    {
+      "key": "tenantId",
+      "value": ""
+    },
+    {
+      "key": "tenantKey",
+      "value": ""
+    },
+    {
+      "key": "page",
+      "value": "1"
+    },
+    {
+      "key": "limit",
+      "value": "20"
+    },
+    {
+      "key": "search",
+      "value": ""
+    },
+    {
+      "key": "establecimientoId",
+      "value": ""
+    },
+    {
+      "key": "activo",
+      "value": "true"
+    },
+    {
+      "key": "sortBy",
+      "value": "created_at"
+    },
+    {
+      "key": "sortOrder",
+      "value": "DESC"
+    },
+    {
+      "key": "tunelId",
+      "value": ""
+    },
+    {
+      "key": "tunelNombre",
+      "value": "Tunel Postman"
+    },
+    {
+      "key": "tunelNombreActualizado",
+      "value": "Tunel Postman Actualizado"
+    },
+    {
+      "key": "capacidadMaxima",
+      "value": "100"
+    },
+    {
+      "key": "capacidadMaximaActualizada",
+      "value": "120"
+    }
+  ]
+}

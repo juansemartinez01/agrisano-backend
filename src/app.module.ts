@@ -22,6 +22,7 @@ import { SiembraModule } from './modules/siembra/siembra.module';
 import { RecetasModule } from './modules/recetas/recetas.module';
 import { QuimicosModule } from './modules/quimicos/quimicos.module';
 import { StockMovimientosModule } from './modules/stock-movimientos/stock-movimientos.module';
+import { TunelesModule } from './modules/tuneles/tuneles.module';
 
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { ObservabilityModule } from './infra/observability/observability.module';
@@ -60,6 +61,7 @@ import { ObservabilityModule } from './infra/observability/observability.module'
     RecetasModule,
     QuimicosModule,
     StockMovimientosModule,
+    TunelesModule,
     ObservabilityModule,
   ],
   controllers: [AppController],

@@ -55,6 +55,11 @@ export const ErrorCodes = {
   // stock movimientos
   MOVIMIENTO_NOT_FOUND: 'MOVIMIENTO_NOT_FOUND',
   MOVIMIENTO_CANTIDAD_INVALIDA: 'MOVIMIENTO_CANTIDAD_INVALIDA',
+
+  // tuneles
+  TUNEL_NOT_FOUND: 'TUNEL_NOT_FOUND',
+  TUNEL_NOMBRE_DUPLICADO: 'TUNEL_NOMBRE_DUPLICADO',
+  TUNEL_FIELD_IMMUTABLE: 'TUNEL_FIELD_IMMUTABLE',
 } as const;
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];
