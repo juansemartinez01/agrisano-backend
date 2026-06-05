@@ -1,0 +1,421 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "M08 — Mesas (Greenhouse Tables)",
+    "description": "REST API for managing physical growing tables. All endpoints require JWT authentication. MesasController uses @Controller() with no prefix — all routes are explicit full-path strings.",
+    "version": "1.0.0"
+  },
+  "tags": [
+    { "name": "mesas", "description": "Growing table management" },
+    { "name": "historial", "description": "Table event history (read-only)" },
+    { "name": "tuneles", "description": "Tunnel-scoped table queries" }
+  ],
+  "paths": {
+    "/mesas": {
+      "get": {
+        "tags": ["mesas"],
+        "summary": "List all tables (paginated, filterable)",
+        "description": "All authenticated users. Filterable by establecimiento_id, tunel_id, estado, activo. Searchable by codigo_qr (ILIKE).",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 200 } },
+          { "name": "establecimiento_id", "in": "query", "schema": { "type": "string", "format": "uuid" } },
+          { "name": "tunel_id", "in": "query", "schema": { "type": "string", "format": "uuid" } },
+          { "name": "estado", "in": "query", "schema": { "$ref": "#/components/schemas/MesaEstado" } },
+          { "name": "activo", "in": "query", "schema": { "type": "boolean" } },
+          { "name": "q", "in": "query", "description": "Search by codigo_qr (ILIKE)", "schema": { "type": "string" } },
+          { "name": "sortBy", "in": "query", "schema": { "type": "string" } },
+          { "name": "sortOrder", "in": "query", "schema": { "type": "string", "enum": ["ASC", "DESC"] } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated list of tables",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PagedMesas" }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["mesas"],
+        "summary": "Create a new table",
+        "description": "Roles: supervisor, admin_global. Assigns table to tunnel at next FIFO position. Generates codigo_qr server-side.",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateMesaDto" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Table created",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/OkMesa" }
+              }
+            }
+          },
+          "400": { "description": "Validation error" },
+          "403": { "description": "Insufficient role" },
+          "404": { "description": "MESA_NOT_FOUND / establishment or tunnel not found" }
+        }
+      }
+    },
+    "/mesas/qr/{codigoQr}": {
+      "get": {
+        "tags": ["mesas"],
+        "summary": "Get table by QR code",
+        "description": "All authenticated users. Used by mobile QR scanning. Returns mesa with nested tunel info. IMPORTANT: This route is declared BEFORE /mesas/:id in the controller.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "codigoQr",
+            "in": "path",
+            "required": true,
+            "description": "The plain UUID v4 value stored in the QR code",
+            "schema": { "type": "string", "format": "uuid" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Table found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/OkMesaWithTunel" }
+              }
+            }
+          },
+          "404": { "description": "MESA_QR_NOT_FOUND" }
+        }
+      }
+    },
+    "/mesas/{id}": {
+      "get": {
+        "tags": ["mesas"],
+        "summary": "Get table by ID",
+        "description": "All authenticated users. Returns mesa with nested tunel info (nombre, capacidad_maxima).",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Table found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/OkMesaWithTunel" }
+              }
+            }
+          },
+          "404": { "description": "MESA_NOT_FOUND" }
+        }
+      },
+      "patch": {
+        "tags": ["mesas"],
+        "summary": "Update table (plants_estimadas, activo only)",
+        "description": "Roles: supervisor, admin_global. ONLY plantas_estimadas and activo are allowed. Any other field in body → MESA_FIELD_IMMUTABLE 400.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/UpdateMesaDto" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Table updated",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/OkMesa" }
+              }
+            }
+          },
+          "400": { "description": "MESA_FIELD_IMMUTABLE — body contains immutable field" },
+          "403": { "description": "Insufficient role" },
+          "404": { "description": "MESA_NOT_FOUND" }
+        }
+      },
+      "delete": {
+        "tags": ["mesas"],
+        "summary": "Soft-delete a table",
+        "description": "Role: admin_global only. ONLY allowed if estado = 'baja'. Otherwise MESA_SOLO_BAJA_DELETE 409.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Table soft-deleted",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/OkDeleted" }
+              }
+            }
+          },
+          "403": { "description": "Insufficient role" },
+          "404": { "description": "MESA_NOT_FOUND" },
+          "409": { "description": "MESA_SOLO_BAJA_DELETE — table is not in baja estado" }
+        }
+      }
+    },
+    "/mesas/{id}/dar-de-baja": {
+      "post": {
+        "tags": ["mesas"],
+        "summary": "Decommission a table (dar de baja)",
+        "description": "Roles: supervisor, admin_global. Allowed from estado=activa OR en_cosecha. Blocked if already baja → MESA_ESTADO_INVALIDO 409. Sets estado=baja, posicion_actual=NULL. Writes historial event tipo_evento=baja.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Table decommissioned",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/OkMesa" }
+              }
+            }
+          },
+          "403": { "description": "Insufficient role" },
+          "404": { "description": "MESA_NOT_FOUND" },
+          "409": { "description": "MESA_ESTADO_INVALIDO — table already in baja" }
+        }
+      }
+    },
+    "/mesas/{id}/reactivar": {
+      "post": {
+        "tags": ["mesas"],
+        "summary": "Reactivate a decommissioned table",
+        "description": "Roles: supervisor, admin_global. ONLY allowed from estado=baja. Sets estado=activa, posicion_actual=NULL (table not placed in tunnel until M10 transplant). Writes historial event tipo_evento=reactivacion.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Table reactivated",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/OkMesa" }
+              }
+            }
+          },
+          "403": { "description": "Insufficient role" },
+          "404": { "description": "MESA_NOT_FOUND" },
+          "409": { "description": "MESA_ESTADO_INVALIDO — table is activa or en_cosecha" }
+        }
+      }
+    },
+    "/mesas/{id}/historial": {
+      "get": {
+        "tags": ["historial"],
+        "summary": "Get event history for a table",
+        "description": "All authenticated users. Returns paginated list of historial events ordered by fecha_hora DESC. Events written by M08 (baja, reactivacion), M09 (aplicacion_quimica), M10 (trasplante, cambio_posicion), M11 (cosecha).",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 200 } },
+          { "name": "sortBy", "in": "query", "schema": { "type": "string" } },
+          { "name": "sortOrder", "in": "query", "schema": { "type": "string", "enum": ["ASC", "DESC"] } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated event history",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PagedHistorial" }
+              }
+            }
+          },
+          "404": { "description": "MESA_NOT_FOUND" }
+        }
+      }
+    },
+    "/tuneles/{tunel_id}/mesas": {
+      "get": {
+        "tags": ["tuneles"],
+        "summary": "List all tables in a tunnel ordered by FIFO position",
+        "description": "All authenticated users. Returns tables with posicion_actual IS NOT NULL, ordered ASC. Implemented in MesasController (NOT TunelesController) — same pattern as GET /quimicos/:id/movimientos in M06.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "tunel_id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 200 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "FIFO-ordered list of tables in tunnel",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PagedMesas" }
+              }
+            }
+          },
+          "404": { "description": "Tunnel not found in tenant" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "MesaEstado": {
+        "type": "string",
+        "enum": ["activa", "en_cosecha", "baja"]
+      },
+      "HistorialTipoEvento": {
+        "type": "string",
+        "enum": ["trasplante", "cosecha", "cambio_posicion", "aplicacion_quimica", "reactivacion", "baja"]
+      },
+      "Mesa": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "tenant_id": { "type": "string", "format": "uuid", "nullable": true },
+          "establecimiento_id": { "type": "string", "format": "uuid" },
+          "tunel_id": { "type": "string", "format": "uuid" },
+          "codigo_qr": { "type": "string", "description": "Plain UUID v4, globally unique" },
+          "posicion_actual": { "type": "integer", "nullable": true, "description": "FIFO position in tunnel; null when estado=en_cosecha or baja" },
+          "estado": { "$ref": "#/components/schemas/MesaEstado" },
+          "fecha_ultimo_trasplante": { "type": "string", "format": "date-time", "nullable": true },
+          "plantas_estimadas": { "type": "integer", "default": 450 },
+          "activo": { "type": "boolean", "default": true },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" },
+          "deleted_at": { "type": "string", "format": "date-time", "nullable": true }
+        }
+      },
+      "MesaWithTunel": {
+        "allOf": [
+          { "$ref": "#/components/schemas/Mesa" },
+          {
+            "type": "object",
+            "properties": {
+              "tunel": {
+                "type": "object",
+                "properties": {
+                  "nombre": { "type": "string" },
+                  "capacidad_maxima": { "type": "integer" }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "HistorialMesa": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "tenant_id": { "type": "string", "format": "uuid", "nullable": true },
+          "mesa_id": { "type": "string", "format": "uuid" },
+          "tipo_evento": { "$ref": "#/components/schemas/HistorialTipoEvento" },
+          "fecha_hora": { "type": "string", "format": "date-time" },
+          "detalle": { "type": "object", "nullable": true, "additionalProperties": true },
+          "usuario_id": { "type": "string", "format": "uuid" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "CreateMesaDto": {
+        "type": "object",
+        "required": ["establecimiento_id", "tunel_id"],
+        "properties": {
+          "establecimiento_id": { "type": "string", "format": "uuid" },
+          "tunel_id": { "type": "string", "format": "uuid" },
+          "plantas_estimadas": { "type": "integer", "minimum": 1, "description": "Defaults to 450 if not provided" }
+        }
+      },
+      "UpdateMesaDto": {
+        "type": "object",
+        "description": "Only plantas_estimadas and activo may be updated. Any other key in body causes MESA_FIELD_IMMUTABLE 400.",
+        "properties": {
+          "plantas_estimadas": { "type": "integer", "minimum": 1 },
+          "activo": { "type": "boolean" }
+        }
+      },
+      "OkMesa": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean", "example": true },
+          "data": { "$ref": "#/components/schemas/Mesa" }
+        }
+      },
+      "OkMesaWithTunel": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean", "example": true },
+          "data": { "$ref": "#/components/schemas/MesaWithTunel" }
+        }
+      },
+      "OkDeleted": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean", "example": true },
+          "data": {
+            "type": "object",
+            "properties": {
+              "deleted": { "type": "boolean", "example": true }
+            }
+          }
+        }
+      },
+      "PagedMesas": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean", "example": true },
+          "data": {
+            "type": "object",
+            "properties": {
+              "items": { "type": "array", "items": { "$ref": "#/components/schemas/Mesa" } },
+              "total": { "type": "integer" },
+              "page": { "type": "integer" },
+              "limit": { "type": "integer" }
+            }
+          }
+        }
+      },
+      "PagedHistorial": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean", "example": true },
+          "data": {
+            "type": "object",
+            "properties": {
+              "items": { "type": "array", "items": { "$ref": "#/components/schemas/HistorialMesa" } },
+              "total": { "type": "integer" },
+              "page": { "type": "integer" },
+              "limit": { "type": "integer" }
+            }
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean", "example": false },
+          "code": { "type": "string", "example": "MESA_NOT_FOUND" },
+          "message": { "type": "string" },
+          "status": { "type": "integer" }
+        }
+      }
+    }
+  }
+}

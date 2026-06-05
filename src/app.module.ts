@@ -23,6 +23,7 @@ import { RecetasModule } from './modules/recetas/recetas.module';
 import { QuimicosModule } from './modules/quimicos/quimicos.module';
 import { StockMovimientosModule } from './modules/stock-movimientos/stock-movimientos.module';
 import { TunelesModule } from './modules/tuneles/tuneles.module';
+import { MesasModule } from './modules/mesas/mesas.module';
 
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { ObservabilityModule } from './infra/observability/observability.module';
@@ -62,6 +63,7 @@ import { ObservabilityModule } from './infra/observability/observability.module'
     QuimicosModule,
     StockMovimientosModule,
     TunelesModule,
+    MesasModule,
     ObservabilityModule,
   ],
   controllers: [AppController],
