@@ -1,0 +1,729 @@
+{
+  "info": {
+    "_postman_id": "fbefb01e-7c23-4c8a-82a3-9d1e8af24304",
+    "name": "Agrisano Backend - Aplicaciones Quimicas",
+    "description": "Coleccion para probar el modulo de aplicaciones quimicas. Importar en Postman, configurar variables de email/password/tenant, establecimientoId, quimicoId, bandejaId y mesaId, y ejecutar Login antes de los endpoints protegidos.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "pm.request.headers.upsert({ key: 'Accept', value: 'application/json' });",
+          "if (!pm.request.headers.has('Content-Type') && ['POST', 'PATCH', 'PUT'].includes(pm.request.method)) {",
+          "  pm.request.headers.upsert({ key: 'Content-Type', value: 'application/json' });",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Login exitoso', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.access_token) pm.collectionVariables.set('token', json.access_token);",
+                  "if (json.refresh_token) pm.collectionVariables.set('refreshToken', json.refresh_token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}",
+                "description": "Usar si TENANCY_REQUIRED=true o si el login necesita contexto de tenant."
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Obtiene access_token y refresh_token. El test los guarda en las variables token y refreshToken."
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Refresh exitoso', function () {",
+                  "  pm.response.to.be.success;",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.access_token) pm.collectionVariables.set('token', json.access_token);",
+                  "if (json.refresh_token) pm.collectionVariables.set('refreshToken', json.refresh_token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refreshToken}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/refresh",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "refresh"
+              ]
+            },
+            "description": "Renueva tokens y actualiza variables."
+          }
+        },
+        {
+          "name": "Me",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "me"
+              ]
+            },
+            "description": "Prueba rapida del bearer token."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Aplicaciones Quimicas",
+      "description": "Endpoints de src/modules/aplicaciones-quimicas/aplicaciones-quimicas.controller.ts. Requieren JWT. Crear aplicaciones requiere rol operario, supervisor o admin_global. Listar y consultar requiere usuario autenticado.",
+      "item": [
+        {
+          "name": "Listar aplicaciones",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/aplicaciones-quimicas?page={{page}}&limit={{limit}}&establecimiento_id={{establecimientoId}}&contexto={{contexto}}&receta_id={{recetaId}}&quimico_id={{quimicoId}}&fecha_desde={{fechaDesde}}&fecha_hasta={{fechaHasta}}&sortBy={{sortBy}}&sortOrder={{sortOrder}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "aplicaciones-quimicas"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "{{page}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "{{limit}}"
+                },
+                {
+                  "key": "establecimiento_id",
+                  "value": "{{establecimientoId}}",
+                  "description": "Opcional. UUID del establecimiento.",
+                  "disabled": true
+                },
+                {
+                  "key": "contexto",
+                  "value": "{{contexto}}",
+                  "description": "Opcional: nursery o invernadero.",
+                  "disabled": true
+                },
+                {
+                  "key": "receta_id",
+                  "value": "{{recetaId}}",
+                  "description": "Opcional. UUID de receta.",
+                  "disabled": true
+                },
+                {
+                  "key": "quimico_id",
+                  "value": "{{quimicoId}}",
+                  "description": "Opcional. Filtra aplicaciones que usaron este quimico.",
+                  "disabled": true
+                },
+                {
+                  "key": "fecha_desde",
+                  "value": "{{fechaDesde}}",
+                  "description": "Opcional ISO 8601, por ejemplo 2026-06-01T00:00:00.000Z.",
+                  "disabled": true
+                },
+                {
+                  "key": "fecha_hasta",
+                  "value": "{{fechaHasta}}",
+                  "description": "Opcional ISO 8601.",
+                  "disabled": true
+                },
+                {
+                  "key": "sortBy",
+                  "value": "{{sortBy}}",
+                  "description": "Permitidos: fecha_hora, created_at."
+                },
+                {
+                  "key": "sortOrder",
+                  "value": "{{sortOrder}}",
+                  "description": "ASC o DESC."
+                }
+              ]
+            },
+            "description": "Lista aplicaciones quimicas del tenant actual. Devuelve respuesta paginada."
+          }
+        },
+        {
+          "name": "Crear aplicacion nursery",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Aplicacion nursery creada', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.aplicacion && json.data.aplicacion.id) {",
+                  "  pm.collectionVariables.set('aplicacionId', json.data.aplicacion.id);",
+                  "}",
+                  "if (json.data && json.data.warnings) {",
+                  "  pm.collectionVariables.set('stockWarningsCount', String(json.data.warnings.length));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"establecimiento_id\": \"{{establecimientoId}}\",\n  \"contexto\": \"nursery\",\n  \"receta_id\": \"{{recetaId}}\",\n  \"observaciones\": \"{{observaciones}}\",\n  \"detalles\": [\n    {\n      \"quimico_id\": \"{{quimicoId}}\",\n      \"cantidad\": {{cantidad}}\n    }\n  ],\n  \"bandeja_ids\": [\n    \"{{bandejaId}}\"\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/aplicaciones-quimicas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "aplicaciones-quimicas"
+              ]
+            },
+            "description": "Crea una aplicacion de contexto nursery. Requiere al menos una bandeja en estado en_nursery. Puede incluir receta_id."
+          }
+        },
+        {
+          "name": "Crear aplicacion invernadero",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Aplicacion invernadero creada', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.aplicacion && json.data.aplicacion.id) {",
+                  "  pm.collectionVariables.set('aplicacionId', json.data.aplicacion.id);",
+                  "}",
+                  "if (json.data && json.data.warnings) {",
+                  "  pm.collectionVariables.set('stockWarningsCount', String(json.data.warnings.length));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"establecimiento_id\": \"{{establecimientoId}}\",\n  \"contexto\": \"invernadero\",\n  \"observaciones\": \"{{observaciones}}\",\n  \"detalles\": [\n    {\n      \"quimico_id\": \"{{quimicoId}}\",\n      \"cantidad\": {{cantidad}}\n    }\n  ],\n  \"mesa_ids\": [\n    \"{{mesaId}}\"\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/aplicaciones-quimicas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "aplicaciones-quimicas"
+              ]
+            },
+            "description": "Crea una aplicacion de contexto invernadero. Requiere al menos una mesa en estado activa o en_cosecha. No debe incluir receta_id."
+          }
+        },
+        {
+          "name": "Obtener aplicacion por ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Aplicacion obtenida', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/aplicaciones-quimicas/{{aplicacionId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "aplicaciones-quimicas",
+                "{{aplicacionId}}"
+              ]
+            },
+            "description": "Obtiene aplicacion, detalles y targets. Si contexto=nursery devuelve bandeja_ids; si contexto=invernadero devuelve mesa_ids."
+          }
+        },
+        {
+          "name": "Listar aplicaciones por mesa",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/mesas/{{mesaId}}/aplicaciones?page={{page}}&limit={{limit}}&sortOrder={{sortOrder}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "mesas",
+                "{{mesaId}}",
+                "aplicaciones"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "{{page}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "{{limit}}"
+                },
+                {
+                  "key": "sortOrder",
+                  "value": "{{sortOrder}}",
+                  "description": "ASC o DESC. El backend ordena por fecha_hora."
+                }
+              ]
+            },
+            "description": "Lista aplicaciones vinculadas a una mesa. Valida que la mesa exista en el tenant."
+          }
+        },
+        {
+          "name": "Listar aplicaciones por bandeja",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bandejas/{{bandejaId}}/aplicaciones?page={{page}}&limit={{limit}}&sortOrder={{sortOrder}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bandejas",
+                "{{bandejaId}}",
+                "aplicaciones"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "{{page}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "{{limit}}"
+                },
+                {
+                  "key": "sortOrder",
+                  "value": "{{sortOrder}}",
+                  "description": "ASC o DESC. El backend ordena por fecha_hora."
+                }
+              ]
+            },
+            "description": "Lista aplicaciones vinculadas a una bandeja."
+          }
+        },
+        {
+          "name": "Error esperado - invernadero con receta",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Debe fallar por contexto invalido', function () {",
+                  "  pm.response.to.have.status(422);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test('Codigo APLICACION_CONTEXTO_INVALIDO', function () {",
+                  "  pm.expect(json.error && json.error.code).to.eql('APLICACION_CONTEXTO_INVALIDO');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"establecimiento_id\": \"{{establecimientoId}}\",\n  \"contexto\": \"invernadero\",\n  \"receta_id\": \"{{recetaId}}\",\n  \"observaciones\": \"Caso negativo: invernadero no acepta receta_id\",\n  \"detalles\": [\n    {\n      \"quimico_id\": \"{{quimicoId}}\",\n      \"cantidad\": {{cantidad}}\n    }\n  ],\n  \"mesa_ids\": [\n    \"{{mesaId}}\"\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/aplicaciones-quimicas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "aplicaciones-quimicas"
+              ]
+            },
+            "description": "Caso negativo para verificar regla: receta_id no es aplicable a contexto invernadero."
+          }
+        },
+        {
+          "name": "Error esperado - detalles vacios",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Debe fallar por detalles vacios', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"establecimiento_id\": \"{{establecimientoId}}\",\n  \"contexto\": \"nursery\",\n  \"observaciones\": \"Caso negativo: detalles vacios\",\n  \"detalles\": [],\n  \"bandeja_ids\": [\n    \"{{bandejaId}}\"\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/aplicaciones-quimicas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "aplicaciones-quimicas"
+              ]
+            },
+            "description": "Caso negativo de DTO: detalles requiere ArrayMinSize(1). El ValidationPipe suele responder 400 BAD_REQUEST antes de llegar al service."
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "refreshToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "email",
+      "value": "admin@example.com",
+      "type": "string"
+    },
+    {
+      "key": "password",
+      "value": "password123",
+      "type": "string"
+    },
+    {
+      "key": "tenantId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "tenantKey",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "page",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "limit",
+      "value": "20",
+      "type": "string"
+    },
+    {
+      "key": "establecimientoId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "contexto",
+      "value": "nursery",
+      "type": "string"
+    },
+    {
+      "key": "recetaId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "quimicoId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "cantidad",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "bandejaId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "mesaId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "aplicacionId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "observaciones",
+      "value": "Aplicacion quimica generada desde Postman",
+      "type": "string"
+    },
+    {
+      "key": "fechaDesde",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "fechaHasta",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "sortBy",
+      "value": "fecha_hora",
+      "type": "string"
+    },
+    {
+      "key": "sortOrder",
+      "value": "DESC",
+      "type": "string"
+    },
+    {
+      "key": "stockWarningsCount",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}

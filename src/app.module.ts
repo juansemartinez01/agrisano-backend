@@ -24,6 +24,7 @@ import { QuimicosModule } from './modules/quimicos/quimicos.module';
 import { StockMovimientosModule } from './modules/stock-movimientos/stock-movimientos.module';
 import { TunelesModule } from './modules/tuneles/tuneles.module';
 import { MesasModule } from './modules/mesas/mesas.module';
+import { AplicacionesQuimicasModule } from './modules/aplicaciones-quimicas/aplicaciones-quimicas.module';
 
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { ObservabilityModule } from './infra/observability/observability.module';
@@ -64,6 +65,7 @@ import { ObservabilityModule } from './infra/observability/observability.module'
     StockMovimientosModule,
     TunelesModule,
     MesasModule,
+    AplicacionesQuimicasModule,
     ObservabilityModule,
   ],
   controllers: [AppController],

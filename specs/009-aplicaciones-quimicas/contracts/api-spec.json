@@ -1,0 +1,186 @@
+{
+  "module": "M09 — Aplicaciones Químicas",
+  "baseUrl": "/",
+  "auth": "JWT Bearer (all endpoints)",
+  "endpoints": [
+    {
+      "method": "GET",
+      "path": "/aplicaciones-quimicas",
+      "description": "List chemical application events (paginated, filterable)",
+      "roles": "all authenticated",
+      "query": {
+        "page": "number (default 1)",
+        "limit": "number (default 20, max 200)",
+        "establecimiento_id": "uuid (optional)",
+        "contexto": "'nursery' | 'invernadero' (optional)",
+        "receta_id": "uuid (optional)",
+        "quimico_id": "uuid (optional) — JOINs to detalle table",
+        "fecha_desde": "ISO8601 datetime (optional)",
+        "fecha_hasta": "ISO8601 datetime (optional)",
+        "sortBy": "'fecha_hora' | 'created_at' (optional, default 'fecha_hora')",
+        "sortOrder": "'ASC' | 'DESC' (optional, default 'DESC')"
+      },
+      "response": {
+        "success": {
+          "status": 200,
+          "body": {
+            "data": "AplicacionQuimica[]",
+            "meta": { "page": "number", "limit": "number", "total": "number" }
+          }
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/aplicaciones-quimicas/:id",
+      "description": "Get single application with nested detalles and bandeja_ids/mesa_ids",
+      "roles": "all authenticated",
+      "params": { "id": "uuid" },
+      "response": {
+        "success": {
+          "status": 200,
+          "body": {
+            "data": {
+              "aplicacion": "AplicacionQuimica",
+              "detalles": "AplicacionQuimicaDetalle[]",
+              "bandeja_ids": "string[] (only if contexto=nursery)",
+              "mesa_ids": "string[] (only if contexto=invernadero)"
+            }
+          }
+        },
+        "errors": [
+          { "status": 404, "code": "APLICACION_NOT_FOUND", "description": "No application found for given id + tenant" }
+        ]
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/aplicaciones-quimicas",
+      "description": "Create a chemical application event (atomic transaction)",
+      "roles": "operario, supervisor, admin_global",
+      "body": {
+        "establecimiento_id": "uuid (required)",
+        "contexto": "'nursery' | 'invernadero' (required)",
+        "receta_id": "uuid (optional, nursery only)",
+        "observaciones": "string (optional)",
+        "detalles": [
+          {
+            "quimico_id": "uuid (required)",
+            "cantidad": "number > 0 (required)"
+          }
+        ],
+        "bandeja_ids": "uuid[] (required if contexto=nursery)",
+        "mesa_ids": "uuid[] (required if contexto=invernadero)"
+      },
+      "notes": [
+        "usuario_id always from JWT — never from body",
+        "unidad_medida copied from quimico record — never from body",
+        "fecha_hora set server-side to new Date() — never from body",
+        "Stock warnings returned if any quimico.stock_actual - cantidad < 0 (transaction still commits)",
+        "HistorialMesa entries written inside QueryRunner for each mesa (invernadero only)"
+      ],
+      "response": {
+        "success": {
+          "status": 201,
+          "body": {
+            "data": {
+              "aplicacion": "AplicacionQuimica",
+              "detalles": "AplicacionQuimicaDetalle[]",
+              "afectados": {
+                "bandeja_ids": "string[] (if contexto=nursery)",
+                "mesa_ids": "string[] (if contexto=invernadero)"
+              },
+              "warnings": [
+                {
+                  "quimico_id": "uuid",
+                  "nombre": "string",
+                  "projected_stock": "number (negative)"
+                }
+              ]
+            }
+          }
+        },
+        "errors": [
+          { "status": 404, "code": "ESTABLECIMIENTO_NOT_FOUND", "description": "Establishment not found or wrong tenant" },
+          { "status": 422, "code": "APLICACION_CONTEXTO_INVALIDO", "description": "receta_id provided for invernadero context" },
+          { "status": 422, "code": "APLICACION_DETALLES_VACIOS", "description": "detalles array is empty" },
+          { "status": 422, "code": "APLICACION_TARGETS_VACIOS", "description": "No bandeja_ids (nursery) or mesa_ids (invernadero) provided" },
+          { "status": 404, "code": "QUIMICO_NOT_FOUND", "description": "A quimico_id not found in tenant" },
+          { "status": 422, "code": "APLICACION_TARGET_INVALIDO", "description": "Mesa/bandeja estado invalid, or cross-establishment mismatch" },
+          { "status": 404, "code": "RECETA_NOT_FOUND", "description": "receta_id not found in tenant (if provided)" }
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/mesas/:mesa_id/aplicaciones",
+      "description": "List all applications that affected a specific mesa (implemented in AplicacionesQuimicasController)",
+      "roles": "all authenticated",
+      "params": { "mesa_id": "uuid" },
+      "query": {
+        "page": "number (default 1)",
+        "limit": "number (default 20, max 200)",
+        "sortBy": "'fecha_hora' | 'created_at' (optional)",
+        "sortOrder": "'ASC' | 'DESC' (optional)"
+      },
+      "response": {
+        "success": {
+          "status": 200,
+          "body": {
+            "data": "AplicacionQuimica[]",
+            "meta": { "page": "number", "limit": "number", "total": "number" }
+          }
+        },
+        "errors": [
+          { "status": 404, "code": "MESA_NOT_FOUND", "description": "Mesa not found or wrong tenant" }
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/bandejas/:bandeja_id/aplicaciones",
+      "description": "List all applications that affected a specific bandeja (implemented in AplicacionesQuimicasController)",
+      "roles": "all authenticated",
+      "params": { "bandeja_id": "uuid" },
+      "query": {
+        "page": "number (default 1)",
+        "limit": "number (default 20, max 200)",
+        "sortBy": "'fecha_hora' | 'created_at' (optional)",
+        "sortOrder": "'ASC' | 'DESC' (optional)"
+      },
+      "response": {
+        "success": {
+          "status": 200,
+          "body": {
+            "data": "AplicacionQuimica[]",
+            "meta": { "page": "number", "limit": "number", "total": "number" }
+          }
+        },
+        "errors": [
+          { "status": 404, "code": "BANDEJA_NOT_FOUND", "description": "Bandeja not found or wrong tenant" }
+        ]
+      }
+    }
+  ],
+  "sharedTypes": {
+    "AplicacionQuimica": {
+      "id": "uuid",
+      "tenant_id": "uuid | null",
+      "establecimiento_id": "uuid",
+      "contexto": "'nursery' | 'invernadero'",
+      "receta_id": "uuid | null",
+      "observaciones": "string | null",
+      "usuario_id": "uuid",
+      "fecha_hora": "ISO8601 datetime",
+      "created_at": "ISO8601 datetime",
+      "updated_at": "ISO8601 datetime"
+    },
+    "AplicacionQuimicaDetalle": {
+      "id": "uuid",
+      "aplicacion_id": "uuid",
+      "quimico_id": "uuid",
+      "cantidad": "decimal string",
+      "unidad_medida": "string"
+    }
+  }
+}
