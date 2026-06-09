@@ -1,0 +1,94 @@
+{
+  "module": "M10 — Trasplante",
+  "base_url": "/",
+  "auth": "Bearer JWT required for all endpoints",
+  "endpoints": [
+    {
+      "id": "POST_trasplante",
+      "method": "POST",
+      "path": "/trasplante",
+      "summary": "Execute a transplant operation",
+      "roles": ["operario", "supervisor", "admin_global"],
+      "http_status": 200,
+      "request_body": {
+        "content_type": "application/json",
+        "schema": {
+          "mesa_id": { "type": "string", "format": "uuid", "required": true },
+          "tunel_id": { "type": "string", "format": "uuid", "required": true },
+          "bandeja_ids": {
+            "type": "array",
+            "items": { "type": "string", "format": "uuid" },
+            "minItems": 1,
+            "required": true
+          },
+          "observaciones": { "type": "string", "required": false }
+        }
+      },
+      "response": {
+        "wrapper": "ok()",
+        "shape": {
+          "mesa_id": "uuid",
+          "tunel_id": "uuid",
+          "posicion_actual": "number",
+          "bandejas_trasplantadas": "uuid[]"
+        }
+      },
+      "errors": [
+        { "status": 400, "condition": "bandeja_ids empty or missing, validation failure" },
+        { "status": 401, "condition": "no JWT or invalid JWT" },
+        { "status": 403, "condition": "role not in [operario, supervisor, admin_global]" },
+        { "status": 404, "condition": "mesa_id not found or wrong tenant (MESA_NOT_FOUND)" },
+        { "status": 404, "condition": "tunel_id not found (TUNEL_NOT_FOUND)" },
+        { "status": 404, "condition": "any bandeja_id not found (BANDEJA_NOT_FOUND)" },
+        { "status": 422, "condition": "mesa not in transplantable state (TRASPLANTE_MESA_ESTADO_INVALIDO)" },
+        { "status": 422, "condition": "tunel.establecimiento_id ≠ mesa.establecimiento_id (TRASPLANTE_ESTABLECIMIENTO_MISMATCH)" },
+        { "status": 422, "condition": "bandeja not en_nursery or wrong establecimiento (TRASPLANTE_BANDEJA_INVALIDA)" }
+      ],
+      "notes": [
+        "usuario_id always from JWT — never from body",
+        "fecha_trasplante set server-side inside transaction",
+        "Full atomic rollback if any step fails",
+        "posicion_actual = MAX(existing in tunel) + 1, or 1 if tunnel is empty",
+        "HistorialMesa entry written inside same transaction"
+      ]
+    },
+    {
+      "id": "GET_mesas_trasplantes",
+      "method": "GET",
+      "path": "/mesas/:mesa_id/trasplantes",
+      "summary": "List transplant records for a specific mesa (paginated)",
+      "roles": ["all authenticated"],
+      "http_status": 200,
+      "query_params": {
+        "page": { "type": "integer", "default": 1 },
+        "limit": { "type": "integer", "default": 20, "max": 200 },
+        "sortBy": { "type": "string", "default": "fecha_trasplante" },
+        "sortOrder": { "type": "string", "enum": ["ASC", "DESC"], "default": "DESC" }
+      },
+      "response": {
+        "wrapper": "page()",
+        "shape": {
+          "items": [
+            {
+              "mesa_id": "uuid",
+              "bandeja_id": "uuid",
+              "fecha_trasplante": "ISO8601 timestamp"
+            }
+          ],
+          "total": "number",
+          "page": "number",
+          "limit": "number"
+        }
+      },
+      "errors": [
+        { "status": 401, "condition": "no JWT or invalid JWT" },
+        { "status": 404, "condition": "mesa_id not found or wrong tenant (MESA_NOT_FOUND)" }
+      ],
+      "notes": [
+        "Ordered by fecha_trasplante DESC by default",
+        "Tenant scope enforced via mesasService.getMesaById() — cross-tenant mesa returns 404",
+        "Empty page returned if mesa has no transplant history"
+      ]
+    }
+  ]
+}
