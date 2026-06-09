@@ -1,0 +1,201 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "M11 — Cosecha (Harvest) API",
+    "version": "1.0.0",
+    "description": "Endpoints for registering and querying greenhouse table harvest events."
+  },
+  "paths": {
+    "/cosecha": {
+      "post": {
+        "summary": "Register a harvest event",
+        "operationId": "registrarCosecha",
+        "tags": ["Cosecha"],
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateCosechaDto" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Harvest registered successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "cosecha": { "$ref": "#/components/schemas/Cosecha" },
+                        "mesa_id": { "type": "string", "format": "uuid" },
+                        "tunel_id": { "type": "string", "format": "uuid" },
+                        "posicion_recalculada": { "type": "boolean", "example": true }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Validation error (e.g., peso_kg <= 0)" },
+          "401": { "description": "Unauthorized" },
+          "403": { "description": "Forbidden — role not allowed" },
+          "404": { "description": "Mesa not found" },
+          "422": { "description": "COSECHA_MESA_NO_DISPONIBLE — mesa not activa at posicion_actual=1" }
+        }
+      },
+      "get": {
+        "summary": "List all harvest records (paginated, filterable)",
+        "operationId": "listCosechas",
+        "tags": ["Cosecha"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 1, "default": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 200, "default": 20 } },
+          { "name": "mesa_id", "in": "query", "schema": { "type": "string", "format": "uuid" } },
+          { "name": "tunel_id", "in": "query", "schema": { "type": "string", "format": "uuid" } },
+          { "name": "fecha_desde", "in": "query", "schema": { "type": "string", "format": "date-time" }, "description": "Inclusive lower bound on fecha_hora (ISO 8601)" },
+          { "name": "fecha_hasta", "in": "query", "schema": { "type": "string", "format": "date-time" }, "description": "Inclusive upper bound on fecha_hora (ISO 8601)" },
+          { "name": "sortBy", "in": "query", "schema": { "type": "string" } },
+          { "name": "sortOrder", "in": "query", "schema": { "type": "string", "enum": ["ASC", "DESC"], "default": "DESC" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated list of harvest records",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": { "type": "array", "items": { "$ref": "#/components/schemas/Cosecha" } },
+                    "total": { "type": "integer" },
+                    "page": { "type": "integer" },
+                    "limit": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" }
+        }
+      }
+    },
+    "/cosecha/{id}": {
+      "get": {
+        "summary": "Get a single harvest record by ID",
+        "operationId": "getCosechaById",
+        "tags": ["Cosecha"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Harvest record",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": { "$ref": "#/components/schemas/Cosecha" }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
+          "404": { "description": "COSECHA_NOT_FOUND" }
+        }
+      }
+    },
+    "/mesas/{mesa_id}/cosechas": {
+      "get": {
+        "summary": "List harvest records for a specific mesa",
+        "operationId": "getCosechasByMesa",
+        "tags": ["Cosecha"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "mesa_id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 1, "default": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 200, "default": 20 } },
+          { "name": "sortOrder", "in": "query", "schema": { "type": "string", "enum": ["ASC", "DESC"], "default": "DESC" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated harvest records for the specified mesa",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": { "type": "array", "items": { "$ref": "#/components/schemas/Cosecha" } },
+                    "total": { "type": "integer" },
+                    "page": { "type": "integer" },
+                    "limit": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
+          "404": { "description": "MESA_NOT_FOUND" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "CreateCosechaDto": {
+        "type": "object",
+        "required": ["mesa_id", "peso_kg"],
+        "properties": {
+          "mesa_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "ID of the mesa to harvest (must be estado=activa and posicion_actual=1)"
+          },
+          "peso_kg": {
+            "type": "number",
+            "minimum": 0.001,
+            "maximum": 9999999.999,
+            "description": "Harvested weight in kilograms (3 decimal places)"
+          },
+          "observaciones": {
+            "type": "string",
+            "maxLength": 2000,
+            "nullable": true,
+            "description": "Optional free-form notes"
+          }
+        }
+      },
+      "Cosecha": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "tenant_id": { "type": "string", "format": "uuid", "nullable": true },
+          "mesa_id": { "type": "string", "format": "uuid" },
+          "tunel_id": { "type": "string", "format": "uuid", "description": "Denormalized from mesa.tunel_id at harvest time" },
+          "posicion_al_momento": { "type": "integer", "example": 1, "description": "Always 1 — only position-1 mesas can be harvested" },
+          "fecha_hora": { "type": "string", "format": "date-time", "description": "Server-side harvest timestamp" },
+          "peso_kg": { "type": "number", "description": "Harvested weight in kg (decimal 10,3)" },
+          "usuario_id": { "type": "string", "format": "uuid", "description": "Operator who performed the harvest (from JWT)" },
+          "observaciones": { "type": "string", "nullable": true },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        }
+      }
+    }
+  }
+}
