@@ -82,10 +82,12 @@ export const FilesProvider: Provider = {
     const maxBytes = Number(config.get('FILES_MAX_BYTES') ?? 15 * 1024 * 1024);
     const allowedMime = parseCsv(config.get<string>('FILES_ALLOWED_MIME'));
 
-    if (!base) throw new Error('Missing FILES_API_BASE (or IMAGES_API_BASE)');
-    if (!apiKey) throw new Error('Missing FILES_API_KEY (or IMAGES_API_KEY)');
-    if (!tenantKeyDefault)
-      throw new Error('Missing FILES_TENANT_KEY (or IMAGES_TENANT_KEY)');
+    function requireConfig(): void {
+      if (!base) throw new Error('Missing FILES_API_BASE (or IMAGES_API_BASE)');
+      if (!apiKey) throw new Error('Missing FILES_API_KEY (or IMAGES_API_KEY)');
+      if (!tenantKeyDefault)
+        throw new Error('Missing FILES_TENANT_KEY (or IMAGES_TENANT_KEY)');
+    }
 
     function authHeaders(tenantKeyOverride?: string): Record<string, string> {
       return {
@@ -96,7 +98,7 @@ export const FilesProvider: Provider = {
 
     return {
       async upload(buffer, mime, filename, assetId, tenantKeyOverride) {
-        // ✅ validaciones de seguridad en el provider también
+        requireConfig();
         if (!buffer?.length) throw new Error('Missing file buffer');
         if (buffer.length > maxBytes)
           throw new Error(`File too large (max ${maxBytes} bytes)`);
@@ -181,7 +183,7 @@ export const FilesProvider: Provider = {
       },
 
       async delete(publicId, tenantKeyOverride) {
-        // publicId = assetId → borramos latest del asset
+        requireConfig();
         const latestRes = await fetch(
           `${base}/v1/images/assets/${publicId}/latest`,
           {
@@ -216,6 +218,7 @@ export const FilesProvider: Provider = {
       },
 
       async list(tenantKeyOverride) {
+        requireConfig();
         const res = await fetch(`${base}/v1/images`, {
           headers: {
             ...authHeaders(tenantKeyOverride),
