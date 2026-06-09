@@ -961,3 +961,66 @@ await apiFetch(`/lotes/${loteId}`, {
 - Crear/editar se muestran solo para `supervisor` o `admin_global`.
 - Eliminar se muestra solo para `admin_global`.
 
+
+
+
+
+Cambios en el módulo de Lotes (M02) — Nuevos campos para lotes de tipo semilla
+
+Se agregaron 6 campos nuevos al endpoint de lotes. Estos campos solo aplican a lotes de tipo semilla — los lotes de tipo sustrato los ignoran completamente.
+
+Campos nuevos
+
+Campo	Tipo	Obligatorio	Descripción
+producto	enum	Sí (semilla)	Cultivo: lechuga, espinaca, rucula
+variedad	string	Sí (semilla)	Variedad libre, ej: "Butterhead"
+batch	string	No	Número de batch del proveedor
+seed_company	string	No	Empresa productora de la semilla
+supplier	string	No	Proveedor local de compra
+observations	string	No	Notas específicas de la semilla
+POST /lotes — Crear lote de semilla
+
+producto y variedad son requeridos cuando tipo === "semilla". Si se omiten, la API devuelve 400.
+
+
+{
+  "tipo": "semilla",
+  "numero_lote": "S-2024-001",
+  "producto": "lechuga",
+  "variedad": "Butterhead",
+  "batch": "BT-4421",
+  "seed_company": "Rijk Zwaan",
+  "supplier": "AgroInsumos SA",
+  "observations": "Semilla certificada orgánica"
+}
+Para tipo === "sustrato", los 6 campos nuevos simplemente se ignoran — no hace falta enviarlos ni van a aparecer en la respuesta (vienen null).
+
+PATCH /lotes/:id — Actualizar
+
+Todos los campos nuevos son opcionales en el update. Solo enviá los que cambian.
+
+GET /lotes — Respuesta
+
+Todos los registros devuelven los 6 campos nuevos. Los lotes de sustrato los muestran como null.
+
+
+{
+  "id": "...",
+  "tipo": "semilla",
+  "numero_lote": "S-2024-001",
+  "producto": "lechuga",
+  "variedad": "Butterhead",
+  "batch": "BT-4421",
+  "seed_company": "Rijk Zwaan",
+  "supplier": "AgroInsumos SA",
+  "observations": null,
+  "proveedor": null,
+  "observaciones": null,
+  "activo": true
+}
+Nota: observaciones (campo existente, general) y observations (campo nuevo, específico de semilla) coexisten. Son distintos.
+
+Valores válidos para producto
+
+"lechuga" · "espinaca" · "rucula"
+

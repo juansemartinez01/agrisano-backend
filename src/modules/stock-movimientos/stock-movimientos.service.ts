@@ -6,6 +6,7 @@ import { ErrorCodes } from 'src/common/errors/error-codes';
 import { clampPagination } from 'src/common/query/query-utils';
 import { TenancyService } from 'src/modules/tenancy/tenancy.service';
 import { QuimicosService } from 'src/modules/quimicos/quimicos.service';
+import { QuimicoUnidadStock } from 'src/modules/quimicos/entities/quimico.entity';
 import { MovimientoStock, MovimientoTipo } from './entities/movimiento-stock.entity';
 import { CreateMovimientoDto } from './dto/create-movimiento.dto';
 import { QueryMovimientosDto } from './dto/query-movimientos.dto';
@@ -18,6 +19,7 @@ export const AUDIT = {
 export interface CreateMovimientoResult {
   movimiento: MovimientoStock;
   quimico_stock_actual: number;
+  quimico_unidad_stock: QuimicoUnidadStock;
   warning?: string;
 }
 
@@ -40,6 +42,18 @@ export class StockMovimientosService {
       strictTenant: true,
     });
 
+    if (
+      dto.tipo === MovimientoTipo.INGRESO &&
+      dto.unidad_ingreso !== undefined &&
+      dto.unidad_ingreso !== quimico.unidad_stock
+    ) {
+      throw new AppError({
+        code: ErrorCodes.MOVIMIENTO_UNIDAD_MISMATCH,
+        message: `La unidad de ingreso '${dto.unidad_ingreso}' no coincide con la unidad del químico ('${quimico.unidad_stock}'). Enviá la cantidad en ${quimico.unidad_stock}.`,
+        status: 422,
+      });
+    }
+
     const delta =
       dto.tipo === MovimientoTipo.INGRESO
         ? Number(dto.cantidad)
@@ -58,7 +72,7 @@ export class StockMovimientosService {
         quimico_id: dto.quimico_id,
         tipo: dto.tipo,
         cantidad: dto.cantidad,
-        unidad_medida: quimico.unidad_medida,
+        unidad_medida: quimico.unidad_stock,
         establecimiento_id: quimico.establecimiento_id,
         usuario_id: userId,
         fecha: dto.fecha ?? today,
@@ -71,7 +85,12 @@ export class StockMovimientosService {
         [delta, dto.quimico_id],
       );
       await qr.commitTransaction();
-      return { movimiento: saved, quimico_stock_actual: projectedStock, warning };
+      return {
+        movimiento: saved,
+        quimico_stock_actual: projectedStock,
+        quimico_unidad_stock: quimico.unidad_stock,
+        warning,
+      };
     } catch (err) {
       await qr.rollbackTransaction();
       throw err;

@@ -5,6 +5,7 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { QuimicoRateUnidad } from 'src/modules/quimicos/entities/quimico.entity';
 
 export enum AplicacionContexto {
   NURSERY = 'nursery',
@@ -40,6 +41,28 @@ export class AplicacionQuimica {
 
   @Column({ type: 'timestamptz', default: () => 'now()' })
   fecha_hora!: Date;
+
+  // Primary chemical product applied
+  @Column({ type: 'uuid', nullable: true })
+  quimico_id!: string | null;
+
+  @Column({ type: 'decimal', precision: 10, scale: 3, nullable: true })
+  dosis!: number | null;
+
+  @Column({
+    type: 'enum',
+    enum: QuimicoRateUnidad,
+    enumName: 'quimico_rate_unidad',
+    nullable: true,
+  })
+  dosis_unidad!: QuimicoRateUnidad | null;
+
+  // Snapshotted from quimico at time of application
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  batch!: string | null;
+
+  @Column({ type: 'int', nullable: true })
+  withholding_period_dias!: number | null;
 
   @CreateDateColumn({ type: 'timestamptz' })
   created_at!: Date;

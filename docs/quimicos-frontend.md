@@ -1297,3 +1297,66 @@ await apiFetch(`/quimicos/${quimicoId}`, {
 - Crear/editar/eliminar principios activos se muestra solo para `admin_global`.
 - Si se quieren listar solo activos, enviar `activo=true`.
 
+Cambios en el módulo de Químicos (M05) — Nuevos campos en el modelo de Químico
+
+Se agregaron 7 campos nuevos al endpoint de químicos.
+
+Campos nuevos
+
+Campo	Tipo	Obligatorio	Descripción
+unidad_stock	enum	Sí	Unidad en que se mide el stock: kg, g, l, ml
+rate_unidad	enum	Sí	Unidad de la dosis de aplicación: kg/l, g/l, ml/l, l/l
+nombre_lista	boolean	No (default false)	true si el nombre fue elegido de una lista predefinida, false si fue escrito manualmente
+withholding_period_dias	integer	No	Días de carencia tras aplicación. null = sin carencia
+manufacture_date	date	No	Fecha de fabricación. Formato "YYYY-MM-DD"
+dom	date	No	Fecha de vencimiento. Formato "YYYY-MM-DD"
+supplier	string	No	Proveedor de compra del químico
+POST /quimicos — Crear químico
+
+unidad_stock y rate_unidad son requeridos. Si se omiten, la API devuelve 400.
+
+
+{
+  "establecimiento_id": "...",
+  "nombre": "Fungicida X",
+  "unidad_medida": "litros",
+  "unidad_stock": "l",
+  "rate_unidad": "ml/l",
+  "nombre_lista": true,
+  "withholding_period_dias": 7,
+  "manufacture_date": "2024-03-01",
+  "dom": "2026-03-01",
+  "supplier": "AgroInsumos SA"
+}
+PATCH /quimicos/:id — Actualizar
+
+Todos los campos nuevos son opcionales en el update. Solo enviá los que cambian.
+
+GET /quimicos — Respuesta
+
+Todos los registros devuelven los 7 campos nuevos. Los que no tengan valor vienen null (o false en el caso de nombre_lista).
+
+
+{
+  "id": "...",
+  "nombre": "Fungicida X",
+  "unidad_medida": "litros",
+  "stock_actual": "2.500",
+  "activo": true,
+  "unidad_stock": "l",
+  "rate_unidad": "ml/l",
+  "nombre_lista": false,
+  "withholding_period_dias": 7,
+  "manufacture_date": "2024-03-01",
+  "dom": "2026-03-01",
+  "supplier": null
+}
+Valores válidos
+
+unidad_stock: "kg" · "g" · "l" · "ml"
+
+rate_unidad: "kg/l" · "g/l" · "ml/l" · "l/l"
+
+Nota para M06 y M09
+
+unidad_stock y rate_unidad van a ser consumidos por los módulos de movimientos de stock (M06) y aplicaciones químicas (M09) para mostrar las unidades correctas al registrar entradas/salidas y dosificaciones. Por ahora el front puede guardarlos sin lógica adicional — la integración viene en una query separada.

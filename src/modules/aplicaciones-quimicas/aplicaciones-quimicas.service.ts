@@ -10,6 +10,7 @@ import { TenancyService } from 'src/modules/tenancy/tenancy.service';
 import { EstablecimientosService } from 'src/modules/establecimientos/establecimientos.service';
 import { QuimicosService } from 'src/modules/quimicos/quimicos.service';
 import { Quimico } from 'src/modules/quimicos/entities/quimico.entity';
+import { QuimicoRateUnidad } from 'src/modules/quimicos/entities/quimico.entity';
 import { BandejaService } from 'src/modules/siembra/bandeja.service';
 import { BandejaEstado } from 'src/modules/siembra/entities/bandeja.entity';
 import { MesasService } from 'src/modules/mesas/mesas.service';
@@ -97,16 +98,26 @@ export class AplicacionesQuimicasService {
       });
     }
 
-    // 3. Must have at least one detalle
-    if (!dto.detalles?.length) {
+    // 3. Load + validate primary quimico
+    const primaryQuimico = await this.quimicosService.mustFindById(dto.quimico_id, { strictTenant: true });
+    if (primaryQuimico.establecimiento_id !== dto.establecimiento_id) {
       throw new AppError({
-        code: ErrorCodes.APLICACION_DETALLES_VACIOS,
-        message: 'Se requiere al menos un producto químico en detalles',
+        code: ErrorCodes.APLICACION_TARGET_INVALIDO,
+        message: `El químico ${dto.quimico_id} no pertenece al establecimiento indicado`,
         status: 422,
       });
     }
 
-    // 4. Nursery requires bandeja_ids; invernadero requires mesa_ids
+    // 4. Validate dosis_unidad against quimico.rate_unidad
+    if (dto.dosis_unidad !== undefined && dto.dosis_unidad !== (primaryQuimico.rate_unidad as QuimicoRateUnidad)) {
+      throw new AppError({
+        code: ErrorCodes.APLICACION_DOSIS_UNIDAD_MISMATCH,
+        message: `La dosis_unidad '${dto.dosis_unidad}' no coincide con rate_unidad del químico ('${primaryQuimico.rate_unidad}'). Usá ${primaryQuimico.rate_unidad}.`,
+        status: 422,
+      });
+    }
+
+    // 5. Nursery requires bandeja_ids; invernadero requires mesa_ids
     if (dto.contexto === AplicacionContexto.NURSERY && !dto.bandeja_ids?.length) {
       throw new AppError({
         code: ErrorCodes.APLICACION_TARGETS_VACIOS,
@@ -122,9 +133,9 @@ export class AplicacionesQuimicasService {
       });
     }
 
-    // 5. Load + validate quimicos, build quimicoMap
+    // 6. Load + validate supplementary quimicos in detalles[]
     const quimicoMap: Record<string, Quimico> = {};
-    for (const d of dto.detalles) {
+    for (const d of dto.detalles ?? []) {
       const quimico = await this.quimicosService.mustFindById(d.quimico_id, { strictTenant: true });
       if (quimico.establecimiento_id !== dto.establecimiento_id) {
         throw new AppError({
@@ -136,7 +147,7 @@ export class AplicacionesQuimicasService {
       quimicoMap[d.quimico_id] = quimico;
     }
 
-    // 6. Validate nursery targets
+    // 7. Validate nursery targets
     if (dto.contexto === AplicacionContexto.NURSERY && dto.bandeja_ids) {
       for (const bandeja_id of dto.bandeja_ids) {
         const bandeja = await this.bandejaService.getBandeja(bandeja_id);
@@ -157,7 +168,7 @@ export class AplicacionesQuimicasService {
       }
     }
 
-    // 7. Validate invernadero targets
+    // 8. Validate invernadero targets
     if (dto.contexto === AplicacionContexto.INVERNADERO && dto.mesa_ids) {
       for (const mesa_id of dto.mesa_ids) {
         const mesa = await this.mesasService.getMesaById(mesa_id, tenantId);
@@ -178,14 +189,27 @@ export class AplicacionesQuimicasService {
       }
     }
 
-    // 8. Validate receta if provided
+    // 9. Validate receta if provided
     if (dto.receta_id) {
       await this.recetasService.mustFindById(dto.receta_id, { strictTenant: true });
     }
 
-    // 9. Pre-transaction stock warnings
+    // 10. Pre-transaction stock warnings
     const warnings: StockWarning[] = [];
-    for (const d of dto.detalles) {
+    const mesaCount = dto.mesa_ids?.length ?? 0;
+    const primaryTotalDosis = dto.dosis * (mesaCount > 0 ? mesaCount : 1);
+
+    if (dto.contexto === AplicacionContexto.INVERNADERO) {
+      const primaryProjected = Number(primaryQuimico.stock_actual) - primaryTotalDosis;
+      if (primaryProjected < 0) {
+        warnings.push({
+          quimico_id: dto.quimico_id,
+          nombre: primaryQuimico.nombre,
+          projected_stock: primaryProjected,
+        });
+      }
+    }
+    for (const d of dto.detalles ?? []) {
       const quimico = quimicoMap[d.quimico_id];
       const projected = Number(quimico.stock_actual) - Number(d.cantidad);
       if (projected < 0) {
@@ -197,7 +221,7 @@ export class AplicacionesQuimicasService {
       }
     }
 
-    // 10. Transaction
+    // 11. Transaction
     const qr = this.dataSource.createQueryRunner();
     await qr.connect();
     await qr.startTransaction();
@@ -206,7 +230,7 @@ export class AplicacionesQuimicasService {
     const savedDetalles: AplicacionQuimicaDetalle[] = [];
 
     try {
-      // INSERT aplicacion
+      // INSERT aplicacion with primary quimico snapshot
       const aplicacion = qr.manager.create(AplicacionQuimica, {
         tenant_id: tenantId,
         establecimiento_id: dto.establecimiento_id,
@@ -215,27 +239,47 @@ export class AplicacionesQuimicasService {
         observaciones: dto.observaciones ?? null,
         usuario_id: userId,
         fecha_hora: new Date(),
+        quimico_id: dto.quimico_id,
+        dosis: dto.dosis,
+        dosis_unidad: dto.dosis_unidad ?? (primaryQuimico.rate_unidad as QuimicoRateUnidad) ?? null,
+        batch: primaryQuimico.batch ?? null,
+        withholding_period_dias: primaryQuimico.withholding_period_dias ?? null,
       });
       savedAplicacion = await qr.manager.save(AplicacionQuimica, aplicacion);
 
-      // INSERT detalles + decrement stock
-      for (const d of dto.detalles) {
+      // INSERT primary detalle + deduct stock (invernadero only)
+      const primaryDetalle = qr.manager.create(AplicacionQuimicaDetalle, {
+        aplicacion_id: savedAplicacion.id,
+        quimico_id: dto.quimico_id,
+        cantidad: primaryTotalDosis,
+        unidad_medida: primaryQuimico.unidad_stock,
+      });
+      savedDetalles.push(await qr.manager.save(AplicacionQuimicaDetalle, primaryDetalle));
+
+      if (dto.contexto === AplicacionContexto.INVERNADERO) {
+        await qr.query(
+          `UPDATE quimicos SET stock_actual = stock_actual - $1, updated_at = now() WHERE id = $2 AND tenant_id = $3`,
+          [primaryTotalDosis, dto.quimico_id, tenantId],
+        );
+      }
+
+      // INSERT supplementary detalles + decrement stock
+      for (const d of dto.detalles ?? []) {
         const quimico = quimicoMap[d.quimico_id];
         const detalle = qr.manager.create(AplicacionQuimicaDetalle, {
           aplicacion_id: savedAplicacion.id,
           quimico_id: d.quimico_id,
           cantidad: d.cantidad,
-          unidad_medida: quimico.unidad_medida,
+          unidad_medida: quimico.unidad_stock,
         });
-        const savedDetalle = await qr.manager.save(AplicacionQuimicaDetalle, detalle);
-        savedDetalles.push(savedDetalle);
+        savedDetalles.push(await qr.manager.save(AplicacionQuimicaDetalle, detalle));
         await qr.query(
           `UPDATE quimicos SET stock_actual = stock_actual - $1, updated_at = now() WHERE id = $2 AND tenant_id = $3`,
           [d.cantidad, d.quimico_id, tenantId],
         );
       }
 
-      // INSERT nursery bandeja links
+      // INSERT nursery bandeja links (unchanged)
       if (dto.contexto === AplicacionContexto.NURSERY && dto.bandeja_ids) {
         for (const bandeja_id of dto.bandeja_ids) {
           await qr.manager.save(AplicacionQuimicaBandeja, {
@@ -245,27 +289,66 @@ export class AplicacionesQuimicasService {
         }
       }
 
-      // INSERT invernadero mesa links + historial
+      // INSERT invernadero mesa links + historial + carencia
       if (dto.contexto === AplicacionContexto.INVERNADERO && dto.mesa_ids) {
+        const hasCarencia =
+          primaryQuimico.withholding_period_dias !== null &&
+          primaryQuimico.withholding_period_dias !== undefined &&
+          primaryQuimico.withholding_period_dias > 0;
+
+        const aplicacionDate = new Date();
+        let carenciaHastaStr: string | null = null;
+        if (hasCarencia) {
+          const carenciaDate = new Date(aplicacionDate);
+          carenciaDate.setDate(carenciaDate.getDate() + primaryQuimico.withholding_period_dias!);
+          carenciaHastaStr = carenciaDate.toISOString().split('T')[0];
+        }
+
         for (const mesa_id of dto.mesa_ids) {
           await qr.manager.save(AplicacionQuimicaMesa, {
             aplicacion_id: savedAplicacion.id,
             mesa_id,
           });
+
+          // Historial: aplicacion quimica
           await qr.manager.save(HistorialMesa, {
             mesa_id,
             tipo_evento: HistorialTipoEvento.APLICACION_QUIMICA,
             tenant_id: tenantId,
             usuario_id: userId,
-            fecha_hora: new Date(),
+            fecha_hora: aplicacionDate,
             detalle: {
               aplicacion_id: savedAplicacion.id,
-              quimicos: savedDetalles.map((d) => ({
+              quimico_id: dto.quimico_id,
+              dosis: dto.dosis,
+              batch: primaryQuimico.batch ?? null,
+              quimicos_adicionales: savedDetalles.slice(1).map((d) => ({
                 quimico_id: d.quimico_id,
                 cantidad: d.cantidad,
               })),
             },
           });
+
+          // Historial: carencia + update mesa.carencia_hasta
+          if (hasCarencia && carenciaHastaStr) {
+            await qr.query(
+              `UPDATE mesas SET carencia_hasta = $1 WHERE id = $2`,
+              [carenciaHastaStr, mesa_id],
+            );
+            await qr.manager.save(HistorialMesa, {
+              mesa_id,
+              tipo_evento: HistorialTipoEvento.EN_CARENCIA,
+              tenant_id: tenantId,
+              usuario_id: userId,
+              fecha_hora: aplicacionDate,
+              detalle: {
+                aplicacion_id: savedAplicacion.id,
+                quimico_id: dto.quimico_id,
+                withholding_period_dias: primaryQuimico.withholding_period_dias,
+                carencia_hasta: carenciaHastaStr,
+              },
+            });
+          }
         }
       }
 

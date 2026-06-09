@@ -80,6 +80,7 @@ export class StockMovimientosController {
     return ok({
       movimiento: result.movimiento,
       quimico_stock_actual: result.quimico_stock_actual,
+      quimico_unidad_stock: result.quimico_unidad_stock,
       ...(result.warning !== undefined && { warning: result.warning }),
     });
   }

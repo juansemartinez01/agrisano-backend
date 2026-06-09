@@ -1,6 +1,7 @@
 import { IsUUID, IsEnum, IsNumber, Min, IsOptional, IsString, MaxLength, IsDateString } from 'class-validator';
 import { Type } from 'class-transformer';
 import { MovimientoTipo } from '../entities/movimiento-stock.entity';
+import { QuimicoUnidadStock } from 'src/modules/quimicos/entities/quimico.entity';
 
 export class CreateMovimientoDto {
   @IsUUID()
@@ -26,4 +27,8 @@ export class CreateMovimientoDto {
   @IsOptional()
   @IsDateString()
   fecha?: string;
+
+  @IsOptional()
+  @IsEnum(QuimicoUnidadStock)
+  unidad_ingreso?: QuimicoUnidadStock;
 }

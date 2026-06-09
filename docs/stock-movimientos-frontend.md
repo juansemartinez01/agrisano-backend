@@ -866,3 +866,51 @@ const meta = response.meta;
 - Historial se muestra para cualquier usuario autenticado.
 - No se implementa editar/eliminar movimientos porque no existen endpoints para eso.
 
+
+
+
+Cambios en el módulo de Stock y Movimientos (M06) — Unidades de medida del químico
+
+POST /stock-movimientos — Respuesta actualizada
+
+La respuesta ahora incluye quimico_unidad_stock para que el front pueda mostrar el stock con su unidad correcta sin tener que fetchear el químico por separado.
+
+
+{
+  "movimiento": { ... },
+  "quimico_stock_actual": 12.5,
+  "quimico_unidad_stock": "l"
+}
+Con esto podés mostrar directamente "Stock actual: 12.5 l".
+
+POST /stock-movimientos — Campo nuevo opcional en el body
+
+Se puede enviar unidad_ingreso al registrar una entrada. Es opcional, pero si se envía y no coincide con la unidad configurada del químico, la API devuelve 422 con un mensaje descriptivo.
+
+
+{
+  "quimico_id": "...",
+  "tipo": "ingreso",
+  "cantidad": 5.0,
+  "unidad_ingreso": "l"
+}
+Si el químico tiene unidad_stock: "kg" y se envía unidad_ingreso: "l", la API responde:
+
+
+{
+  "code": "MOVIMIENTO_UNIDAD_MISMATCH",
+  "message": "La unidad de ingreso 'l' no coincide con la unidad del químico ('kg'). Enviá la cantidad en kg."
+}
+Comportamiento si no se envía unidad_ingreso: se asume que la cantidad está en la unidad del químico. No rompe el flujo existente.
+
+Valores válidos para unidad_ingreso
+
+"kg" · "g" · "l" · "ml"
+
+Historial de movimientos — campo unidad_medida
+
+Los movimientos registrados de ahora en adelante tienen unidad_medida con el valor del enum del químico ("kg", "g", "l", "ml"). Los movimientos anteriores pueden tener texto libre en ese campo (era un campo abierto antes).
+
+Nota sobre el stock disponible del químico
+
+quimico_stock_actual en la respuesta del POST ya refleja el stock después del movimiento, en la unidad indicada por quimico_unidad_stock. Para mostrar el stock actual en cualquier otro contexto, seguís usando GET /quimicos/:id que devuelve stock_actual y ahora también incluye unidad_stock.

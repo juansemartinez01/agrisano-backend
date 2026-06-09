@@ -11,6 +11,7 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { AplicacionContexto } from '../entities/aplicacion-quimica.entity';
+import { QuimicoRateUnidad } from 'src/modules/quimicos/entities/quimico.entity';
 
 export class DetalleItemDto {
   @IsUUID()
@@ -28,6 +29,17 @@ export class CreateAplicacionDto {
   @IsEnum(AplicacionContexto)
   contexto!: AplicacionContexto;
 
+  @IsUUID()
+  quimico_id!: string;
+
+  @IsNumber()
+  @IsPositive()
+  dosis!: number;
+
+  @IsOptional()
+  @IsEnum(QuimicoRateUnidad)
+  dosis_unidad?: QuimicoRateUnidad;
+
   @IsOptional()
   @IsUUID()
   receta_id?: string;
@@ -36,11 +48,12 @@ export class CreateAplicacionDto {
   @IsString()
   observaciones?: string;
 
+  @IsOptional()
   @IsArray()
   @ArrayMinSize(1)
   @ValidateNested({ each: true })
   @Type(() => DetalleItemDto)
-  detalles!: DetalleItemDto[];
+  detalles?: DetalleItemDto[];
 
   @IsOptional()
   @IsArray()

@@ -37,4 +37,7 @@ export class Mesa extends BaseEntity {
 
   @Column({ type: 'boolean', default: true })
   activo!: boolean;
+
+  @Column({ type: 'date', nullable: true, default: null })
+  carencia_hasta!: string | null;
 }

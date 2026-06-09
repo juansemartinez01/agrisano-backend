@@ -13,6 +13,7 @@ export enum HistorialTipoEvento {
   APLICACION_QUIMICA = 'aplicacion_quimica',
   REACTIVACION = 'reactivacion',
   BAJA = 'baja',
+  EN_CARENCIA = 'en_carencia',
 }
 
 @Entity('historial_mesa')
