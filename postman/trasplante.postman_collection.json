@@ -1,0 +1,467 @@
+{
+  "info": {
+    "_postman_id": "2a29a9b8-5bc0-4f1f-8d41-4e9f35d48ce5",
+    "name": "Agrisano Backend - Trasplante",
+    "description": "Coleccion para probar el modulo de trasplante. Importar en Postman, configurar variables de email/password/tenant, mesaId, tunelId y bandejaId, y ejecutar Login antes de los endpoints protegidos.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "pm.request.headers.upsert({ key: 'Accept', value: 'application/json' });",
+          "if (!pm.request.headers.has('Content-Type') && ['POST', 'PATCH', 'PUT'].includes(pm.request.method)) {",
+          "  pm.request.headers.upsert({ key: 'Content-Type', value: 'application/json' });",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Login exitoso', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.access_token) pm.collectionVariables.set('token', json.access_token);",
+                  "if (json.refresh_token) pm.collectionVariables.set('refreshToken', json.refresh_token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}",
+                "description": "Usar si TENANCY_REQUIRED=true o si el login necesita contexto de tenant."
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Obtiene access_token y refresh_token. El test los guarda en las variables token y refreshToken."
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Refresh exitoso', function () {",
+                  "  pm.response.to.be.success;",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.access_token) pm.collectionVariables.set('token', json.access_token);",
+                  "if (json.refresh_token) pm.collectionVariables.set('refreshToken', json.refresh_token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refreshToken}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/refresh",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "refresh"
+              ]
+            },
+            "description": "Renueva tokens y actualiza variables."
+          }
+        },
+        {
+          "name": "Me",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "me"
+              ]
+            },
+            "description": "Prueba rapida del bearer token."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Trasplante",
+      "description": "Endpoints de src/modules/trasplante/trasplante.controller.ts. Requieren JWT. Ejecutar trasplante requiere rol operario, supervisor o admin_global. Listar trasplantes por mesa requiere usuario autenticado.",
+      "item": [
+        {
+          "name": "Ejecutar trasplante",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Trasplante ejecutado', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.data) {",
+                  "  if (json.data.mesa_id) pm.collectionVariables.set('mesaId', json.data.mesa_id);",
+                  "  if (json.data.tunel_id) pm.collectionVariables.set('tunelId', json.data.tunel_id);",
+                  "  if (json.data.posicion_actual !== undefined) pm.collectionVariables.set('posicionActual', String(json.data.posicion_actual));",
+                  "  if (Array.isArray(json.data.bandejas_trasplantadas) && json.data.bandejas_trasplantadas.length) {",
+                  "    pm.collectionVariables.set('bandejaId', json.data.bandejas_trasplantadas[0]);",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mesa_id\": \"{{mesaId}}\",\n  \"tunel_id\": \"{{tunelId}}\",\n  \"bandeja_ids\": [\n    \"{{bandejaId}}\"\n  ],\n  \"observaciones\": \"{{observaciones}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/trasplante",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "trasplante"
+              ]
+            },
+            "description": "Ejecuta un trasplante. La mesa debe estar en_cosecha o activa sin posicion_actual. Las bandejas deben estar en estado en_nursery y pertenecer al mismo establecimiento que la mesa. El backend calcula posicion FIFO, actualiza mesa, actualiza bandejas, crea mesa_bandeja, escribe historial y auditoria."
+          }
+        },
+        {
+          "name": "Listar trasplantes por mesa",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/mesas/{{mesaId}}/trasplantes?page={{page}}&limit={{limit}}&sortOrder={{sortOrder}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "mesas",
+                "{{mesaId}}",
+                "trasplantes"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "{{page}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "{{limit}}"
+                },
+                {
+                  "key": "sortOrder",
+                  "value": "{{sortOrder}}",
+                  "description": "ASC o DESC. El backend ordena por fecha_trasplante."
+                }
+              ]
+            },
+            "description": "Lista registros mesa_bandeja de una mesa. Valida que la mesa exista en el tenant."
+          }
+        },
+        {
+          "name": "Error esperado - bandejas vacias",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Debe fallar por bandejas vacias', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mesa_id\": \"{{mesaId}}\",\n  \"tunel_id\": \"{{tunelId}}\",\n  \"bandeja_ids\": [],\n  \"observaciones\": \"Caso negativo: bandejas vacias\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/trasplante",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "trasplante"
+              ]
+            },
+            "description": "Caso negativo de DTO: bandeja_ids requiere ArrayMinSize(1). El ValidationPipe suele responder 400 BAD_REQUEST antes de llegar al service."
+          }
+        },
+        {
+          "name": "Error esperado - mesa no trasplantable",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Debe fallar por estado de mesa invalido', function () {",
+                  "  pm.response.to.have.status(422);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test('Codigo TRASPLANTE_MESA_ESTADO_INVALIDO', function () {",
+                  "  pm.expect(json.error && json.error.code).to.eql('TRASPLANTE_MESA_ESTADO_INVALIDO');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mesa_id\": \"{{mesaId}}\",\n  \"tunel_id\": \"{{tunelId}}\",\n  \"bandeja_ids\": [\n    \"{{bandejaId}}\"\n  ],\n  \"observaciones\": \"Caso negativo: ejecutar sobre mesa no disponible\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/trasplante",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "trasplante"
+              ]
+            },
+            "description": "Caso negativo de negocio. Para que falle con TRASPLANTE_MESA_ESTADO_INVALIDO, usar una mesa que no este en_cosecha ni activa con posicion_actual null."
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "refreshToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "email",
+      "value": "admin@example.com",
+      "type": "string"
+    },
+    {
+      "key": "password",
+      "value": "password123",
+      "type": "string"
+    },
+    {
+      "key": "tenantId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "tenantKey",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "page",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "limit",
+      "value": "20",
+      "type": "string"
+    },
+    {
+      "key": "mesaId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "tunelId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "bandejaId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "observaciones",
+      "value": "Trasplante ejecutado desde Postman",
+      "type": "string"
+    },
+    {
+      "key": "posicionActual",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "sortOrder",
+      "value": "DESC",
+      "type": "string"
+    }
+  ]
+}

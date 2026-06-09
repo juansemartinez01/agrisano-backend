@@ -1006,3 +1006,86 @@ const aplicaciones = response.data;
 - Despues de crear invernadero, refrescar historial de mesas si la pantalla lo muestra.
 - Fechas de filtros se envian como ISO 8601.
 - Ordenamiento del listado general usa `fecha_hora` o `created_at`.
+
+
+
+Cambios en el módulo de Aplicaciones Químicas (M09) — Dosis, carencia y múltiples mesas
+
+POST /aplicaciones-quimicas — Campos nuevos requeridos
+
+Se agregaron quimico_id y dosis como campos obligatorios en el body. Reemplazan el rol que tenía detalles[] para la mayoría de los casos simples.
+
+
+{
+  "establecimiento_id": "...",
+  "contexto": "invernadero",
+  "quimico_id": "uuid-del-quimico",
+  "dosis": 2.5,
+  "dosis_unidad": "ml/l",
+  "mesa_ids": ["uuid-mesa-1", "uuid-mesa-2"],
+  "observaciones": "Aplicación preventiva"
+}
+detalles[] ahora es opcional. Usalo solo si la aplicación involucra productos adicionales al primario (mezcla de tanque, coadyuvantes, etc.). Si lo enviás, no repitas en él el quimico_id principal para evitar doble descuento de stock.
+
+Campo dosis_unidad — Validación en servidor
+
+Si se envía dosis_unidad y no coincide con la rate_unidad configurada en el químico, la API devuelve 422:
+
+
+{
+  "code": "APLICACION_DOSIS_UNIDAD_MISMATCH",
+  "message": "La dosis_unidad 'kg/l' no coincide con rate_unidad del químico ('ml/l'). Usá ml/l."
+}
+Si no se envía dosis_unidad, se usa automáticamente la del químico. Recomendado: enviarlo siempre para detectar errores de tipeo del operador.
+
+GET /aplicaciones-quimicas/:id — Respuesta ampliada
+
+El objeto aplicacion ahora incluye los campos snapshotteados al momento de la aplicación:
+
+
+{
+  "aplicacion": {
+    "id": "...",
+    "quimico_id": "...",
+    "dosis": 2.5,
+    "dosis_unidad": "ml/l",
+    "batch": "BT-4421",
+    "withholding_period_dias": 7,
+    "contexto": "invernadero",
+    ...
+  }
+}
+batch y withholding_period_dias son el valor que tenía el químico en el momento de la aplicación — no cambian aunque el químico se actualice después.
+
+Carencia (withholding_period_dias)
+
+Cuando el químico tiene withholding_period_dias > 0, al registrar la aplicación:
+
+Cada mesa afectada queda con carencia_hasta seteado (fecha_aplicacion + N días)
+El historial de la mesa registra un evento en_carencia
+El campo carencia_hasta es visible en la respuesta de GET /mesas/:id
+Ejemplo: aplicación el 09/06/2026 con carencia de 7 días → carencia_hasta: "2026-06-16".
+
+Sugerencia para el front: si mesa.carencia_hasta >= hoy, mostrar la mesa en rojo o con un badge de advertencia. Una vez pasada la fecha, la carencia vence automáticamente (no hay acción del backend, el front compara la fecha).
+
+Stock — descuento automático
+
+Al registrar una aplicación de tipo invernadero, el stock del químico principal se descuenta automáticamente:
+
+descuento = dosis × cantidad_de_mesas
+
+Si el stock resultante queda negativo, la operación igual se procesa pero la respuesta incluye un array warnings:
+
+
+{
+  "warnings": [
+    {
+      "quimico_id": "...",
+      "nombre": "Fungicida X",
+      "projected_stock": -1.5
+    }
+  ]
+}
+Valores válidos para dosis_unidad
+
+"kg/l" · "g/l" · "ml/l" · "l/l"
