@@ -1,0 +1,656 @@
+{
+  "info": {
+    "_postman_id": "7358100b-4b1b-4f1c-b8c9-1e4e5a9dbb4a",
+    "name": "Agrisano Backend - Packing",
+    "description": "Coleccion para probar el modulo de packing. Importar en Postman, configurar variables de email/password/tenant, cosechaId y pesos/categorias, y ejecutar Login antes de los endpoints protegidos.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "pm.request.headers.upsert({ key: 'Accept', value: 'application/json' });",
+          "if (!pm.request.headers.has('Content-Type') && ['POST', 'PATCH', 'PUT'].includes(pm.request.method)) {",
+          "  pm.request.headers.upsert({ key: 'Content-Type', value: 'application/json' });",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Login exitoso', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.access_token) pm.collectionVariables.set('token', json.access_token);",
+                  "if (json.refresh_token) pm.collectionVariables.set('refreshToken', json.refresh_token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}",
+                "description": "Usar si TENANCY_REQUIRED=true o si el login necesita contexto de tenant."
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Obtiene access_token y refresh_token. El test los guarda en las variables token y refreshToken."
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Refresh exitoso', function () {",
+                  "  pm.response.to.be.success;",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.access_token) pm.collectionVariables.set('token', json.access_token);",
+                  "if (json.refresh_token) pm.collectionVariables.set('refreshToken', json.refresh_token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refreshToken}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/refresh",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "refresh"
+              ]
+            },
+            "description": "Renueva tokens y actualiza variables."
+          }
+        },
+        {
+          "name": "Me",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "me"
+              ]
+            },
+            "description": "Prueba rapida del bearer token."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Packing",
+      "description": "Endpoints de src/modules/packing/packing.controller.ts. Requieren JWT. Registrar packing requiere rol operario, supervisor o admin_global. Listar y consultar requiere usuario autenticado.",
+      "item": [
+        {
+          "name": "Registrar packing",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Packing registrado', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.data) {",
+                  "  if (json.data.lote_packing && json.data.lote_packing.id) pm.collectionVariables.set('packingId', json.data.lote_packing.id);",
+                  "  if (json.data.lote_packing && json.data.lote_packing.cosecha_id) pm.collectionVariables.set('cosechaId', json.data.lote_packing.cosecha_id);",
+                  "  if (Array.isArray(json.data.categorias) && json.data.categorias.length) {",
+                  "    pm.collectionVariables.set('packingCategoriaId', json.data.categorias[0].id);",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cosecha_id\": \"{{cosechaId}}\",\n  \"peso_bruto_kg\": {{pesoBrutoKg}},\n  \"observaciones\": \"{{observaciones}}\",\n  \"categorias\": [\n    {\n      \"categoria\": \"primera\",\n      \"peso_kg\": {{pesoCategoriaPrimeraKg}},\n      \"cantidad_cajas\": {{cantidadCajasPrimera}},\n      \"peso_neto_por_caja\": {{pesoNetoPorCajaPrimera}}\n    },\n    {\n      \"categoria\": \"segunda\",\n      \"peso_kg\": {{pesoCategoriaSegundaKg}},\n      \"cantidad_cajas\": {{cantidadCajasSegunda}},\n      \"peso_neto_por_caja\": {{pesoNetoPorCajaSegunda}}\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/packing",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "packing"
+              ]
+            },
+            "description": "Registra un lote de packing para una cosecha. Solo puede existir un packing por cosecha. Categorias permitidas: primera, segunda, descarte. No se permiten categorias duplicadas."
+          }
+        },
+        {
+          "name": "Listar packing",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/packing?page={{page}}&limit={{limit}}&cosecha_id={{cosechaId}}&sortOrder={{sortOrder}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "packing"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "{{page}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "{{limit}}"
+                },
+                {
+                  "key": "cosecha_id",
+                  "value": "{{cosechaId}}",
+                  "description": "Opcional. Filtra por cosecha.",
+                  "disabled": true
+                },
+                {
+                  "key": "sortOrder",
+                  "value": "{{sortOrder}}",
+                  "description": "ASC o DESC. El backend ordena por fecha_hora."
+                }
+              ]
+            },
+            "description": "Lista lotes de packing del tenant actual. Devuelve respuesta paginada."
+          }
+        },
+        {
+          "name": "Obtener packing por ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Packing obtenido', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/packing/{{packingId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "packing",
+                "{{packingId}}"
+              ]
+            },
+            "description": "Obtiene lote_packing y categorias por ID."
+          }
+        },
+        {
+          "name": "Obtener packing por cosecha",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Packing por cosecha obtenido', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.lote_packing && json.data.lote_packing.id) {",
+                  "  pm.collectionVariables.set('packingId', json.data.lote_packing.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/cosechas/{{cosechaId}}/packing",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "cosechas",
+                "{{cosechaId}}",
+                "packing"
+              ]
+            },
+            "description": "Obtiene el packing asociado a una cosecha. Valida primero que la cosecha exista en el tenant."
+          }
+        },
+        {
+          "name": "Error esperado - categorias duplicadas",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Debe fallar por categorias duplicadas', function () {",
+                  "  pm.response.to.have.status(422);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test('Codigo PACKING_CATEGORIA_DUPLICADA', function () {",
+                  "  pm.expect(json.error && json.error.code).to.eql('PACKING_CATEGORIA_DUPLICADA');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cosecha_id\": \"{{cosechaId}}\",\n  \"peso_bruto_kg\": {{pesoBrutoKg}},\n  \"observaciones\": \"Caso negativo: categorias duplicadas\",\n  \"categorias\": [\n    {\n      \"categoria\": \"primera\",\n      \"peso_kg\": {{pesoCategoriaPrimeraKg}},\n      \"cantidad_cajas\": {{cantidadCajasPrimera}},\n      \"peso_neto_por_caja\": {{pesoNetoPorCajaPrimera}}\n    },\n    {\n      \"categoria\": \"primera\",\n      \"peso_kg\": {{pesoCategoriaSegundaKg}},\n      \"cantidad_cajas\": {{cantidadCajasSegunda}},\n      \"peso_neto_por_caja\": {{pesoNetoPorCajaSegunda}}\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/packing",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "packing"
+              ]
+            },
+            "description": "Caso negativo de negocio: no se permiten categorias duplicadas dentro del mismo lote de packing."
+          }
+        },
+        {
+          "name": "Error esperado - categorias vacias",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Debe fallar por categorias vacias', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cosecha_id\": \"{{cosechaId}}\",\n  \"peso_bruto_kg\": {{pesoBrutoKg}},\n  \"observaciones\": \"Caso negativo: categorias vacias\",\n  \"categorias\": []\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/packing",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "packing"
+              ]
+            },
+            "description": "Caso negativo de DTO: categorias requiere minimo 1 item."
+          }
+        },
+        {
+          "name": "Error esperado - packing ya registrado",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Debe fallar por packing duplicado', function () {",
+                  "  pm.response.to.have.status(409);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test('Codigo PACKING_YA_REGISTRADO', function () {",
+                  "  pm.expect(json.error && json.error.code).to.eql('PACKING_YA_REGISTRADO');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cosecha_id\": \"{{cosechaId}}\",\n  \"peso_bruto_kg\": {{pesoBrutoKg}},\n  \"observaciones\": \"Caso negativo: repetir cosecha ya empacada\",\n  \"categorias\": [\n    {\n      \"categoria\": \"descarte\",\n      \"peso_kg\": {{pesoCategoriaDescarteKg}},\n      \"cantidad_cajas\": {{cantidadCajasDescarte}},\n      \"peso_neto_por_caja\": {{pesoNetoPorCajaDescarte}}\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/packing",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "packing"
+              ]
+            },
+            "description": "Caso negativo de negocio: solo puede existir un lote de packing por cosecha. Ejecutar despues de registrar packing correctamente para la misma cosecha."
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "refreshToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "email",
+      "value": "admin@example.com",
+      "type": "string"
+    },
+    {
+      "key": "password",
+      "value": "password123",
+      "type": "string"
+    },
+    {
+      "key": "tenantId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "tenantKey",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "page",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "limit",
+      "value": "20",
+      "type": "string"
+    },
+    {
+      "key": "cosechaId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "packingId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "packingCategoriaId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "pesoBrutoKg",
+      "value": "12.5",
+      "type": "string"
+    },
+    {
+      "key": "pesoCategoriaPrimeraKg",
+      "value": "8.5",
+      "type": "string"
+    },
+    {
+      "key": "cantidadCajasPrimera",
+      "value": "4",
+      "type": "string"
+    },
+    {
+      "key": "pesoNetoPorCajaPrimera",
+      "value": "2.125",
+      "type": "string"
+    },
+    {
+      "key": "pesoCategoriaSegundaKg",
+      "value": "3.0",
+      "type": "string"
+    },
+    {
+      "key": "cantidadCajasSegunda",
+      "value": "2",
+      "type": "string"
+    },
+    {
+      "key": "pesoNetoPorCajaSegunda",
+      "value": "1.5",
+      "type": "string"
+    },
+    {
+      "key": "pesoCategoriaDescarteKg",
+      "value": "1.0",
+      "type": "string"
+    },
+    {
+      "key": "cantidadCajasDescarte",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "pesoNetoPorCajaDescarte",
+      "value": "1.0",
+      "type": "string"
+    },
+    {
+      "key": "observaciones",
+      "value": "Packing registrado desde Postman",
+      "type": "string"
+    },
+    {
+      "key": "sortOrder",
+      "value": "DESC",
+      "type": "string"
+    }
+  ]
+}
