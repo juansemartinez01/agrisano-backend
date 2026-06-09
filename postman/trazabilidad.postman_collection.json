@@ -1,0 +1,438 @@
+{
+  "info": {
+    "_postman_id": "9e70cf26-3ab8-4a1d-a9e2-65f8f8ad45b2",
+    "name": "Agrisano Backend - Trazabilidad",
+    "description": "Coleccion para probar el modulo de trazabilidad. Importar en Postman, configurar variables de email/password/tenant, cosechaId y mesaId, y ejecutar Login antes de los endpoints protegidos.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "pm.request.headers.upsert({ key: 'Accept', value: 'application/json' });",
+          "if (!pm.request.headers.has('Content-Type') && ['POST', 'PATCH', 'PUT'].includes(pm.request.method)) {",
+          "  pm.request.headers.upsert({ key: 'Content-Type', value: 'application/json' });",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Login exitoso', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.access_token) pm.collectionVariables.set('token', json.access_token);",
+                  "if (json.refresh_token) pm.collectionVariables.set('refreshToken', json.refresh_token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}",
+                "description": "Usar si TENANCY_REQUIRED=true o si el login necesita contexto de tenant."
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Obtiene access_token y refresh_token. El test los guarda en las variables token y refreshToken."
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Refresh exitoso', function () {",
+                  "  pm.response.to.be.success;",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.access_token) pm.collectionVariables.set('token', json.access_token);",
+                  "if (json.refresh_token) pm.collectionVariables.set('refreshToken', json.refresh_token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refreshToken}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/refresh",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "refresh"
+              ]
+            },
+            "description": "Renueva tokens y actualiza variables."
+          }
+        },
+        {
+          "name": "Me",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "me"
+              ]
+            },
+            "description": "Prueba rapida del bearer token."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Trazabilidad",
+      "description": "Endpoints de src/modules/trazabilidad/trazabilidad.controller.ts. Requieren JWT. No tienen RolesGuard especifico; cualquier usuario autenticado puede consultar.",
+      "item": [
+        {
+          "name": "Trazabilidad por cosecha",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Trazabilidad por cosecha obtenida', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.cosecha && json.data.cosecha.id) pm.collectionVariables.set('cosechaId', json.data.cosecha.id);",
+                  "if (json.data && json.data.mesa && json.data.mesa.id) pm.collectionVariables.set('mesaId', json.data.mesa.id);",
+                  "if (json.data && json.data.packing && json.data.packing.id) pm.collectionVariables.set('packingId', json.data.packing.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/trazabilidad/cosecha/{{cosechaId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "trazabilidad",
+                "cosecha",
+                "{{cosechaId}}"
+              ]
+            },
+            "description": "Reconstruye la trazabilidad completa de una cosecha: cosecha, mesa, packing, bandejas del ciclo, aplicaciones quimicas de invernadero y aplicaciones quimicas de nursery."
+          }
+        },
+        {
+          "name": "Trazabilidad por mesa",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Trazabilidad por mesa obtenida', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.mesa && json.data.mesa.id) pm.collectionVariables.set('mesaId', json.data.mesa.id);",
+                  "if (json.data && Array.isArray(json.data.cosechas) && json.data.cosechas.length) {",
+                  "  pm.collectionVariables.set('cosechaId', json.data.cosechas[0].cosecha_id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/trazabilidad/mesa/{{mesaId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "trazabilidad",
+                "mesa",
+                "{{mesaId}}"
+              ]
+            },
+            "description": "Devuelve la mesa y un indice de sus cosechas, incluyendo resumen de packing si existe."
+          }
+        },
+        {
+          "name": "Error esperado - cosecha inexistente",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Debe fallar por cosecha inexistente', function () {",
+                  "  pm.response.to.have.status(404);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test('Codigo COSECHA_NOT_FOUND', function () {",
+                  "  pm.expect(json.error && json.error.code).to.eql('COSECHA_NOT_FOUND');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/trazabilidad/cosecha/{{cosechaIdInexistente}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "trazabilidad",
+                "cosecha",
+                "{{cosechaIdInexistente}}"
+              ]
+            },
+            "description": "Caso negativo: cosecha inexistente o fuera del tenant."
+          }
+        },
+        {
+          "name": "Error esperado - mesa inexistente",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Debe fallar por mesa inexistente', function () {",
+                  "  pm.response.to.have.status(404);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test('Codigo MESA_NOT_FOUND', function () {",
+                  "  pm.expect(json.error && json.error.code).to.eql('MESA_NOT_FOUND');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/trazabilidad/mesa/{{mesaIdInexistente}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "trazabilidad",
+                "mesa",
+                "{{mesaIdInexistente}}"
+              ]
+            },
+            "description": "Caso negativo: mesa inexistente o fuera del tenant."
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "refreshToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "email",
+      "value": "admin@example.com",
+      "type": "string"
+    },
+    {
+      "key": "password",
+      "value": "password123",
+      "type": "string"
+    },
+    {
+      "key": "tenantId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "tenantKey",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "cosechaId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "mesaId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "packingId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "cosechaIdInexistente",
+      "value": "00000000-0000-4000-8000-000000000001",
+      "type": "string"
+    },
+    {
+      "key": "mesaIdInexistente",
+      "value": "00000000-0000-4000-8000-000000000002",
+      "type": "string"
+    }
+  ]
+}
