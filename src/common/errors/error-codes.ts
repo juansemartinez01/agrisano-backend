@@ -83,6 +83,11 @@ export const ErrorCodes = {
   // cosecha
   COSECHA_NOT_FOUND: 'COSECHA_NOT_FOUND',
   COSECHA_MESA_NO_DISPONIBLE: 'COSECHA_MESA_NO_DISPONIBLE',
+
+  // packing
+  PACKING_NOT_FOUND: 'PACKING_NOT_FOUND',
+  PACKING_YA_REGISTRADO: 'PACKING_YA_REGISTRADO',
+  PACKING_CATEGORIA_DUPLICADA: 'PACKING_CATEGORIA_DUPLICADA',
 } as const;
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];

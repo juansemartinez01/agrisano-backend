@@ -27,6 +27,7 @@ import { MesasModule } from './modules/mesas/mesas.module';
 import { AplicacionesQuimicasModule } from './modules/aplicaciones-quimicas/aplicaciones-quimicas.module';
 import { TrasplanteModule } from './modules/trasplante/trasplante.module';
 import { CosechaModule } from './modules/cosecha/cosecha.module';
+import { PackingModule } from './modules/packing/packing.module';
 
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { ObservabilityModule } from './infra/observability/observability.module';
@@ -70,6 +71,7 @@ import { ObservabilityModule } from './infra/observability/observability.module'
     AplicacionesQuimicasModule,
     TrasplanteModule,
     CosechaModule,
+    PackingModule,
     ObservabilityModule,
   ],
   controllers: [AppController],
