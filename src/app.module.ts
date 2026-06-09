@@ -28,6 +28,7 @@ import { AplicacionesQuimicasModule } from './modules/aplicaciones-quimicas/apli
 import { TrasplanteModule } from './modules/trasplante/trasplante.module';
 import { CosechaModule } from './modules/cosecha/cosecha.module';
 import { PackingModule } from './modules/packing/packing.module';
+import { TrazabilidadModule } from './modules/trazabilidad/trazabilidad.module';
 
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { ObservabilityModule } from './infra/observability/observability.module';
@@ -72,6 +73,7 @@ import { ObservabilityModule } from './infra/observability/observability.module'
     TrasplanteModule,
     CosechaModule,
     PackingModule,
+    TrazabilidadModule,
     ObservabilityModule,
   ],
   controllers: [AppController],

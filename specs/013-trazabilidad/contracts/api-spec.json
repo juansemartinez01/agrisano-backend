@@ -1,0 +1,245 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "M13 — Trazabilidad (Traceability) API",
+    "version": "1.0.0",
+    "description": "Read-only endpoints assembling complete traceability chains from M03-M12 tables. No writes, no mutations."
+  },
+  "paths": {
+    "/trazabilidad/cosecha/{cosecha_id}": {
+      "get": {
+        "summary": "Full traceability chain for a single harvest cycle",
+        "operationId": "getTrazabilidadByCosecha",
+        "tags": ["Trazabilidad"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "cosecha_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" },
+            "description": "ID of the harvest record"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Complete traceability chain for the harvest cycle",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "cosecha": { "$ref": "#/components/schemas/Cosecha" },
+                        "mesa": { "$ref": "#/components/schemas/MesaInfo" },
+                        "packing": {
+                          "oneOf": [
+                            { "$ref": "#/components/schemas/PackingDetail" },
+                            { "type": "null" }
+                          ],
+                          "description": "null if no packing record exists yet for this cosecha"
+                        },
+                        "bandejas_ciclo": {
+                          "type": "array",
+                          "items": { "$ref": "#/components/schemas/BandejaCiclo" },
+                          "description": "Empty array if no transplant was found before the cosecha date"
+                        },
+                        "aplicaciones_invernadero": {
+                          "type": "array",
+                          "items": { "$ref": "#/components/schemas/AplicacionConDetalles" },
+                          "description": "Chemical applications on the mesa between cycle transplant date and cosecha date"
+                        },
+                        "aplicaciones_nursery": {
+                          "type": "array",
+                          "items": { "$ref": "#/components/schemas/AplicacionConDetalles" },
+                          "description": "Chemical applications on cycle bandejas before transplant (contexto=nursery)"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized — missing or invalid JWT" },
+          "404": { "description": "COSECHA_NOT_FOUND — cosecha does not exist or belongs to a different tenant" }
+        }
+      }
+    },
+    "/trazabilidad/mesa/{mesa_id}": {
+      "get": {
+        "summary": "Index of all harvest cycles for a mesa",
+        "operationId": "getTrazabilidadByMesa",
+        "tags": ["Trazabilidad"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "mesa_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" },
+            "description": "ID of the greenhouse table"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Mesa info and ordered list of all harvest cycles",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "mesa": { "$ref": "#/components/schemas/MesaInfo" },
+                        "cosechas": {
+                          "type": "array",
+                          "items": { "$ref": "#/components/schemas/CosechaIndexEntry" },
+                          "description": "All harvest cycles for this mesa, ordered by fecha_hora DESC"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized — missing or invalid JWT" },
+          "404": { "description": "MESA_NOT_FOUND — mesa does not exist or belongs to a different tenant" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "Cosecha": {
+        "type": "object",
+        "description": "The harvest event record (from cosechas table)",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "mesa_id": { "type": "string", "format": "uuid" },
+          "fecha_hora": { "type": "string", "format": "date-time" },
+          "peso_kg": { "type": "number" },
+          "tenant_id": { "type": "string", "format": "uuid", "nullable": true }
+        }
+      },
+      "MesaInfo": {
+        "type": "object",
+        "description": "Key fields from the mesas table",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "codigo_qr": { "type": "string" },
+          "estado": { "type": "string", "description": "Mesa state (activa, en_cosecha, etc.)" },
+          "tunel_id": { "type": "string", "format": "uuid", "nullable": true },
+          "establecimiento_id": { "type": "string", "format": "uuid", "nullable": true }
+        }
+      },
+      "PackingDetail": {
+        "type": "object",
+        "description": "Packing record with category breakdowns",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "fecha_hora": { "type": "string", "format": "date-time" },
+          "peso_bruto_kg": { "type": "number" },
+          "usuario_id": { "type": "string", "format": "uuid" },
+          "observaciones": { "type": "string", "nullable": true },
+          "categorias": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/PackingCategoria" }
+          }
+        }
+      },
+      "PackingCategoria": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "categoria": { "type": "string", "enum": ["primera", "segunda", "descarte"] },
+          "peso_kg": { "type": "number" },
+          "cantidad_cajas": { "type": "integer" },
+          "peso_neto_por_caja": { "type": "number" }
+        }
+      },
+      "BandejaCiclo": {
+        "type": "object",
+        "description": "A tray transplanted in this harvest cycle, with its seed and substrate lineage",
+        "properties": {
+          "bandeja_id": { "type": "string", "format": "uuid" },
+          "fecha_trasplante": { "type": "string", "format": "date-time" },
+          "siembra_id": { "type": "string", "format": "uuid" },
+          "lote_semilla_id": { "type": "string", "format": "uuid" },
+          "lote_sustrato_id": { "type": "string", "format": "uuid" },
+          "estado": { "type": "string" },
+          "siembra": {
+            "oneOf": [
+              { "$ref": "#/components/schemas/SiembraLineage" },
+              { "type": "null" }
+            ]
+          }
+        }
+      },
+      "SiembraLineage": {
+        "type": "object",
+        "description": "Seeding event with seed lot and substrate lot references",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "fecha_hora": { "type": "string", "format": "date-time" },
+          "usuario_id": { "type": "string", "format": "uuid" },
+          "lote_semilla_id": { "type": "string", "format": "uuid" },
+          "lote_semilla_codigo": { "type": "string" },
+          "lote_sustrato_id": { "type": "string", "format": "uuid" },
+          "lote_sustrato_codigo": { "type": "string" }
+        }
+      },
+      "AplicacionConDetalles": {
+        "type": "object",
+        "description": "A chemical application event with active-ingredient detail lines",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "fecha_hora": { "type": "string", "format": "date-time" },
+          "receta_id": { "type": "string", "format": "uuid", "nullable": true },
+          "observaciones": { "type": "string", "nullable": true },
+          "usuario_id": { "type": "string", "format": "uuid" },
+          "detalles": {
+            "type": "array",
+            "items": { "type": "object", "description": "Raw aplicaciones_quimicas_detalle row" }
+          }
+        }
+      },
+      "CosechaIndexEntry": {
+        "type": "object",
+        "description": "Summary of a single harvest cycle in the mesa index",
+        "properties": {
+          "cosecha_id": { "type": "string", "format": "uuid" },
+          "fecha_hora": { "type": "string", "format": "date-time" },
+          "peso_kg": { "type": "number" },
+          "packing": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "peso_bruto_kg": { "type": "number" },
+                  "categorias": {
+                    "type": "array",
+                    "items": { "$ref": "#/components/schemas/PackingCategoria" }
+                  }
+                }
+              },
+              { "type": "null" }
+            ],
+            "description": "null if no packing record exists for this cosecha"
+          }
+        }
+      }
+    }
+  }
+}
