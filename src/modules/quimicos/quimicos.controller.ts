@@ -101,7 +101,12 @@ export class QuimicosController {
     @Body() dto: UpdateQuimicoDto,
     @Req() req: AuthRequest,
   ) {
-    const ALLOWED = new Set(['nombre', 'unidad_medida', 'activo', 'principios_activos']);
+    const ALLOWED = new Set([
+      'nombre', 'unidad_medida', 'activo', 'principios_activos',
+      'nombre_lista', 'unidad_stock', 'rate_unidad',
+      'withholding_period_dias', 'manufacture_date', 'dom',
+      'supplier', 'batch',
+    ]);
     if (
       Object.keys((req.body as Record<string, unknown>) ?? {}).some(
         (k) => !ALLOWED.has(k),
@@ -109,7 +114,7 @@ export class QuimicosController {
     ) {
       throw new AppError({
         code: ErrorCodes.QUIMICO_FIELD_IMMUTABLE,
-        message: 'Solo se pueden modificar: nombre, unidad_medida, activo, principios_activos',
+        message: 'Campo no permitido. Los campos inmutables son: id, tenant_id, establecimiento_id, stock_actual',
         status: 400,
       });
     }
