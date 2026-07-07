@@ -1,4 +1,4 @@
-import { IsBoolean, IsEnum, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsBoolean, IsEnum, IsNotEmpty, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 import { LoteProducto } from '../entities/lote.entity';
 
 // tipo is intentionally absent — immutability enforced by omission.
@@ -11,9 +11,12 @@ export class UpdateLoteDto {
   numero_lote?: string;
 
   @IsOptional()
-  @IsString()
-  @MaxLength(200)
-  proveedor?: string;
+  @IsUUID()
+  establecimiento_id?: string;
+
+  @IsOptional()
+  @IsUUID()
+  proveedor_id?: string;
 
   @IsOptional()
   @IsString()
@@ -43,11 +46,6 @@ export class UpdateLoteDto {
   @IsString()
   @MaxLength(200)
   seed_company?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(200)
-  supplier?: string;
 
   @IsOptional()
   @IsString()

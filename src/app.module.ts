@@ -17,6 +17,7 @@ import { AuditModule } from './modules/audit/audit.module';
 import { FilesModule } from './modules/files/files.module';
 import { TenancyModule } from './modules/tenancy/tenancy.module';
 import { EstablecimientosModule } from './modules/establecimientos/establecimientos.module';
+import { ProveedoresModule } from './modules/proveedores/proveedores.module';
 import { LotesModule } from './modules/lotes/lotes.module';
 import { SiembraModule } from './modules/siembra/siembra.module';
 import { RecetasModule } from './modules/recetas/recetas.module';
@@ -62,6 +63,7 @@ import { ObservabilityModule } from './infra/observability/observability.module'
     FilesModule,
     TenancyModule,
     EstablecimientosModule,
+    ProveedoresModule,
     LotesModule,
     SiembraModule,
     RecetasModule,

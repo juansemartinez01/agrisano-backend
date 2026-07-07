@@ -51,8 +51,8 @@ export class Quimico extends BaseEntity {
   @Column({ type: 'date', nullable: true })
   dom!: string | null;
 
-  @Column({ type: 'varchar', length: 200, nullable: true })
-  supplier!: string | null;
+  @Column({ type: 'uuid', nullable: true })
+  proveedor_id!: string | null;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
   batch!: string | null;

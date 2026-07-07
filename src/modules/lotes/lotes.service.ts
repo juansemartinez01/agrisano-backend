@@ -4,6 +4,7 @@ import { Brackets, Repository } from 'typeorm';
 import { BaseCrudTenantService } from 'src/common/crud/base-crud.service';
 import { AppError } from 'src/common/errors/app-error';
 import { ErrorCodes } from 'src/common/errors/error-codes';
+import { ProveedoresService } from 'src/modules/proveedores/proveedores.service';
 import { Lote, LoteTipo } from './entities/lote.entity';
 import { CreateLoteDto } from './dto/create-lote.dto';
 import { UpdateLoteDto } from './dto/update-lote.dto';
@@ -20,6 +21,7 @@ export class LotesService extends BaseCrudTenantService<Lote> {
   constructor(
     @InjectRepository(Lote)
     private readonly loteRepo: Repository<Lote>,
+    private readonly proveedoresService: ProveedoresService,
   ) {
     super(loteRepo);
   }
@@ -35,20 +37,14 @@ export class LotesService extends BaseCrudTenantService<Lote> {
       { ...q, filters },
       {
         filterAllowed: ['tipo', 'activo'],
-        sortAllowed: ['numero_lote', 'proveedor', 'created_at'],
+        sortAllowed: ['numero_lote', 'created_at'],
         sortFallback: { by: 'created_at', order: 'DESC' },
         strictTenant: true,
         customizeQb: q.q
           ? (qb, alias) => {
-              qb.andWhere(
-                new Brackets((b) =>
-                  b
-                    .where(`${alias}.numero_lote ILIKE :search`, {
-                      search: `%${q.q}%`,
-                    })
-                    .orWhere(`${alias}.proveedor ILIKE :search`),
-                ),
-              );
+              qb.andWhere(`${alias}.numero_lote ILIKE :search`, {
+                search: `%${q.q}%`,
+              });
             }
           : undefined,
       },
@@ -57,6 +53,10 @@ export class LotesService extends BaseCrudTenantService<Lote> {
 
   async createLote(dto: CreateLoteDto): Promise<Lote> {
     const tenantId = this.getTenantId({ strictTenant: true }) as string;
+
+    await this.proveedoresService.mustFindById(dto.proveedor_id, {
+      strictTenant: true,
+    });
 
     const conflict = await this.loteRepo.findOne({
       where: {
@@ -77,6 +77,12 @@ export class LotesService extends BaseCrudTenantService<Lote> {
   }
 
   async updateLote(id: string, dto: UpdateLoteDto): Promise<Lote> {
+    if (dto.proveedor_id !== undefined) {
+      await this.proveedoresService.mustFindById(dto.proveedor_id, {
+        strictTenant: true,
+      });
+    }
+
     if (dto.numero_lote) {
       const current = await this.mustFindById(id, { strictTenant: true });
       const tenantId = this.getTenantId({ strictTenant: true }) as string;

@@ -20,8 +20,11 @@ export class Lote extends BaseEntity {
   @Column({ type: 'varchar', length: 100 })
   numero_lote!: string;
 
-  @Column({ type: 'varchar', length: 200, nullable: true })
-  proveedor!: string | null;
+  @Column({ type: 'uuid', nullable: true })
+  establecimiento_id!: string | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  proveedor_id!: string | null;
 
   @Column({ type: 'text', nullable: true })
   observaciones!: string | null;
@@ -41,9 +44,6 @@ export class Lote extends BaseEntity {
 
   @Column({ type: 'varchar', length: 200, nullable: true })
   seed_company!: string | null;
-
-  @Column({ type: 'varchar', length: 200, nullable: true })
-  supplier!: string | null;
 
   @Column({ type: 'text', nullable: true })
   observations!: string | null;

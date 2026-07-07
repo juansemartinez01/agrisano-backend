@@ -55,10 +55,8 @@ export class CreateQuimicoDto {
   @IsDateString()
   dom?: string;
 
-  @IsOptional()
-  @IsString()
-  @MaxLength(200)
-  supplier?: string;
+  @IsUUID()
+  proveedor_id!: string;
 
   @IsOptional()
   @IsString()

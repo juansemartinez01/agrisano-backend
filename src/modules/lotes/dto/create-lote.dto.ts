@@ -2,6 +2,7 @@ import {
   IsEnum,
   IsString,
   IsNotEmpty,
+  IsUUID,
   MaxLength,
   IsOptional,
   ValidateIf,
@@ -18,9 +19,11 @@ export class CreateLoteDto {
   numero_lote!: string;
 
   @IsOptional()
-  @IsString()
-  @MaxLength(200)
-  proveedor?: string;
+  @IsUUID()
+  establecimiento_id?: string;
+
+  @IsUUID()
+  proveedor_id!: string;
 
   @IsOptional()
   @IsString()
@@ -47,11 +50,6 @@ export class CreateLoteDto {
   @IsString()
   @MaxLength(200)
   seed_company?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(200)
-  supplier?: string;
 
   @IsOptional()
   @IsString()
