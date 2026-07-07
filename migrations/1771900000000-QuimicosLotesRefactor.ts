@@ -25,6 +25,12 @@ export class QuimicosLotesRefactor1771900000000 implements MigrationInterface {
         await queryRunner.query(`ALTER TABLE "quimicos" DROP COLUMN "stock_actual"`);
         await queryRunner.query(`DROP TYPE IF EXISTS "quimico_unidad_stock"`);
 
+        // Normalizar valores existentes fuera de kg|l antes de forzar el enum
+        // (unidad_medida era texto libre; datos de prueba tienen 'g'/'ml' sueltos)
+        await queryRunner.query(`UPDATE "quimicos" SET "unidad_medida" = 'l' WHERE "unidad_medida" = 'ml'`);
+        await queryRunner.query(`UPDATE "quimicos" SET "unidad_medida" = 'kg' WHERE "unidad_medida" = 'g'`);
+        await queryRunner.query(`UPDATE "quimicos" SET "unidad_medida" = 'l' WHERE "unidad_medida" NOT IN ('kg', 'l')`);
+
         await queryRunner.query(`CREATE TYPE "quimico_unidad_medida" AS ENUM ('kg', 'l')`);
         await queryRunner.query(`
             ALTER TABLE "quimicos"
