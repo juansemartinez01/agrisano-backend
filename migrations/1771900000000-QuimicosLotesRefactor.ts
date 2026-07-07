@@ -72,6 +72,13 @@ export class QuimicosLotesRefactor1771900000000 implements MigrationInterface {
         `);
 
         // ── 4. aplicaciones_quimicas: receta_id se va, quimico_id -> lote_quimico_id ─
+        // Datos históricos de prueba: quimico_id apuntaba al producto, no a un lote
+        // (lotes_quimicos nace vacía). No hay forma de mapearlos — se descartan.
+        await queryRunner.query(`DELETE FROM "aplicacion_quimica_mesa"`);
+        await queryRunner.query(`DELETE FROM "aplicacion_quimica_bandeja"`);
+        await queryRunner.query(`DELETE FROM "aplicaciones_quimicas_detalle"`);
+        await queryRunner.query(`DELETE FROM "aplicaciones_quimicas"`);
+
         await queryRunner.query(`DROP INDEX IF EXISTS "IDX_aq_receta_id"`);
         await queryRunner.query(`ALTER TABLE "aplicaciones_quimicas" DROP COLUMN "receta_id"`);
         await queryRunner.query(`ALTER TABLE "aplicaciones_quimicas" RENAME COLUMN "quimico_id" TO "lote_quimico_id"`);
