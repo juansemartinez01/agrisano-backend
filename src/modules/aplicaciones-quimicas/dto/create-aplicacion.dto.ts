@@ -15,7 +15,7 @@ import { QuimicoRateUnidad } from 'src/modules/quimicos/entities/quimico.entity'
 
 export class DetalleItemDto {
   @IsUUID()
-  quimico_id!: string;
+  lote_quimico_id!: string;
 
   @IsNumber()
   @IsPositive()
@@ -30,7 +30,7 @@ export class CreateAplicacionDto {
   contexto!: AplicacionContexto;
 
   @IsUUID()
-  quimico_id!: string;
+  lote_quimico_id!: string;
 
   @IsNumber()
   @IsPositive()
@@ -39,10 +39,6 @@ export class CreateAplicacionDto {
   @IsOptional()
   @IsEnum(QuimicoRateUnidad)
   dosis_unidad?: QuimicoRateUnidad;
-
-  @IsOptional()
-  @IsUUID()
-  receta_id?: string;
 
   @IsOptional()
   @IsString()

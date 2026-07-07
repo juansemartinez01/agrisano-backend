@@ -60,7 +60,6 @@ interface BandejaCicloRow {
 interface AplicacionRow {
   id: string;
   fecha_hora: string;
-  receta_id: string | null;
   observaciones: string | null;
   usuario_id: string;
   detalles: Record<string, unknown>[] | null;
@@ -219,7 +218,7 @@ export class TrazabilidadService {
     let aplicacionesInvernadero: AplicacionRow[] = [];
     if (cycleDate) {
       aplicacionesInvernadero = await this.dataSource.query<AplicacionRow[]>(
-        `SELECT a.id, a.fecha_hora, a.observaciones, a.usuario_id, a.receta_id,
+        `SELECT a.id, a.fecha_hora, a.observaciones, a.usuario_id,
                 json_agg(row_to_json(aqd)) FILTER (WHERE aqd.id IS NOT NULL) AS detalles
          FROM aplicaciones_quimicas a
          JOIN aplicacion_quimica_mesa aqm ON aqm.aplicacion_id = a.id
@@ -238,7 +237,7 @@ export class TrazabilidadService {
     let aplicacionesNursery: AplicacionRow[] = [];
     if (bandejaIds.length > 0) {
       aplicacionesNursery = await this.dataSource.query<AplicacionRow[]>(
-        `SELECT a.id, a.fecha_hora, a.receta_id, a.observaciones, a.usuario_id,
+        `SELECT a.id, a.fecha_hora, a.observaciones, a.usuario_id,
                 json_agg(row_to_json(aqd)) FILTER (WHERE aqd.id IS NOT NULL) AS detalles
          FROM aplicaciones_quimicas a
          JOIN aplicacion_quimica_bandeja aqb ON aqb.aplicacion_id = a.id

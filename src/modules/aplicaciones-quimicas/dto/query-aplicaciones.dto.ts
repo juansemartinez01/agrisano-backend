@@ -13,10 +13,6 @@ export class QueryAplicacionesDto extends PageQueryDto {
 
   @IsOptional()
   @IsUUID()
-  receta_id?: string;
-
-  @IsOptional()
-  @IsUUID()
   quimico_id?: string;
 
   @IsOptional()

@@ -9,7 +9,7 @@ import { QuimicoRateUnidad } from 'src/modules/quimicos/entities/quimico.entity'
 
 export enum AplicacionContexto {
   NURSERY = 'nursery',
-  INVERNADERO = 'invernadero',
+  GREENHOUSE = 'greenhouse',
 }
 
 @Entity('aplicaciones_quimicas')
@@ -30,9 +30,6 @@ export class AplicacionQuimica {
   })
   contexto!: AplicacionContexto;
 
-  @Column({ type: 'uuid', nullable: true })
-  receta_id!: string | null;
-
   @Column({ type: 'text', nullable: true })
   observaciones!: string | null;
 
@@ -42,9 +39,9 @@ export class AplicacionQuimica {
   @Column({ type: 'timestamptz', default: () => 'now()' })
   fecha_hora!: Date;
 
-  // Primary chemical product applied
+  // Primary chemical lot applied
   @Column({ type: 'uuid', nullable: true })
-  quimico_id!: string | null;
+  lote_quimico_id!: string | null;
 
   @Column({ type: 'decimal', precision: 10, scale: 3, nullable: true })
   dosis!: number | null;
@@ -57,7 +54,7 @@ export class AplicacionQuimica {
   })
   dosis_unidad!: QuimicoRateUnidad | null;
 
-  // Snapshotted from quimico at time of application
+  // Snapshotted from lote at time of application
   @Column({ type: 'varchar', length: 100, nullable: true })
   batch!: string | null;
 

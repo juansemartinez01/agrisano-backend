@@ -9,7 +9,7 @@ export class AplicacionQuimicaDetalle {
   aplicacion_id!: string;
 
   @Column({ type: 'uuid' })
-  quimico_id!: string;
+  lote_quimico_id!: string;
 
   @Column({ type: 'decimal', precision: 10, scale: 3 })
   cantidad!: number;

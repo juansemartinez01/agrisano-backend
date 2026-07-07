@@ -22,7 +22,7 @@ import { LotesModule } from './modules/lotes/lotes.module';
 import { SiembraModule } from './modules/siembra/siembra.module';
 import { RecetasModule } from './modules/recetas/recetas.module';
 import { QuimicosModule } from './modules/quimicos/quimicos.module';
-import { StockMovimientosModule } from './modules/stock-movimientos/stock-movimientos.module';
+import { LotesQuimicosModule } from './modules/lotes-quimicos/lotes-quimicos.module';
 import { TunelesModule } from './modules/tuneles/tuneles.module';
 import { MesasModule } from './modules/mesas/mesas.module';
 import { AplicacionesQuimicasModule } from './modules/aplicaciones-quimicas/aplicaciones-quimicas.module';
@@ -68,7 +68,7 @@ import { ObservabilityModule } from './infra/observability/observability.module'
     SiembraModule,
     RecetasModule,
     QuimicosModule,
-    StockMovimientosModule,
+    LotesQuimicosModule,
     TunelesModule,
     MesasModule,
     AplicacionesQuimicasModule,

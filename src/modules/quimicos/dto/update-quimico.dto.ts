@@ -8,10 +8,9 @@ import {
   IsArray,
   IsEnum,
   IsInt,
-  IsDateString,
   Min,
 } from 'class-validator';
-import { QuimicoUnidadStock, QuimicoRateUnidad } from '../entities/quimico.entity';
+import { QuimicoUnidadMedida, QuimicoRateUnidad } from '../entities/quimico.entity';
 
 export class UpdateQuimicoDto {
   @IsOptional()
@@ -21,10 +20,8 @@ export class UpdateQuimicoDto {
   nombre?: string;
 
   @IsOptional()
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(30)
-  unidad_medida?: string;
+  @IsEnum(QuimicoUnidadMedida)
+  unidad_medida?: QuimicoUnidadMedida;
 
   @IsOptional()
   @IsBoolean()
@@ -36,14 +33,6 @@ export class UpdateQuimicoDto {
   principios_activos?: string[];
 
   @IsOptional()
-  @IsBoolean()
-  nombre_lista?: boolean;
-
-  @IsOptional()
-  @IsEnum(QuimicoUnidadStock)
-  unidad_stock?: QuimicoUnidadStock;
-
-  @IsOptional()
   @IsEnum(QuimicoRateUnidad)
   rate_unidad?: QuimicoRateUnidad;
 
@@ -51,21 +40,4 @@ export class UpdateQuimicoDto {
   @IsInt()
   @Min(0)
   withholding_period_dias?: number;
-
-  @IsOptional()
-  @IsDateString()
-  manufacture_date?: string;
-
-  @IsOptional()
-  @IsDateString()
-  dom?: string;
-
-  @IsOptional()
-  @IsUUID()
-  proveedor_id?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(100)
-  batch?: string;
 }

@@ -23,10 +23,11 @@ import { clampPagination } from 'src/common/query/query-utils';
 import { AppError } from 'src/common/errors/app-error';
 import { ErrorCodes } from 'src/common/errors/error-codes';
 import type { JwtPayload } from 'src/modules/auth/types/jwt-payload.type';
-import { QuimicosService, AUDIT } from './quimicos.service';
-import { CreateQuimicoDto } from './dto/create-quimico.dto';
-import { UpdateQuimicoDto } from './dto/update-quimico.dto';
-import { QueryQuimicosDto } from './dto/query-quimicos.dto';
+import { LotesQuimicosService, AUDIT } from './lotes-quimicos.service';
+import { CreateLoteQuimicoDto } from './dto/create-lote-quimico.dto';
+import { UpdateLoteQuimicoDto } from './dto/update-lote-quimico.dto';
+import { AjusteLoteQuimicoDto } from './dto/ajuste-lote-quimico.dto';
+import { QueryLotesQuimicosDto } from './dto/query-lotes-quimicos.dto';
 
 type AuthRequest = Request & {
   user: JwtPayload;
@@ -38,44 +39,50 @@ type AuthRequest = Request & {
 };
 
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Controller('quimicos')
-export class QuimicosController {
+@Controller()
+export class LotesQuimicosController {
   constructor(
-    private readonly svc: QuimicosService,
+    private readonly svc: LotesQuimicosService,
     private readonly audit: AuditService,
     private readonly logger: PinoLogger,
   ) {}
 
-  @Get()
-  async list(@Query() q: QueryQuimicosDto, @Req() _req: AuthRequest) {
+  @Get('lotes-quimicos')
+  async list(@Query() q: QueryLotesQuimicosDto) {
     const { page: p, limit } = clampPagination(q.page, q.limit, 200);
-    const r = await this.svc.listQuimicos(q);
+    const r = await this.svc.listLotes(q);
     return page(r.items, p, limit, r.total);
   }
 
-  @Get(':id')
+  @Get('lotes-quimicos/:id')
   async getOne(@Param('id') id: string) {
-    const quimico = await this.svc.getQuimicoWithPrincipios(id);
-    return ok(quimico);
+    const lote = await this.svc.mustFindById(id, { strictTenant: true });
+    return ok(lote);
+  }
+
+  @Get('quimicos/:quimicoId/lotes')
+  async listByQuimico(
+    @Param('quimicoId') quimicoId: string,
+    @Query() q: QueryLotesQuimicosDto,
+  ) {
+    const { page: p, limit } = clampPagination(q.page, q.limit, 200);
+    const r = await this.svc.listLotes({ ...q, quimico_id: quimicoId });
+    return page(r.items, p, limit, r.total);
   }
 
   @Roles('supervisor', 'admin_global')
-  @Post()
+  @Post('lotes-quimicos')
   @HttpCode(HttpStatus.CREATED)
-  async create(@Body() dto: CreateQuimicoDto, @Req() req: AuthRequest) {
-    const quimico = await this.svc.createQuimico(dto);
+  async create(@Body() dto: CreateLoteQuimicoDto, @Req() req: AuthRequest) {
+    const lote = await this.svc.createLote(dto);
 
     const payload = auditLogPayload({
       requestId: req.id,
       actorUserId: req.user?.sub,
       actorEmail: req.user?.email,
-      action: AUDIT.QUIMICO_CREATED,
-      entity: 'quimico',
-      extra: {
-        quimicoId: quimico.id,
-        nombre: quimico.nombre,
-        establecimiento_id: quimico.establecimiento_id,
-      },
+      action: AUDIT.CREATED,
+      entity: 'lote_quimico',
+      extra: { loteId: lote.id, quimicoId: lote.quimico_id, numeroLote: lote.numero_lote },
     });
     this.logger.info(payload, 'admin_audit');
     await this.audit.write('admin', {
@@ -85,47 +92,44 @@ export class QuimicosController {
       status_code: 201,
       actor_user_id: req.user?.sub ?? null,
       actor_email: req.user?.email ?? null,
-      action: AUDIT.QUIMICO_CREATED,
-      entity: 'quimico',
+      action: AUDIT.CREATED,
+      entity: 'lote_quimico',
       tenant_id: req.tenantId ?? null,
       payload,
     });
 
-    return ok(quimico);
+    return ok(lote);
   }
 
   @Roles('supervisor', 'admin_global')
-  @Patch(':id')
+  @Patch('lotes-quimicos/:id')
   async update(
     @Param('id') id: string,
-    @Body() dto: UpdateQuimicoDto,
+    @Body() dto: UpdateLoteQuimicoDto,
     @Req() req: AuthRequest,
   ) {
-    const ALLOWED = new Set([
-      'nombre', 'unidad_medida', 'activo', 'principios_activos',
-      'rate_unidad', 'withholding_period_dias',
-    ]);
+    const ALLOWED = new Set(['numero_lote', 'proveedor_id', 'dom', 'fecha_vencimiento']);
     if (
       Object.keys((req.body as Record<string, unknown>) ?? {}).some(
         (k) => !ALLOWED.has(k),
       )
     ) {
       throw new AppError({
-        code: ErrorCodes.QUIMICO_FIELD_IMMUTABLE,
-        message: 'Campo no permitido. Los campos inmutables son: id, tenant_id, establecimiento_id',
+        code: ErrorCodes.LOTE_QUIMICO_FIELD_IMMUTABLE,
+        message: 'Solo se pueden modificar numero_lote, proveedor_id, dom y fecha_vencimiento',
         status: 400,
       });
     }
 
-    const updated = await this.svc.updateQuimico(id, dto);
+    const updated = await this.svc.updateLote(id, dto);
 
     const payload = auditLogPayload({
       requestId: req.id,
       actorUserId: req.user?.sub,
       actorEmail: req.user?.email,
-      action: AUDIT.QUIMICO_UPDATED,
-      entity: 'quimico',
-      extra: { quimicoId: id, fields: Object.keys(dto) },
+      action: AUDIT.UPDATED,
+      entity: 'lote_quimico',
+      extra: { loteId: id, fields: Object.keys(dto) },
     });
     this.logger.info(payload, 'admin_audit');
     await this.audit.write('admin', {
@@ -135,8 +139,42 @@ export class QuimicosController {
       status_code: 200,
       actor_user_id: req.user?.sub ?? null,
       actor_email: req.user?.email ?? null,
-      action: AUDIT.QUIMICO_UPDATED,
-      entity: 'quimico',
+      action: AUDIT.UPDATED,
+      entity: 'lote_quimico',
+      tenant_id: req.tenantId ?? null,
+      payload,
+    });
+
+    return ok(updated);
+  }
+
+  @Roles('supervisor', 'admin_global')
+  @Post('lotes-quimicos/:id/ajuste')
+  async ajustar(
+    @Param('id') id: string,
+    @Body() dto: AjusteLoteQuimicoDto,
+    @Req() req: AuthRequest,
+  ) {
+    const updated = await this.svc.ajustarLote(id, dto);
+
+    const payload = auditLogPayload({
+      requestId: req.id,
+      actorUserId: req.user?.sub,
+      actorEmail: req.user?.email,
+      action: AUDIT.AJUSTADO,
+      entity: 'lote_quimico',
+      extra: { loteId: id, cantidad: dto.cantidad, observaciones: dto.observaciones },
+    });
+    this.logger.info(payload, 'admin_audit');
+    await this.audit.write('admin', {
+      request_id: req.id,
+      method: req.method,
+      path: req.url,
+      status_code: 200,
+      actor_user_id: req.user?.sub ?? null,
+      actor_email: req.user?.email ?? null,
+      action: AUDIT.AJUSTADO,
+      entity: 'lote_quimico',
       tenant_id: req.tenantId ?? null,
       payload,
     });
@@ -145,17 +183,17 @@ export class QuimicosController {
   }
 
   @Roles('admin_global')
-  @Delete(':id')
+  @Delete('lotes-quimicos/:id')
   async remove(@Param('id') id: string, @Req() req: AuthRequest) {
-    await this.svc.deleteQuimico(id);
+    await this.svc.deleteLote(id);
 
     const payload = auditLogPayload({
       requestId: req.id,
       actorUserId: req.user?.sub,
       actorEmail: req.user?.email,
-      action: AUDIT.QUIMICO_DELETED,
-      entity: 'quimico',
-      extra: { quimicoId: id },
+      action: AUDIT.DELETED,
+      entity: 'lote_quimico',
+      extra: { loteId: id },
     });
     this.logger.info(payload, 'admin_audit');
     await this.audit.write('admin', {
@@ -165,8 +203,8 @@ export class QuimicosController {
       status_code: 200,
       actor_user_id: req.user?.sub ?? null,
       actor_email: req.user?.email ?? null,
-      action: AUDIT.QUIMICO_DELETED,
-      entity: 'quimico',
+      action: AUDIT.DELETED,
+      entity: 'lote_quimico',
       tenant_id: req.tenantId ?? null,
       payload,
     });

@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, QueryRunner, Repository } from 'typeorm';
 import { PinoLogger } from 'nestjs-pino';
 import { AppError } from 'src/common/errors/app-error';
 import { ErrorCodes } from 'src/common/errors/error-codes';
@@ -8,15 +8,15 @@ import { AuditService } from 'src/modules/audit/audit.service';
 import { auditLogPayload } from 'src/common/audit/audit.util';
 import { TenancyService } from 'src/modules/tenancy/tenancy.service';
 import { EstablecimientosService } from 'src/modules/establecimientos/establecimientos.service';
-import { QuimicosService } from 'src/modules/quimicos/quimicos.service';
+import { LotesQuimicosService } from 'src/modules/lotes-quimicos/lotes-quimicos.service';
 import { Quimico } from 'src/modules/quimicos/entities/quimico.entity';
 import { QuimicoRateUnidad } from 'src/modules/quimicos/entities/quimico.entity';
+import { LoteQuimico } from 'src/modules/lotes-quimicos/entities/lote-quimico.entity';
 import { BandejaService } from 'src/modules/siembra/bandeja.service';
 import { BandejaEstado } from 'src/modules/siembra/entities/bandeja.entity';
 import { MesasService } from 'src/modules/mesas/mesas.service';
 import { MesaEstado } from 'src/modules/mesas/entities/mesa.entity';
 import { HistorialMesa, HistorialTipoEvento } from 'src/modules/mesas/entities/historial-mesa.entity';
-import { RecetasService } from 'src/modules/recetas/recetas.service';
 import { clampPagination } from 'src/common/query/query-utils';
 import { AplicacionQuimica, AplicacionContexto } from './entities/aplicacion-quimica.entity';
 import { AplicacionQuimicaDetalle } from './entities/aplicacion-quimica-detalle.entity';
@@ -27,14 +27,8 @@ import { QueryAplicacionesDto } from './dto/query-aplicaciones.dto';
 
 export const AUDIT = {
   NURSERY: 'aplicacion_quimica_nursery',
-  INVERNADERO: 'aplicacion_quimica_invernadero',
+  GREENHOUSE: 'aplicacion_quimica_greenhouse',
 } as const;
-
-interface StockWarning {
-  quimico_id: string;
-  nombre: string;
-  projected_stock: number;
-}
 
 interface AuditReq {
   requestId: string;
@@ -48,7 +42,6 @@ export interface CreateAplicacionResult {
   aplicacion: AplicacionQuimica;
   detalles: AplicacionQuimicaDetalle[];
   afectados: { bandeja_ids?: string[]; mesa_ids?: string[] };
-  warnings: StockWarning[];
 }
 
 export interface AplicacionConDetalle {
@@ -72,13 +65,34 @@ export class AplicacionesQuimicasService {
     private readonly dataSource: DataSource,
     private readonly tenancy: TenancyService,
     private readonly estService: EstablecimientosService,
-    private readonly quimicosService: QuimicosService,
+    private readonly lotesQuimicosService: LotesQuimicosService,
     private readonly bandejaService: BandejaService,
     private readonly mesasService: MesasService,
-    private readonly recetasService: RecetasService,
     private readonly audit: AuditService,
     private readonly logger: PinoLogger,
   ) {}
+
+  private async decrementarLote(
+    qr: QueryRunner,
+    loteId: string,
+    cantidad: number,
+    tenantId: string,
+  ): Promise<void> {
+    const rows = (await qr.query(
+      `UPDATE lotes_quimicos SET cantidad_actual = cantidad_actual - $1, updated_at = now()
+       WHERE id = $2 AND tenant_id = $3 AND cantidad_actual >= $1
+       RETURNING id`,
+      [cantidad, loteId, tenantId],
+    )) as Array<{ id: string }>;
+
+    if (rows.length === 0) {
+      throw new AppError({
+        code: ErrorCodes.LOTE_QUIMICO_STOCK_INSUFICIENTE,
+        message: `El lote ${loteId} no tiene stock suficiente para descontar ${cantidad}`,
+        status: 422,
+      });
+    }
+  }
 
   async createAplicacion(
     dto: CreateAplicacionDto,
@@ -89,35 +103,18 @@ export class AplicacionesQuimicasService {
     // 1. Validate establishment
     await this.estService.mustFindById(dto.establecimiento_id, { strictTenant: true });
 
-    // 2. invernadero cannot have receta_id
-    if (dto.contexto === AplicacionContexto.INVERNADERO && dto.receta_id) {
-      throw new AppError({
-        code: ErrorCodes.APLICACION_CONTEXTO_INVALIDO,
-        message: 'receta_id no es aplicable a aplicaciones de tipo invernadero',
-        status: 422,
-      });
-    }
-
-    // 3. Load + validate primary quimico
-    const primaryQuimico = await this.quimicosService.mustFindById(dto.quimico_id, { strictTenant: true });
+    // 2. Load + validate primary lote (and its quimico)
+    const { lote: primaryLote, quimico: primaryQuimico } =
+      await this.lotesQuimicosService.mustFindByIdWithQuimico(dto.lote_quimico_id);
     if (primaryQuimico.establecimiento_id !== dto.establecimiento_id) {
       throw new AppError({
         code: ErrorCodes.APLICACION_TARGET_INVALIDO,
-        message: `El químico ${dto.quimico_id} no pertenece al establecimiento indicado`,
+        message: `El lote ${dto.lote_quimico_id} no pertenece al establecimiento indicado`,
         status: 422,
       });
     }
 
-    // 4. Validate dosis_unidad against quimico.rate_unidad
-    if (dto.dosis_unidad !== undefined && dto.dosis_unidad !== (primaryQuimico.rate_unidad as QuimicoRateUnidad)) {
-      throw new AppError({
-        code: ErrorCodes.APLICACION_DOSIS_UNIDAD_MISMATCH,
-        message: `La dosis_unidad '${dto.dosis_unidad}' no coincide con rate_unidad del químico ('${primaryQuimico.rate_unidad}'). Usá ${primaryQuimico.rate_unidad}.`,
-        status: 422,
-      });
-    }
-
-    // 5. Nursery requires bandeja_ids; invernadero requires mesa_ids
+    // 3. Nursery requires bandeja_ids; greenhouse requires mesa_ids
     if (dto.contexto === AplicacionContexto.NURSERY && !dto.bandeja_ids?.length) {
       throw new AppError({
         code: ErrorCodes.APLICACION_TARGETS_VACIOS,
@@ -125,29 +122,29 @@ export class AplicacionesQuimicasService {
         status: 422,
       });
     }
-    if (dto.contexto === AplicacionContexto.INVERNADERO && !dto.mesa_ids?.length) {
+    if (dto.contexto === AplicacionContexto.GREENHOUSE && !dto.mesa_ids?.length) {
       throw new AppError({
         code: ErrorCodes.APLICACION_TARGETS_VACIOS,
-        message: 'Se requiere al menos una mesa para aplicaciones de invernadero',
+        message: 'Se requiere al menos una mesa para aplicaciones de greenhouse',
         status: 422,
       });
     }
 
-    // 6. Load + validate supplementary quimicos in detalles[]
-    const quimicoMap: Record<string, Quimico> = {};
+    // 4. Load + validate supplementary lotes in detalles[]
+    const loteMap: Record<string, { lote: LoteQuimico; quimico: Quimico }> = {};
     for (const d of dto.detalles ?? []) {
-      const quimico = await this.quimicosService.mustFindById(d.quimico_id, { strictTenant: true });
-      if (quimico.establecimiento_id !== dto.establecimiento_id) {
+      const entry = await this.lotesQuimicosService.mustFindByIdWithQuimico(d.lote_quimico_id);
+      if (entry.quimico.establecimiento_id !== dto.establecimiento_id) {
         throw new AppError({
           code: ErrorCodes.APLICACION_TARGET_INVALIDO,
-          message: `El químico ${d.quimico_id} no pertenece al establecimiento indicado`,
+          message: `El lote ${d.lote_quimico_id} no pertenece al establecimiento indicado`,
           status: 422,
         });
       }
-      quimicoMap[d.quimico_id] = quimico;
+      loteMap[d.lote_quimico_id] = entry;
     }
 
-    // 7. Validate nursery targets
+    // 5. Validate nursery targets
     if (dto.contexto === AplicacionContexto.NURSERY && dto.bandeja_ids) {
       for (const bandeja_id of dto.bandeja_ids) {
         const bandeja = await this.bandejaService.getBandeja(bandeja_id);
@@ -168,8 +165,8 @@ export class AplicacionesQuimicasService {
       }
     }
 
-    // 8. Validate invernadero targets
-    if (dto.contexto === AplicacionContexto.INVERNADERO && dto.mesa_ids) {
+    // 6. Validate greenhouse targets
+    if (dto.contexto === AplicacionContexto.GREENHOUSE && dto.mesa_ids) {
       for (const mesa_id of dto.mesa_ids) {
         const mesa = await this.mesasService.getMesaById(mesa_id, tenantId);
         if (mesa.estado !== MesaEstado.ACTIVA && mesa.estado !== MesaEstado.EN_COSECHA) {
@@ -189,39 +186,14 @@ export class AplicacionesQuimicasService {
       }
     }
 
-    // 9. Validate receta if provided
-    if (dto.receta_id) {
-      await this.recetasService.mustFindById(dto.receta_id, { strictTenant: true });
-    }
+    // 7. Cantidad total del lote primario: dosis × cantidad de targets (mesas o bandejas)
+    const targetCount =
+      dto.contexto === AplicacionContexto.GREENHOUSE
+        ? (dto.mesa_ids?.length ?? 0)
+        : (dto.bandeja_ids?.length ?? 0);
+    const primaryTotalDosis = dto.dosis * (targetCount > 0 ? targetCount : 1);
 
-    // 10. Pre-transaction stock warnings
-    const warnings: StockWarning[] = [];
-    const mesaCount = dto.mesa_ids?.length ?? 0;
-    const primaryTotalDosis = dto.dosis * (mesaCount > 0 ? mesaCount : 1);
-
-    if (dto.contexto === AplicacionContexto.INVERNADERO) {
-      const primaryProjected = Number(primaryQuimico.stock_actual) - primaryTotalDosis;
-      if (primaryProjected < 0) {
-        warnings.push({
-          quimico_id: dto.quimico_id,
-          nombre: primaryQuimico.nombre,
-          projected_stock: primaryProjected,
-        });
-      }
-    }
-    for (const d of dto.detalles ?? []) {
-      const quimico = quimicoMap[d.quimico_id];
-      const projected = Number(quimico.stock_actual) - Number(d.cantidad);
-      if (projected < 0) {
-        warnings.push({
-          quimico_id: d.quimico_id,
-          nombre: quimico.nombre,
-          projected_stock: projected,
-        });
-      }
-    }
-
-    // 11. Transaction
+    // 8. Transaction
     const qr = this.dataSource.createQueryRunner();
     await qr.connect();
     await qr.startTransaction();
@@ -230,56 +202,45 @@ export class AplicacionesQuimicasService {
     const savedDetalles: AplicacionQuimicaDetalle[] = [];
 
     try {
-      // INSERT aplicacion with primary quimico snapshot
       const aplicacion = qr.manager.create(AplicacionQuimica, {
         tenant_id: tenantId,
         establecimiento_id: dto.establecimiento_id,
         contexto: dto.contexto,
-        receta_id: dto.receta_id ?? null,
         observaciones: dto.observaciones ?? null,
         usuario_id: userId,
         fecha_hora: new Date(),
-        quimico_id: dto.quimico_id,
+        lote_quimico_id: dto.lote_quimico_id,
         dosis: dto.dosis,
         dosis_unidad: dto.dosis_unidad ?? (primaryQuimico.rate_unidad as QuimicoRateUnidad) ?? null,
-        batch: primaryQuimico.batch ?? null,
+        batch: primaryLote.numero_lote ?? null,
         withholding_period_dias: primaryQuimico.withholding_period_dias ?? null,
       });
       savedAplicacion = await qr.manager.save(AplicacionQuimica, aplicacion);
 
-      // INSERT primary detalle + deduct stock (invernadero only)
+      // Primary detalle — siempre descuenta stock (nursery y greenhouse)
+      await this.decrementarLote(qr, dto.lote_quimico_id, primaryTotalDosis, tenantId);
       const primaryDetalle = qr.manager.create(AplicacionQuimicaDetalle, {
         aplicacion_id: savedAplicacion.id,
-        quimico_id: dto.quimico_id,
+        lote_quimico_id: dto.lote_quimico_id,
         cantidad: primaryTotalDosis,
-        unidad_medida: primaryQuimico.unidad_stock,
+        unidad_medida: primaryQuimico.unidad_medida,
       });
       savedDetalles.push(await qr.manager.save(AplicacionQuimicaDetalle, primaryDetalle));
 
-      if (dto.contexto === AplicacionContexto.INVERNADERO) {
-        await qr.query(
-          `UPDATE quimicos SET stock_actual = stock_actual - $1, updated_at = now() WHERE id = $2 AND tenant_id = $3`,
-          [primaryTotalDosis, dto.quimico_id, tenantId],
-        );
-      }
-
-      // INSERT supplementary detalles + decrement stock
+      // Supplementary detalles + decrement stock
       for (const d of dto.detalles ?? []) {
-        const quimico = quimicoMap[d.quimico_id];
+        const { quimico } = loteMap[d.lote_quimico_id];
+        await this.decrementarLote(qr, d.lote_quimico_id, d.cantidad, tenantId);
         const detalle = qr.manager.create(AplicacionQuimicaDetalle, {
           aplicacion_id: savedAplicacion.id,
-          quimico_id: d.quimico_id,
+          lote_quimico_id: d.lote_quimico_id,
           cantidad: d.cantidad,
-          unidad_medida: quimico.unidad_stock,
+          unidad_medida: quimico.unidad_medida,
         });
         savedDetalles.push(await qr.manager.save(AplicacionQuimicaDetalle, detalle));
-        await qr.query(
-          `UPDATE quimicos SET stock_actual = stock_actual - $1, updated_at = now() WHERE id = $2 AND tenant_id = $3`,
-          [d.cantidad, d.quimico_id, tenantId],
-        );
       }
 
-      // INSERT nursery bandeja links (unchanged)
+      // Nursery bandeja links
       if (dto.contexto === AplicacionContexto.NURSERY && dto.bandeja_ids) {
         for (const bandeja_id of dto.bandeja_ids) {
           await qr.manager.save(AplicacionQuimicaBandeja, {
@@ -289,8 +250,8 @@ export class AplicacionesQuimicasService {
         }
       }
 
-      // INSERT invernadero mesa links + historial + carencia
-      if (dto.contexto === AplicacionContexto.INVERNADERO && dto.mesa_ids) {
+      // Greenhouse mesa links + historial + carencia
+      if (dto.contexto === AplicacionContexto.GREENHOUSE && dto.mesa_ids) {
         const hasCarencia =
           primaryQuimico.withholding_period_dias !== null &&
           primaryQuimico.withholding_period_dias !== undefined &&
@@ -310,7 +271,6 @@ export class AplicacionesQuimicasService {
             mesa_id,
           });
 
-          // Historial: aplicacion quimica
           await qr.manager.save(HistorialMesa, {
             mesa_id,
             tipo_evento: HistorialTipoEvento.APLICACION_QUIMICA,
@@ -319,17 +279,16 @@ export class AplicacionesQuimicasService {
             fecha_hora: aplicacionDate,
             detalle: {
               aplicacion_id: savedAplicacion.id,
-              quimico_id: dto.quimico_id,
+              lote_quimico_id: dto.lote_quimico_id,
               dosis: dto.dosis,
-              batch: primaryQuimico.batch ?? null,
+              batch: primaryLote.numero_lote ?? null,
               quimicos_adicionales: savedDetalles.slice(1).map((d) => ({
-                quimico_id: d.quimico_id,
+                lote_quimico_id: d.lote_quimico_id,
                 cantidad: d.cantidad,
               })),
             },
           });
 
-          // Historial: carencia + update mesa.carencia_hasta
           if (hasCarencia && carenciaHastaStr) {
             await qr.query(
               `UPDATE mesas SET carencia_hasta = $1 WHERE id = $2`,
@@ -343,7 +302,7 @@ export class AplicacionesQuimicasService {
               fecha_hora: aplicacionDate,
               detalle: {
                 aplicacion_id: savedAplicacion.id,
-                quimico_id: dto.quimico_id,
+                lote_quimico_id: dto.lote_quimico_id,
                 withholding_period_dias: primaryQuimico.withholding_period_dias,
                 carencia_hasta: carenciaHastaStr,
               },
@@ -360,9 +319,8 @@ export class AplicacionesQuimicasService {
       await qr.release();
     }
 
-    // Post-transaction audit
     const auditAction =
-      dto.contexto === AplicacionContexto.NURSERY ? AUDIT.NURSERY : AUDIT.INVERNADERO;
+      dto.contexto === AplicacionContexto.NURSERY ? AUDIT.NURSERY : AUDIT.GREENHOUSE;
     await this.writeAudit(
       auditAction,
       'aplicacion_quimica',
@@ -379,7 +337,6 @@ export class AplicacionesQuimicasService {
         dto.contexto === AplicacionContexto.NURSERY
           ? { bandeja_ids: dto.bandeja_ids }
           : { mesa_ids: dto.mesa_ids },
-      warnings,
     };
   }
 
@@ -399,18 +356,19 @@ export class AplicacionesQuimicasService {
     if (q.establecimiento_id)
       qb.andWhere('a.establecimiento_id = :eid', { eid: q.establecimiento_id });
     if (q.contexto) qb.andWhere('a.contexto = :contexto', { contexto: q.contexto });
-    if (q.receta_id) qb.andWhere('a.receta_id = :receta_id', { receta_id: q.receta_id });
     if (q.fecha_desde)
       qb.andWhere('a.fecha_hora >= :fecha_desde', { fecha_desde: q.fecha_desde });
     if (q.fecha_hasta)
       qb.andWhere('a.fecha_hora <= :fecha_hasta', { fecha_hasta: q.fecha_hasta });
 
     if (q.quimico_id) {
-      qb.leftJoin(
+      qb.innerJoin(
         'aplicaciones_quimicas_detalle',
         'aqd',
         'aqd.aplicacion_id = a.id',
-      ).andWhere('aqd.quimico_id = :quimico_id', { quimico_id: q.quimico_id });
+      )
+        .innerJoin('lotes_quimicos', 'lq', 'lq.id = aqd.lote_quimico_id')
+        .andWhere('lq.quimico_id = :quimico_id', { quimico_id: q.quimico_id });
     }
 
     qb.orderBy(`a.${sortBy}`, sortOrder).skip(skip).take(limit);

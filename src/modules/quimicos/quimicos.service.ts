@@ -6,7 +6,6 @@ import { AppError } from 'src/common/errors/app-error';
 import { ErrorCodes } from 'src/common/errors/error-codes';
 import { runInTx } from 'src/common/database/transaction';
 import { EstablecimientosService } from 'src/modules/establecimientos/establecimientos.service';
-import { ProveedoresService } from 'src/modules/proveedores/proveedores.service';
 import { Quimico } from './entities/quimico.entity';
 import { PrincipioActivo } from './entities/principio-activo.entity';
 import { QuimicoPrincipioActivo } from './entities/quimico-principio-activo.entity';
@@ -33,26 +32,9 @@ export class QuimicosService extends BaseCrudTenantService<Quimico> {
     @InjectRepository(PrincipioActivo)
     private readonly paRepo: Repository<PrincipioActivo>,
     private readonly estService: EstablecimientosService,
-    private readonly proveedoresService: ProveedoresService,
     private readonly dataSource: DataSource,
   ) {
     super(quimicoRepo);
-  }
-
-  private async validateProveedor(
-    proveedorId: string,
-    establecimientoId: string,
-  ): Promise<void> {
-    const proveedor = await this.proveedoresService.mustFindById(proveedorId, {
-      strictTenant: true,
-    });
-    if (proveedor.establecimiento_id !== establecimientoId) {
-      throw new AppError({
-        code: ErrorCodes.PROVEEDOR_ESTABLECIMIENTO_MISMATCH,
-        message: 'El proveedor no pertenece al establecimiento del químico',
-        status: 422,
-      });
-    }
   }
 
   async listQuimicos(
@@ -126,8 +108,6 @@ export class QuimicosService extends BaseCrudTenantService<Quimico> {
       });
     }
 
-    await this.validateProveedor(dto.proveedor_id, dto.establecimiento_id);
-
     const paIds = dto.principios_activos ?? [];
     await this.validatePrincipioActivoIds(paIds);
 
@@ -136,15 +116,8 @@ export class QuimicosService extends BaseCrudTenantService<Quimico> {
         establecimiento_id: dto.establecimiento_id,
         nombre: dto.nombre,
         unidad_medida: dto.unidad_medida,
-        stock_actual: 0,
-        nombre_lista: dto.nombre_lista ?? false,
-        unidad_stock: dto.unidad_stock,
         rate_unidad: dto.rate_unidad,
         withholding_period_dias: dto.withholding_period_dias ?? null,
-        manufacture_date: dto.manufacture_date ?? null,
-        dom: dto.dom ?? null,
-        proveedor_id: dto.proveedor_id,
-        batch: dto.batch ?? null,
       },
       { strictTenant: true },
     );
@@ -160,10 +133,6 @@ export class QuimicosService extends BaseCrudTenantService<Quimico> {
 
   async updateQuimico(id: string, dto: UpdateQuimicoDto): Promise<Quimico> {
     const current = await this.mustFindById(id, { strictTenant: true });
-
-    if (dto.proveedor_id !== undefined) {
-      await this.validateProveedor(dto.proveedor_id, current.establecimiento_id);
-    }
 
     if (dto.nombre !== undefined && dto.nombre !== current.nombre) {
       const tenantId = this.getTenantId({ strictTenant: true }) as string;
@@ -208,14 +177,8 @@ export class QuimicosService extends BaseCrudTenantService<Quimico> {
     if (dto.nombre !== undefined) updatePayload.nombre = dto.nombre;
     if (dto.unidad_medida !== undefined) updatePayload.unidad_medida = dto.unidad_medida;
     if (dto.activo !== undefined) updatePayload.activo = dto.activo;
-    if (dto.nombre_lista !== undefined) updatePayload.nombre_lista = dto.nombre_lista;
-    if (dto.unidad_stock !== undefined) updatePayload.unidad_stock = dto.unidad_stock;
     if (dto.rate_unidad !== undefined) updatePayload.rate_unidad = dto.rate_unidad;
     if (dto.withholding_period_dias !== undefined) updatePayload.withholding_period_dias = dto.withholding_period_dias;
-    if (dto.manufacture_date !== undefined) updatePayload.manufacture_date = dto.manufacture_date;
-    if (dto.dom !== undefined) updatePayload.dom = dto.dom;
-    if (dto.proveedor_id !== undefined) updatePayload.proveedor_id = dto.proveedor_id;
-    if (dto.batch !== undefined) updatePayload.batch = dto.batch;
 
     if (Object.keys(updatePayload).length > 0) {
       await this.update(id, updatePayload, { strictTenant: true });

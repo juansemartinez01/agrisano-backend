@@ -3,10 +3,9 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { TenancyModule } from 'src/modules/tenancy/tenancy.module';
 import { AuditModule } from 'src/modules/audit/audit.module';
 import { EstablecimientosModule } from 'src/modules/establecimientos/establecimientos.module';
-import { QuimicosModule } from 'src/modules/quimicos/quimicos.module';
 import { SiembraModule } from 'src/modules/siembra/siembra.module';
 import { MesasModule } from 'src/modules/mesas/mesas.module';
-import { RecetasModule } from 'src/modules/recetas/recetas.module';
+import { LotesQuimicosModule } from 'src/modules/lotes-quimicos/lotes-quimicos.module';
 import { AplicacionQuimica } from './entities/aplicacion-quimica.entity';
 import { AplicacionQuimicaDetalle } from './entities/aplicacion-quimica-detalle.entity';
 import { AplicacionQuimicaBandeja } from './entities/aplicacion-quimica-bandeja.entity';
@@ -25,10 +24,9 @@ import { AplicacionesQuimicasController } from './aplicaciones-quimicas.controll
     TenancyModule,
     AuditModule,
     EstablecimientosModule,
-    QuimicosModule,
     SiembraModule,
     MesasModule,
-    RecetasModule,
+    LotesQuimicosModule,
   ],
   providers: [AplicacionesQuimicasService],
   controllers: [AplicacionesQuimicasController],
