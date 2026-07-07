@@ -42,8 +42,8 @@ export class Lote extends BaseEntity {
   @Column({ type: 'varchar', length: 100, nullable: true })
   batch!: string | null;
 
-  @Column({ type: 'varchar', length: 200, nullable: true })
-  seed_company!: string | null;
+  @Column({ type: 'uuid', nullable: true })
+  proveedor_semilla_id!: string | null;
 
   @Column({ type: 'text', nullable: true })
   observations!: string | null;

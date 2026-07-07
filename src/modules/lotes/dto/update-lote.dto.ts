@@ -38,14 +38,13 @@ export class UpdateLoteDto {
   variedad?: string;
 
   @IsOptional()
-  @IsString()
-  @MaxLength(100)
-  batch?: string;
+  @IsUUID()
+  proveedor_semilla_id?: string;
 
   @IsOptional()
   @IsString()
-  @MaxLength(200)
-  seed_company?: string;
+  @MaxLength(100)
+  batch?: string;
 
   @IsOptional()
   @IsString()

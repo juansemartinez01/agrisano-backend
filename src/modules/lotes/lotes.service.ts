@@ -58,6 +58,19 @@ export class LotesService extends BaseCrudTenantService<Lote> {
       strictTenant: true,
     });
 
+    if (dto.tipo === LoteTipo.SUSTRATO && dto.proveedor_semilla_id) {
+      throw new AppError({
+        code: ErrorCodes.LOTE_PROVEEDOR_SEMILLA_NO_PERMITIDO,
+        message: 'proveedor_semilla_id solo aplica a lotes de tipo semilla',
+        status: 422,
+      });
+    }
+    if (dto.tipo === LoteTipo.SEMILLA) {
+      await this.proveedoresService.mustFindById(dto.proveedor_semilla_id!, {
+        strictTenant: true,
+      });
+    }
+
     const conflict = await this.loteRepo.findOne({
       where: {
         tenant_id: tenantId,
@@ -83,26 +96,42 @@ export class LotesService extends BaseCrudTenantService<Lote> {
       });
     }
 
-    if (dto.numero_lote) {
+    if (dto.proveedor_semilla_id !== undefined || dto.numero_lote) {
       const current = await this.mustFindById(id, { strictTenant: true });
-      const tenantId = this.getTenantId({ strictTenant: true }) as string;
 
-      const conflict = await this.loteRepo
-        .createQueryBuilder('l')
-        .where('l.tenant_id = :tenantId', { tenantId })
-        .andWhere('l.tipo = :tipo', { tipo: current.tipo as LoteTipo })
-        .andWhere('l.numero_lote = :numero_lote', {
-          numero_lote: dto.numero_lote,
-        })
-        .andWhere('l.id != :id', { id })
-        .getOne();
-
-      if (conflict) {
-        throw new AppError({
-          code: ErrorCodes.LOTE_NUMERO_DUPLICADO,
-          message: `Ya existe un lote con numero_lote '${dto.numero_lote}' para ese tipo`,
-          status: 409,
+      if (dto.proveedor_semilla_id !== undefined) {
+        if (current.tipo === LoteTipo.SUSTRATO) {
+          throw new AppError({
+            code: ErrorCodes.LOTE_PROVEEDOR_SEMILLA_NO_PERMITIDO,
+            message: 'proveedor_semilla_id solo aplica a lotes de tipo semilla',
+            status: 422,
+          });
+        }
+        await this.proveedoresService.mustFindById(dto.proveedor_semilla_id, {
+          strictTenant: true,
         });
+      }
+
+      if (dto.numero_lote) {
+        const tenantId = this.getTenantId({ strictTenant: true }) as string;
+
+        const conflict = await this.loteRepo
+          .createQueryBuilder('l')
+          .where('l.tenant_id = :tenantId', { tenantId })
+          .andWhere('l.tipo = :tipo', { tipo: current.tipo as LoteTipo })
+          .andWhere('l.numero_lote = :numero_lote', {
+            numero_lote: dto.numero_lote,
+          })
+          .andWhere('l.id != :id', { id })
+          .getOne();
+
+        if (conflict) {
+          throw new AppError({
+            code: ErrorCodes.LOTE_NUMERO_DUPLICADO,
+            message: `Ya existe un lote con numero_lote '${dto.numero_lote}' para ese tipo`,
+            status: 409,
+          });
+        }
       }
     }
 
