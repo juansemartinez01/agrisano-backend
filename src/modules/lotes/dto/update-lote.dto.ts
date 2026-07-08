@@ -46,8 +46,4 @@ export class UpdateLoteDto {
   @IsString()
   @MaxLength(100)
   batch?: string;
-
-  @IsOptional()
-  @IsString()
-  observations?: string;
 }

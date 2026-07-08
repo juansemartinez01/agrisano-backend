@@ -53,8 +53,4 @@ export class CreateLoteDto {
   @IsString()
   @MaxLength(100)
   batch?: string;
-
-  @IsOptional()
-  @IsString()
-  observations?: string;
 }

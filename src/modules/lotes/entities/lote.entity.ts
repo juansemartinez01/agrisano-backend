@@ -41,7 +41,4 @@ export class Lote extends BaseEntity {
 
   @Column({ type: 'uuid', nullable: true })
   proveedor_semilla_id!: string | null;
-
-  @Column({ type: 'text', nullable: true })
-  observations!: string | null;
 }
