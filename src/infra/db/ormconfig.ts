@@ -13,6 +13,7 @@ export function makeOrmConfig(databaseUrl: string): DataSourceOptions {
 
     synchronize: false,
     migrationsRun: true,
+    migrationsTransactionMode: 'each',
     logging: false,
   };
 }
