@@ -7,7 +7,7 @@ import {
   IsOptional,
   ValidateIf,
 } from 'class-validator';
-import { LoteTipo, LoteProducto } from '../entities/lote.entity';
+import { LoteTipo } from '../entities/lote.entity';
 
 export class CreateLoteDto {
   @IsEnum(LoteTipo)
@@ -32,14 +32,13 @@ export class CreateLoteDto {
   // Semilla-only fields — validated only when tipo === 'semilla'
   @ValidateIf((o: CreateLoteDto) => o.tipo === LoteTipo.SEMILLA)
   @IsNotEmpty()
-  @IsEnum(LoteProducto)
-  producto?: LoteProducto;
+  @IsUUID()
+  producto_id?: string;
 
   @ValidateIf((o: CreateLoteDto) => o.tipo === LoteTipo.SEMILLA)
   @IsNotEmpty()
-  @IsString()
-  @MaxLength(200)
-  variedad?: string;
+  @IsUUID()
+  variedad_id?: string;
 
   @ValidateIf((o: CreateLoteDto) => o.tipo === LoteTipo.SEMILLA)
   @IsNotEmpty()

@@ -4,6 +4,12 @@ export class CreateCosechaDto {
   @IsUUID()
   mesa_id!: string;
 
+  @IsUUID()
+  producto_id!: string;
+
+  @IsUUID()
+  variedad_id!: string;
+
   @IsNumber()
   @Min(0.001)
   @Max(9999999.999)

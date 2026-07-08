@@ -5,6 +5,8 @@ import { BaseCrudTenantService } from 'src/common/crud/base-crud.service';
 import { AppError } from 'src/common/errors/app-error';
 import { ErrorCodes } from 'src/common/errors/error-codes';
 import { ProveedoresService } from 'src/modules/proveedores/proveedores.service';
+import { ProductosService } from 'src/modules/productos/productos.service';
+import { VariedadesService } from 'src/modules/productos/variedades.service';
 import { Lote, LoteTipo } from './entities/lote.entity';
 import { CreateLoteDto } from './dto/create-lote.dto';
 import { UpdateLoteDto } from './dto/update-lote.dto';
@@ -22,8 +24,27 @@ export class LotesService extends BaseCrudTenantService<Lote> {
     @InjectRepository(Lote)
     private readonly loteRepo: Repository<Lote>,
     private readonly proveedoresService: ProveedoresService,
+    private readonly productosService: ProductosService,
+    private readonly variedadesService: VariedadesService,
   ) {
     super(loteRepo);
+  }
+
+  private async validateProductoVariedad(
+    productoId: string,
+    variedadId: string,
+  ): Promise<void> {
+    await this.productosService.mustFindById(productoId, { strictTenant: true });
+    const variedad = await this.variedadesService.mustFindById(variedadId, {
+      strictTenant: true,
+    });
+    if (variedad.producto_id !== productoId) {
+      throw new AppError({
+        code: ErrorCodes.VARIEDAD_PRODUCTO_MISMATCH,
+        message: 'La variedad no pertenece al producto indicado',
+        status: 422,
+      });
+    }
   }
 
   async listLotes(
@@ -58,10 +79,20 @@ export class LotesService extends BaseCrudTenantService<Lote> {
       strictTenant: true,
     });
 
-    if (dto.tipo === LoteTipo.SUSTRATO && dto.proveedor_semilla_id) {
+    if (
+      dto.tipo === LoteTipo.SUSTRATO &&
+      (dto.proveedor_semilla_id || dto.producto_id || dto.variedad_id)
+    ) {
+      if (dto.proveedor_semilla_id) {
+        throw new AppError({
+          code: ErrorCodes.LOTE_PROVEEDOR_SEMILLA_NO_PERMITIDO,
+          message: 'proveedor_semilla_id solo aplica a lotes de tipo semilla',
+          status: 422,
+        });
+      }
       throw new AppError({
-        code: ErrorCodes.LOTE_PROVEEDOR_SEMILLA_NO_PERMITIDO,
-        message: 'proveedor_semilla_id solo aplica a lotes de tipo semilla',
+        code: ErrorCodes.LOTE_PRODUCTO_NO_PERMITIDO,
+        message: 'producto_id/variedad_id solo aplica a lotes de tipo semilla',
         status: 422,
       });
     }
@@ -69,6 +100,7 @@ export class LotesService extends BaseCrudTenantService<Lote> {
       await this.proveedoresService.mustFindById(dto.proveedor_semilla_id!, {
         strictTenant: true,
       });
+      await this.validateProductoVariedad(dto.producto_id!, dto.variedad_id!);
     }
 
     const conflict = await this.loteRepo.findOne({
@@ -96,7 +128,12 @@ export class LotesService extends BaseCrudTenantService<Lote> {
       });
     }
 
-    if (dto.proveedor_semilla_id !== undefined || dto.numero_lote) {
+    if (
+      dto.proveedor_semilla_id !== undefined ||
+      dto.producto_id !== undefined ||
+      dto.variedad_id !== undefined ||
+      dto.numero_lote
+    ) {
       const current = await this.mustFindById(id, { strictTenant: true });
 
       if (dto.proveedor_semilla_id !== undefined) {
@@ -110,6 +147,19 @@ export class LotesService extends BaseCrudTenantService<Lote> {
         await this.proveedoresService.mustFindById(dto.proveedor_semilla_id, {
           strictTenant: true,
         });
+      }
+
+      if (dto.producto_id !== undefined || dto.variedad_id !== undefined) {
+        if (current.tipo === LoteTipo.SUSTRATO) {
+          throw new AppError({
+            code: ErrorCodes.LOTE_PRODUCTO_NO_PERMITIDO,
+            message: 'producto_id/variedad_id solo aplica a lotes de tipo semilla',
+            status: 422,
+          });
+        }
+        const productoId = dto.producto_id ?? current.producto_id!;
+        const variedadId = dto.variedad_id ?? current.variedad_id!;
+        await this.validateProductoVariedad(productoId, variedadId);
       }
 
       if (dto.numero_lote) {

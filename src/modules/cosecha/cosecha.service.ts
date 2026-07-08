@@ -10,6 +10,8 @@ import { TenancyService } from 'src/modules/tenancy/tenancy.service';
 import { MesasService } from 'src/modules/mesas/mesas.service';
 import { MesaEstado } from 'src/modules/mesas/entities/mesa.entity';
 import { HistorialMesa, HistorialTipoEvento } from 'src/modules/mesas/entities/historial-mesa.entity';
+import { ProductosService } from 'src/modules/productos/productos.service';
+import { VariedadesService } from 'src/modules/productos/variedades.service';
 import { clampPagination } from 'src/common/query/query-utils';
 import { Cosecha } from './entities/cosecha.entity';
 import { CreateCosechaDto } from './dto/create-cosecha.dto';
@@ -42,6 +44,8 @@ export class CosechaService {
     private readonly dataSource: DataSource,
     private readonly tenancy: TenancyService,
     private readonly mesasService: MesasService,
+    private readonly productosService: ProductosService,
+    private readonly variedadesService: VariedadesService,
     private readonly audit: AuditService,
     private readonly logger: PinoLogger,
   ) {}
@@ -64,6 +68,18 @@ export class CosechaService {
       });
     }
 
+    await this.productosService.mustFindById(dto.producto_id, { strictTenant: true });
+    const variedad = await this.variedadesService.mustFindById(dto.variedad_id, {
+      strictTenant: true,
+    });
+    if (variedad.producto_id !== dto.producto_id) {
+      throw new AppError({
+        code: ErrorCodes.VARIEDAD_PRODUCTO_MISMATCH,
+        message: 'La variedad no pertenece al producto indicado',
+        status: 422,
+      });
+    }
+
     const tunel_id = mesa.tunel_id;
 
     // TRANSACTION
@@ -78,6 +94,8 @@ export class CosechaService {
         tenant_id: tenantId,
         mesa_id: dto.mesa_id,
         tunel_id,
+        producto_id: dto.producto_id,
+        variedad_id: dto.variedad_id,
         posicion_al_momento: 1,
         fecha_hora: new Date(),
         peso_kg: dto.peso_kg,

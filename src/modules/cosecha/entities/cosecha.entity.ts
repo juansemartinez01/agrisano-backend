@@ -20,6 +20,12 @@ export class Cosecha {
   @Column({ type: 'uuid' })
   tunel_id!: string;
 
+  @Column({ type: 'uuid', nullable: true })
+  producto_id!: string | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  variedad_id!: string | null;
+
   @Column({ type: 'int', default: 1 })
   posicion_al_momento!: number;
 
