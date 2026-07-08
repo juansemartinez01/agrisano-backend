@@ -30,11 +30,8 @@ export class Bandeja extends BaseEntity {
   @Column({ type: 'uuid', nullable: true })
   mesa_id!: string | null;
 
-  @Column({ type: 'text', nullable: true })
-  observaciones!: string | null;
-
-  @Column({ type: 'varchar', length: 100, nullable: true })
-  codigo!: string | null;
+  @Column({ type: 'varchar', length: 100, unique: true })
+  codigo!: string;
 
   @Column({ type: 'uuid' })
   establecimiento_id!: string;

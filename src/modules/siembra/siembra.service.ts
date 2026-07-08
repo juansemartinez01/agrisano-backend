@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
+import { randomUUID } from 'crypto';
 import { AppError } from 'src/common/errors/app-error';
 import { ErrorCodes } from 'src/common/errors/error-codes';
 import { clampPagination } from 'src/common/query/query-utils';
@@ -107,7 +108,6 @@ export class SiembraService {
         'b.fecha_entrada_nursery',
         'b.fecha_trasplante',
         'b.mesa_id',
-        'b.observaciones',
         'b.codigo',
         'b.establecimiento_id',
         'b.created_at',
@@ -180,6 +180,7 @@ export class SiembraService {
             estado: BandejaEstado.COOLING_PERIOD,
             fecha_entrada_nursery: null,
             establecimiento_id: dto.establecimiento_id,
+            codigo: randomUUID(),
           });
           await qr.manager.save(Bandeja, bandeja);
         }
