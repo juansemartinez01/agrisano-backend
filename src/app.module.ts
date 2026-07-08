@@ -19,6 +19,7 @@ import { TenancyModule } from './modules/tenancy/tenancy.module';
 import { EstablecimientosModule } from './modules/establecimientos/establecimientos.module';
 import { ProveedoresModule } from './modules/proveedores/proveedores.module';
 import { ProductosModule } from './modules/productos/productos.module';
+import { MarcasModule } from './modules/marcas/marcas.module';
 import { LotesModule } from './modules/lotes/lotes.module';
 import { SiembraModule } from './modules/siembra/siembra.module';
 import { RecetasModule } from './modules/recetas/recetas.module';
@@ -66,6 +67,7 @@ import { ObservabilityModule } from './infra/observability/observability.module'
     EstablecimientosModule,
     ProveedoresModule,
     ProductosModule,
+    MarcasModule,
     LotesModule,
     SiembraModule,
     RecetasModule,

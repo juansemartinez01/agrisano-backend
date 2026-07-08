@@ -20,6 +20,9 @@ export class Lote extends BaseEntity {
   @Column({ type: 'uuid', nullable: true })
   proveedor_id!: string | null;
 
+  @Column({ type: 'uuid', nullable: true })
+  marca_id!: string | null;
+
   @Column({ type: 'text', nullable: true })
   observaciones!: string | null;
 

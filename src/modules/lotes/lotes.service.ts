@@ -7,6 +7,7 @@ import { ErrorCodes } from 'src/common/errors/error-codes';
 import { ProveedoresService } from 'src/modules/proveedores/proveedores.service';
 import { ProductosService } from 'src/modules/productos/productos.service';
 import { VariedadesService } from 'src/modules/productos/variedades.service';
+import { MarcasService } from 'src/modules/marcas/marcas.service';
 import { Lote, LoteTipo } from './entities/lote.entity';
 import { CreateLoteDto } from './dto/create-lote.dto';
 import { UpdateLoteDto } from './dto/update-lote.dto';
@@ -26,6 +27,7 @@ export class LotesService extends BaseCrudTenantService<Lote> {
     private readonly proveedoresService: ProveedoresService,
     private readonly productosService: ProductosService,
     private readonly variedadesService: VariedadesService,
+    private readonly marcasService: MarcasService,
   ) {
     super(loteRepo);
   }
@@ -79,6 +81,10 @@ export class LotesService extends BaseCrudTenantService<Lote> {
       strictTenant: true,
     });
 
+    if (dto.marca_id) {
+      await this.marcasService.mustFindById(dto.marca_id, { strictTenant: true });
+    }
+
     if (
       dto.tipo === LoteTipo.SUSTRATO &&
       (dto.proveedor_semilla_id || dto.producto_id || dto.variedad_id)
@@ -126,6 +132,10 @@ export class LotesService extends BaseCrudTenantService<Lote> {
       await this.proveedoresService.mustFindById(dto.proveedor_id, {
         strictTenant: true,
       });
+    }
+
+    if (dto.marca_id !== undefined) {
+      await this.marcasService.mustFindById(dto.marca_id, { strictTenant: true });
     }
 
     if (

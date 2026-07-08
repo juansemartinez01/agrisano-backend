@@ -18,6 +18,10 @@ export class UpdateLoteDto {
   proveedor_id?: string;
 
   @IsOptional()
+  @IsUUID()
+  marca_id?: string;
+
+  @IsOptional()
   @IsString()
   observaciones?: string;
 

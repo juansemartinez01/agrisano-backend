@@ -26,6 +26,10 @@ export class CreateLoteDto {
   proveedor_id!: string;
 
   @IsOptional()
+  @IsUUID()
+  marca_id?: string;
+
+  @IsOptional()
   @IsString()
   observaciones?: string;
 

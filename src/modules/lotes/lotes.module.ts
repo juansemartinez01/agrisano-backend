@@ -4,6 +4,7 @@ import { AuditModule } from 'src/modules/audit/audit.module';
 import { TenancyModule } from 'src/modules/tenancy/tenancy.module';
 import { ProveedoresModule } from 'src/modules/proveedores/proveedores.module';
 import { ProductosModule } from 'src/modules/productos/productos.module';
+import { MarcasModule } from 'src/modules/marcas/marcas.module';
 import { Lote } from './entities/lote.entity';
 import { LotesService } from './lotes.service';
 import { LotesController } from './lotes.controller';
@@ -16,6 +17,7 @@ import { AdminLotesController } from './admin-lotes.controller';
     AuditModule,
     ProveedoresModule,
     ProductosModule,
+    MarcasModule,
   ],
   providers: [LotesService],
   controllers: [LotesController, AdminLotesController],

@@ -40,4 +40,8 @@ export class UpdateQuimicoDto {
   @IsInt()
   @Min(0)
   withholding_period_dias?: number;
+
+  @IsOptional()
+  @IsUUID()
+  marca_id?: string;
 }

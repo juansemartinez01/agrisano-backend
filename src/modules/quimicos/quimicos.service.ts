@@ -6,6 +6,7 @@ import { AppError } from 'src/common/errors/app-error';
 import { ErrorCodes } from 'src/common/errors/error-codes';
 import { runInTx } from 'src/common/database/transaction';
 import { EstablecimientosService } from 'src/modules/establecimientos/establecimientos.service';
+import { MarcasService } from 'src/modules/marcas/marcas.service';
 import { Quimico } from './entities/quimico.entity';
 import { PrincipioActivo } from './entities/principio-activo.entity';
 import { QuimicoPrincipioActivo } from './entities/quimico-principio-activo.entity';
@@ -32,6 +33,7 @@ export class QuimicosService extends BaseCrudTenantService<Quimico> {
     @InjectRepository(PrincipioActivo)
     private readonly paRepo: Repository<PrincipioActivo>,
     private readonly estService: EstablecimientosService,
+    private readonly marcasService: MarcasService,
     private readonly dataSource: DataSource,
   ) {
     super(quimicoRepo);
@@ -111,6 +113,10 @@ export class QuimicosService extends BaseCrudTenantService<Quimico> {
     const paIds = dto.principios_activos ?? [];
     await this.validatePrincipioActivoIds(paIds);
 
+    if (dto.marca_id) {
+      await this.marcasService.mustFindById(dto.marca_id, { strictTenant: true });
+    }
+
     const quimico = await this.create(
       {
         establecimiento_id: dto.establecimiento_id,
@@ -118,6 +124,7 @@ export class QuimicosService extends BaseCrudTenantService<Quimico> {
         unidad_medida: dto.unidad_medida,
         rate_unidad: dto.rate_unidad,
         withholding_period_dias: dto.withholding_period_dias ?? null,
+        marca_id: dto.marca_id ?? null,
       },
       { strictTenant: true },
     );
@@ -173,12 +180,17 @@ export class QuimicosService extends BaseCrudTenantService<Quimico> {
       });
     }
 
+    if (dto.marca_id !== undefined) {
+      await this.marcasService.mustFindById(dto.marca_id, { strictTenant: true });
+    }
+
     const updatePayload: Partial<Quimico> = {};
     if (dto.nombre !== undefined) updatePayload.nombre = dto.nombre;
     if (dto.unidad_medida !== undefined) updatePayload.unidad_medida = dto.unidad_medida;
     if (dto.activo !== undefined) updatePayload.activo = dto.activo;
     if (dto.rate_unidad !== undefined) updatePayload.rate_unidad = dto.rate_unidad;
     if (dto.withholding_period_dias !== undefined) updatePayload.withholding_period_dias = dto.withholding_period_dias;
+    if (dto.marca_id !== undefined) updatePayload.marca_id = dto.marca_id;
 
     if (Object.keys(updatePayload).length > 0) {
       await this.update(id, updatePayload, { strictTenant: true });

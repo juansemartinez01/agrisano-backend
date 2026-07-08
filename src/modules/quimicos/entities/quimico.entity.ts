@@ -34,5 +34,8 @@ export class Quimico extends BaseEntity {
   @Column({ type: 'int', nullable: true })
   withholding_period_dias!: number | null;
 
+  @Column({ type: 'uuid', nullable: true })
+  marca_id!: string | null;
+
   principios_activos?: PrincipioActivo[];
 }
