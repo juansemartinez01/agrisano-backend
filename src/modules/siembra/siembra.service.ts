@@ -18,6 +18,7 @@ export const AUDIT = {
   CREATED: 'siembra_created',
   UPDATED: 'siembra_updated',
   DELETED: 'siembra_deleted',
+  INGRESO_NURSERY: 'siembra_ingreso_nursery',
 } as const;
 
 interface LoteRef {
@@ -169,7 +170,6 @@ export class SiembraService {
       });
       const savedSiembra = await qr.manager.save(Siembra, siembra);
 
-      const now = new Date();
       for (const group of dto.bandejas) {
         for (let i = 0; i < group.cantidad; i++) {
           const bandeja = qr.manager.create(Bandeja, {
@@ -177,8 +177,8 @@ export class SiembraService {
             siembra_id: savedSiembra.id,
             lote_semilla_id: group.lote_semilla_id,
             lote_sustrato_id: group.lote_sustrato_id,
-            estado: BandejaEstado.EN_NURSERY,
-            fecha_entrada_nursery: now,
+            estado: BandejaEstado.COOLING_PERIOD,
+            fecha_entrada_nursery: null,
             establecimiento_id: dto.establecimiento_id,
           });
           await qr.manager.save(Bandeja, bandeja);
@@ -193,6 +193,51 @@ export class SiembraService {
     } finally {
       await qr.release();
     }
+  }
+
+  async ingresarNursery(id: string): Promise<SiembraWithBandejas> {
+    const tenantId = this.tenancy.requireTenantId();
+
+    const siembra = await this.siembraRepo.findOne({
+      where: { id, tenant_id: tenantId },
+    });
+    if (!siembra) {
+      throw new AppError({
+        code: ErrorCodes.SIEMBRA_NOT_FOUND,
+        message: 'Siembra no encontrada',
+        status: 404,
+      });
+    }
+
+    const qr = this.dataSource.createQueryRunner();
+    await qr.connect();
+    await qr.startTransaction();
+    try {
+      const result = await qr.manager
+        .createQueryBuilder()
+        .update(Bandeja)
+        .set({ estado: BandejaEstado.EN_NURSERY, fecha_entrada_nursery: () => 'now()' })
+        .where('siembra_id = :id', { id })
+        .andWhere('estado = :estado', { estado: BandejaEstado.COOLING_PERIOD })
+        .execute();
+
+      if (!result.affected) {
+        throw new AppError({
+          code: ErrorCodes.SIEMBRA_SIN_BANDEJAS_EN_COOLING,
+          message: 'La siembra no tiene bandejas en cooling_period para ingresar a nursery',
+          status: 422,
+        });
+      }
+
+      await qr.commitTransaction();
+    } catch (err) {
+      await qr.rollbackTransaction();
+      throw err;
+    } finally {
+      await qr.release();
+    }
+
+    return this.getSiembraWithBandejas(id);
   }
 
   async updateSiembra(id: string, dto: UpdateSiembraDto): Promise<Siembra> {

@@ -90,6 +90,36 @@ export class SiembraController {
     return ok(siembra);
   }
 
+  @Roles('operario', 'supervisor', 'admin_global')
+  @Post(':id/ingresar-nursery')
+  async ingresarNursery(@Param('id') id: string, @Req() req: AuthRequest) {
+    const result = await this.svc.ingresarNursery(id);
+
+    const payload = auditLogPayload({
+      requestId: req.id,
+      actorUserId: req.user?.sub,
+      actorEmail: req.user?.email,
+      action: AUDIT.INGRESO_NURSERY,
+      entity: 'siembra',
+      extra: { siembraId: id },
+    });
+    this.logger.info(payload, 'admin_audit');
+    await this.audit.write('admin', {
+      request_id: req.id,
+      method: req.method,
+      path: req.url,
+      status_code: 200,
+      actor_user_id: req.user?.sub ?? null,
+      actor_email: req.user?.email ?? null,
+      action: AUDIT.INGRESO_NURSERY,
+      entity: 'siembra',
+      tenant_id: req.tenantId ?? null,
+      payload,
+    });
+
+    return ok(result);
+  }
+
   @Roles('supervisor', 'admin_global')
   @Patch(':id')
   async update(

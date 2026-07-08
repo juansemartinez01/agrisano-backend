@@ -2,6 +2,7 @@ import { Entity, Column } from 'typeorm';
 import { BaseEntity } from 'src/common/database/base.entity';
 
 export enum BandejaEstado {
+  COOLING_PERIOD = 'cooling_period',
   EN_NURSERY = 'en_nursery',
   TRASPLANTADA = 'trasplantada',
 }
@@ -17,11 +18,11 @@ export class Bandeja extends BaseEntity {
   @Column({ type: 'uuid' })
   lote_sustrato_id!: string;
 
-  @Column({ type: 'enum', enum: BandejaEstado, default: BandejaEstado.EN_NURSERY })
+  @Column({ type: 'enum', enum: BandejaEstado, default: BandejaEstado.COOLING_PERIOD })
   estado!: BandejaEstado;
 
-  @Column({ type: 'timestamptz' })
-  fecha_entrada_nursery!: Date;
+  @Column({ type: 'timestamptz', nullable: true })
+  fecha_entrada_nursery!: Date | null;
 
   @Column({ type: 'timestamptz', nullable: true })
   fecha_trasplante!: Date | null;
