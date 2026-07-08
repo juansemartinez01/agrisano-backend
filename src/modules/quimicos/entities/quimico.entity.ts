@@ -8,10 +8,10 @@ export enum QuimicoUnidadMedida {
 }
 
 export enum QuimicoRateUnidad {
-  KG_L = 'kg/l',
-  G_L = 'g/l',
-  ML_L = 'ml/l',
-  L_L = 'l/l',
+  KG_L = 'kg/L',
+  G_L = 'g/L',
+  ML_L = 'mL/L',
+  L_L = 'L/L',
 }
 
 @Entity('quimicos')

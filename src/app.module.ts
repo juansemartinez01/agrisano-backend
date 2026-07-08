@@ -22,7 +22,6 @@ import { ProductosModule } from './modules/productos/productos.module';
 import { MarcasModule } from './modules/marcas/marcas.module';
 import { LotesModule } from './modules/lotes/lotes.module';
 import { SiembraModule } from './modules/siembra/siembra.module';
-import { RecetasModule } from './modules/recetas/recetas.module';
 import { QuimicosModule } from './modules/quimicos/quimicos.module';
 import { LotesQuimicosModule } from './modules/lotes-quimicos/lotes-quimicos.module';
 import { TunelesModule } from './modules/tuneles/tuneles.module';
@@ -70,7 +69,6 @@ import { ObservabilityModule } from './infra/observability/observability.module'
     MarcasModule,
     LotesModule,
     SiembraModule,
-    RecetasModule,
     QuimicosModule,
     LotesQuimicosModule,
     TunelesModule,
