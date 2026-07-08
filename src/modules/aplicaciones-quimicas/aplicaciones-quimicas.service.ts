@@ -78,14 +78,17 @@ export class AplicacionesQuimicasService {
     cantidad: number,
     tenantId: string,
   ): Promise<void> {
-    const rows = (await qr.query(
-      `UPDATE lotes_quimicos SET cantidad_actual = cantidad_actual - $1, updated_at = now()
-       WHERE id = $2 AND tenant_id = $3 AND cantidad_actual >= $1
-       RETURNING id`,
-      [cantidad, loteId, tenantId],
-    )) as Array<{ id: string }>;
+    const result = await qr.manager
+      .createQueryBuilder()
+      .update(LoteQuimico)
+      .set({ cantidad_actual: () => 'cantidad_actual - :cantidad' })
+      .where('id = :id', { id: loteId })
+      .andWhere('tenant_id = :tenantId', { tenantId })
+      .andWhere('cantidad_actual >= :cantidad', { cantidad })
+      .setParameter('cantidad', cantidad)
+      .execute();
 
-    if (rows.length === 0) {
+    if (!result.affected) {
       throw new AppError({
         code: ErrorCodes.LOTE_QUIMICO_STOCK_INSUFICIENTE,
         message: `El lote ${loteId} no tiene stock suficiente para descontar ${cantidad}`,
