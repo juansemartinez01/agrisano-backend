@@ -258,7 +258,6 @@ type SiembraInfo = {
 type AplicacionResumen = {
   id: string;
   fecha_hora: string;
-  receta_id: string | null;
   observaciones: string | null;
   usuario_id: string;
   detalles: Record<string, unknown>[] | null;
@@ -437,7 +436,6 @@ Respuesta `200`:
       {
         "id": "35f8083d-5a3f-4a8d-88f4-df36e7e2b32a",
         "fecha_hora": "2026-06-05T12:00:00.000Z",
-        "receta_id": null,
         "observaciones": "Aplicacion en mesa",
         "usuario_id": "a7b9f76c-8f56-4cb1-86af-31808f7702d4",
         "detalles": [

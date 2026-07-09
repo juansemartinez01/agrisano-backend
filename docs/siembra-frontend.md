@@ -20,7 +20,7 @@ Una bandeja representa una unidad generada por la siembra. Cada bandeja queda as
 - Un establecimiento.
 - Un estado operativo.
 
-Actualmente, las bandejas de este modulo son de solo lectura desde estos endpoints. Se crean automaticamente al crear una siembra.
+Actualmente, las bandejas de este modulo son de solo lectura desde `BandejaController` (no hay `PATCH`/`DELETE` de bandeja individual). Se crean automaticamente al crear una siembra, en estado `cooling_period`, y avanzan de estado mediante acciones en bloque sobre la siembra (`POST /siembras/:id/ingresar-nursery`) o mediante el modulo de trasplante.
 
 Controladores del modulo:
 
@@ -127,6 +127,7 @@ Tabla de permisos:
 | `GET /siembras` | Cualquier usuario autenticado |
 | `GET /siembras/:id` | Cualquier usuario autenticado |
 | `POST /siembras` | `operario`, `supervisor`, `admin_global` |
+| `POST /siembras/:id/ingresar-nursery` | `operario`, `supervisor`, `admin_global` |
 | `PATCH /siembras/:id` | `supervisor`, `admin_global` |
 | `DELETE /siembras/:id` | `admin_global` |
 | `GET /bandejas` | Cualquier usuario autenticado |
@@ -136,6 +137,7 @@ Notas:
 
 - Listar y obtener siembras/bandejas no tienen decorador `@Roles`, pero siguen requiriendo JWT.
 - Crear siembra requiere `operario`, `supervisor` o `admin_global`.
+- Ingresar bandejas a nursery requiere `operario`, `supervisor` o `admin_global` (mismos roles que crear siembra).
 - Actualizar siembra solo permite modificar `observaciones` y requiere `supervisor` o `admin_global`.
 - Eliminar siembra requiere `admin_global`.
 - El rol `admin` no habilita automaticamente las acciones de este modulo si no esta listado arriba.
@@ -197,6 +199,8 @@ Codigos relevantes para frontend:
 | `404` | `NOT_FOUND` | Establecimiento o lote no encontrado |
 | `409` | `SIEMBRA_HAS_TRASPLANTADAS` | No se puede eliminar una siembra con bandejas trasplantadas |
 | `422` | `LOTE_TIPO_INCORRECTO` | Lote de semilla/sustrato con tipo incorrecto |
+| `422` | `LOTE_ESTABLECIMIENTO_MISMATCH` | Lote de semilla/sustrato pertenece a otro establecimiento distinto al de la siembra |
+| `422` | `SIEMBRA_SIN_BANDEJAS_EN_COOLING` | La siembra no tiene bandejas en `cooling_period` para ingresar a nursery |
 | `429` | `RATE_LIMITED` | Demasiadas requests |
 | `500` | `INTERNAL` | Error interno |
 
@@ -260,7 +264,7 @@ Ejemplo:
 ### Bandeja
 
 ```ts
-type BandejaEstado = "en_nursery" | "trasplantada";
+type BandejaEstado = "cooling_period" | "en_nursery" | "trasplantada";
 
 type Bandeja = {
   id: string;
@@ -269,11 +273,10 @@ type Bandeja = {
   lote_semilla_id: string;
   lote_sustrato_id: string;
   estado: BandejaEstado;
-  fecha_entrada_nursery: string;
+  fecha_entrada_nursery: string | null;
   fecha_trasplante: string | null;
   mesa_id: string | null;
-  observaciones: string | null;
-  codigo: string | null;
+  codigo: string;
   establecimiento_id: string;
   created_at: string;
   updated_at: string;
@@ -281,7 +284,15 @@ type Bandeja = {
 };
 ```
 
-Ejemplo:
+Notas sobre el ciclo de vida de `estado`:
+
+- `cooling_period`: estado inicial, seteado automaticamente al crear la siembra. `fecha_entrada_nursery` es `null`.
+- `en_nursery`: se llega via `POST /siembras/:id/ingresar-nursery` (accion manual, en bloque por siembra). `fecha_entrada_nursery` queda seteada con la fecha/hora de la transicion.
+- `trasplantada`: se llega via el modulo de trasplante. Solo bandejas `en_nursery` pueden trasplantarse.
+
+`codigo` es un identificador unico generado automaticamente por el backend (UUID) al crear la bandeja. Nunca es `null` y no se puede editar desde frontend.
+
+Ejemplo (bandeja recien creada, en `cooling_period`):
 
 ```json
 {
@@ -290,12 +301,11 @@ Ejemplo:
   "siembra_id": "b6a87174-056c-4d2a-b1fd-46a93d7a9763",
   "lote_semilla_id": "f5c43121-22b4-43e8-9a85-e4f4bbcf97bb",
   "lote_sustrato_id": "c2534647-5f8f-4542-8109-39c106ec7b17",
-  "estado": "en_nursery",
-  "fecha_entrada_nursery": "2026-06-04T22:00:00.000Z",
+  "estado": "cooling_period",
+  "fecha_entrada_nursery": null,
   "fecha_trasplante": null,
   "mesa_id": null,
-  "observaciones": null,
-  "codigo": null,
+  "codigo": "3f9c1a2e-4b7d-4e1a-9c3f-1a2e4b7d4e1a",
   "establecimiento_id": "1e4a93fd-8f72-4c13-b5c5-2c29bb0b5731",
   "created_at": "2026-06-04T22:00:00.000Z",
   "updated_at": "2026-06-04T22:00:00.000Z",
@@ -379,10 +389,12 @@ Reglas de negocio:
 - El establecimiento debe existir dentro del tenant.
 - `lote_semilla_id` debe existir y ser `tipo=semilla`.
 - `lote_sustrato_id` debe existir y ser `tipo=sustrato`.
+- Si el lote de semilla o sustrato tiene `establecimiento_id` seteado, debe coincidir con `establecimiento_id` de la siembra. Si el lote no tiene establecimiento asignado (catalogo compartido), no se valida. Si no coincide, `422 LOTE_ESTABLECIMIENTO_MISMATCH`.
 - Si no se envia `fecha`, el backend usa la fecha actual del servidor en formato `YYYY-MM-DD`.
 - Por cada grupo, se crean `cantidad` bandejas.
-- Todas las bandejas se crean con estado inicial `en_nursery`.
+- Todas las bandejas se crean con estado inicial `cooling_period` (no `en_nursery`). Para pasarlas a `en_nursery` hay que usar `POST /siembras/:id/ingresar-nursery`.
 - Todas las bandejas toman `establecimiento_id` de la siembra.
+- Cada bandeja recibe un `codigo` unico autogenerado por el backend.
 
 ### UpdateSiembraDto
 
@@ -475,7 +487,7 @@ type QueryBandejasDto = {
   establecimiento_id?: string;
   siembra_id?: string;
   lote_semilla_id?: string;
-  estado?: "en_nursery" | "trasplantada";
+  estado?: "cooling_period" | "en_nursery" | "trasplantada";
   sortBy?: string;
   sortOrder?: "ASC" | "DESC";
 };
@@ -488,13 +500,14 @@ Validaciones y comportamiento:
 - `establecimiento_id`: opcional, UUID.
 - `siembra_id`: opcional, UUID.
 - `lote_semilla_id`: opcional, UUID.
-- `estado`: opcional. Valores permitidos: `en_nursery`, `trasplantada`.
+- `estado`: opcional. Valores permitidos: `cooling_period`, `en_nursery`, `trasplantada`.
 - `sortBy`: opcional. Valores permitidos reales: `fecha_entrada_nursery`, `created_at`.
 - `sortOrder`: opcional. Valores permitidos: `ASC`, `DESC`.
 
 Importante:
 
 - Si `estado` no se envia, el backend filtra por `en_nursery` por default.
+- Para ver bandejas recien creadas (todavia no ingresadas a nursery), enviar explicitamente `estado=cooling_period`.
 - Para ver bandejas trasplantadas, enviar explicitamente `estado=trasplantada`.
 
 Ejemplo:
@@ -622,12 +635,11 @@ Respuesta `201`:
         "siembra_id": "b6a87174-056c-4d2a-b1fd-46a93d7a9763",
         "lote_semilla_id": "f5c43121-22b4-43e8-9a85-e4f4bbcf97bb",
         "lote_sustrato_id": "c2534647-5f8f-4542-8109-39c106ec7b17",
-        "estado": "en_nursery",
-        "fecha_entrada_nursery": "2026-06-04T22:00:00.000Z",
+        "estado": "cooling_period",
+        "fecha_entrada_nursery": null,
         "fecha_trasplante": null,
         "mesa_id": null,
-        "observaciones": null,
-        "codigo": null,
+        "codigo": "3f9c1a2e-4b7d-4e1a-9c3f-1a2e4b7d4e1a",
         "establecimiento_id": "1e4a93fd-8f72-4c13-b5c5-2c29bb0b5731",
         "created_at": "2026-06-04T22:00:00.000Z",
         "updated_at": "2026-06-04T22:00:00.000Z"
@@ -641,6 +653,7 @@ Notas:
 
 - Se crea una sola siembra.
 - Se crean tantas bandejas como indique la suma de `cantidad` de cada grupo.
+- Todas las bandejas nacen en `estado: "cooling_period"`, no `en_nursery`.
 - La operacion es transaccional: si falla una parte, no se guarda nada.
 - Se registra auditoria con accion `siembra_created`.
 
@@ -651,6 +664,7 @@ Errores comunes:
 - `403 AUTH_FORBIDDEN`: rol insuficiente.
 - `404 NOT_FOUND`: establecimiento o lote no encontrado.
 - `422 LOTE_TIPO_INCORRECTO`: lote de semilla/sustrato con tipo incorrecto.
+- `422 LOTE_ESTABLECIMIENTO_MISMATCH`: lote de semilla/sustrato pertenece a otro establecimiento distinto al de la siembra.
 
 Ejemplo `422 LOTE_TIPO_INCORRECTO`:
 
@@ -662,6 +676,22 @@ Ejemplo `422 LOTE_TIPO_INCORRECTO`:
   "error": {
     "code": "LOTE_TIPO_INCORRECTO",
     "message": "lote_semilla_id 'c2534647-5f8f-4542-8109-39c106ec7b17' debe ser tipo semilla"
+  },
+  "timestamp": "2026-06-04T22:00:00.000Z",
+  "path": "/siembras"
+}
+```
+
+Ejemplo `422 LOTE_ESTABLECIMIENTO_MISMATCH`:
+
+```json
+{
+  "ok": false,
+  "requestId": "uuid",
+  "statusCode": 422,
+  "error": {
+    "code": "LOTE_ESTABLECIMIENTO_MISMATCH",
+    "message": "lote_semilla_id 'f5c43121-22b4-43e8-9a85-e4f4bbcf97bb' no pertenece al establecimiento de la siembra"
   },
   "timestamp": "2026-06-04T22:00:00.000Z",
   "path": "/siembras"
@@ -838,6 +868,97 @@ Errores comunes:
 - `409 SIEMBRA_HAS_TRASPLANTADAS`: tiene bandejas trasplantadas.
 - `403 AUTH_FORBIDDEN`: no es `admin_global`.
 
+### 10.6. Ingresar bandejas a nursery
+
+```http
+POST /siembras/:id/ingresar-nursery
+```
+
+Roles:
+
+- `operario`
+- `supervisor`
+- `admin_global`
+
+Path params:
+
+| Param | Tipo | Requerido | Descripcion |
+| --- | --- | --- | --- |
+| `id` | uuid | Si | ID de la siembra |
+
+Body: no requiere body.
+
+Ejemplo:
+
+```http
+POST /siembras/b6a87174-056c-4d2a-b1fd-46a93d7a9763/ingresar-nursery
+```
+
+Respuesta `200`:
+
+```json
+{
+  "ok": true,
+  "data": {
+    "id": "b6a87174-056c-4d2a-b1fd-46a93d7a9763",
+    "tenant_id": "00000000-0000-0000-0000-000000000001",
+    "establecimiento_id": "1e4a93fd-8f72-4c13-b5c5-2c29bb0b5731",
+    "fecha": "2026-06-04",
+    "observaciones": "Siembra generada desde frontend",
+    "usuario_id": "e4560fcf-423c-4ebb-adc1-4d4259dadefe",
+    "created_at": "2026-06-04T22:00:00.000Z",
+    "updated_at": "2026-06-04T22:00:00.000Z",
+    "deleted_at": null,
+    "bandejas": [
+      {
+        "id": "b8f0ca94-e4da-4b43-83f4-0916990c14d2",
+        "siembra_id": "b6a87174-056c-4d2a-b1fd-46a93d7a9763",
+        "lote_semilla_id": "f5c43121-22b4-43e8-9a85-e4f4bbcf97bb",
+        "lote_sustrato_id": "c2534647-5f8f-4542-8109-39c106ec7b17",
+        "estado": "en_nursery",
+        "fecha_entrada_nursery": "2026-06-05T10:00:00.000Z",
+        "fecha_trasplante": null,
+        "mesa_id": null,
+        "codigo": "3f9c1a2e-4b7d-4e1a-9c3f-1a2e4b7d4e1a",
+        "establecimiento_id": "1e4a93fd-8f72-4c13-b5c5-2c29bb0b5731",
+        "created_at": "2026-06-04T22:00:00.000Z",
+        "updated_at": "2026-06-05T10:00:00.000Z"
+      }
+    ]
+  }
+}
+```
+
+Notas:
+
+- Transiciona **todas** las bandejas de la siembra que esten en `cooling_period` a `en_nursery` en una sola operacion (accion en bloque, no bandeja por bandeja).
+- Bandejas ya en `en_nursery` o `trasplantada` no se ven afectadas por una segunda llamada.
+- `fecha_entrada_nursery` se completa con la fecha/hora del servidor en el momento de la transicion.
+- Devuelve la siembra completa con sus bandejas actualizadas (mismo shape que `GET /siembras/:id`).
+- Se registra auditoria con accion `siembra_ingreso_nursery`.
+
+Errores comunes:
+
+- `404 SIEMBRA_NOT_FOUND`: siembra inexistente o fuera del tenant.
+- `422 SIEMBRA_SIN_BANDEJAS_EN_COOLING`: no hay bandejas en `cooling_period` para transicionar (ya se ingreso antes, o la siembra ya esta en `en_nursery`/`trasplantada`).
+- `403 AUTH_FORBIDDEN`: rol insuficiente.
+
+Ejemplo `422 SIEMBRA_SIN_BANDEJAS_EN_COOLING`:
+
+```json
+{
+  "ok": false,
+  "requestId": "uuid",
+  "statusCode": 422,
+  "error": {
+    "code": "SIEMBRA_SIN_BANDEJAS_EN_COOLING",
+    "message": "La siembra no tiene bandejas en cooling_period para ingresar a nursery"
+  },
+  "timestamp": "2026-06-05T10:00:00.000Z",
+  "path": "/siembras/b6a87174-056c-4d2a-b1fd-46a93d7a9763/ingresar-nursery"
+}
+```
+
 ## 11. Endpoints de bandejas
 
 ### 11.1. Listar bandejas
@@ -866,7 +987,7 @@ Query params:
 | `establecimiento_id` | uuid | No | - | Filtra por establecimiento |
 | `siembra_id` | uuid | No | - | Filtra por siembra |
 | `lote_semilla_id` | uuid | No | - | Filtra por lote de semilla |
-| `estado` | string | No | `en_nursery` | `en_nursery` o `trasplantada` |
+| `estado` | string | No | `en_nursery` | `cooling_period`, `en_nursery` o `trasplantada` |
 | `sortBy` | string | No | `created_at` | `fecha_entrada_nursery` o `created_at` |
 | `sortOrder` | string | No | `DESC` | `ASC` o `DESC` |
 
@@ -892,8 +1013,7 @@ Respuesta `200`:
       "fecha_entrada_nursery": "2026-06-04T22:00:00.000Z",
       "fecha_trasplante": null,
       "mesa_id": null,
-      "observaciones": null,
-      "codigo": null,
+      "codigo": "3f9c1a2e-4b7d-4e1a-9c3f-1a2e4b7d4e1a",
       "establecimiento_id": "1e4a93fd-8f72-4c13-b5c5-2c29bb0b5731",
       "created_at": "2026-06-04T22:00:00.000Z",
       "updated_at": "2026-06-04T22:00:00.000Z",
@@ -911,6 +1031,7 @@ Respuesta `200`:
 Importante:
 
 - Si no se envia `estado`, solo devuelve bandejas `en_nursery`.
+- Las bandejas recien creadas estan en `cooling_period` y no apareceran en el listado por default; hay que pedir `estado=cooling_period` explicitamente.
 - Para mostrar todas por separado, frontend debe hacer filtros por estado o permitir selector de estado.
 
 Errores comunes:
@@ -956,8 +1077,7 @@ Respuesta `200`:
     "fecha_entrada_nursery": "2026-06-04T22:00:00.000Z",
     "fecha_trasplante": null,
     "mesa_id": null,
-    "observaciones": null,
-    "codigo": null,
+    "codigo": "3f9c1a2e-4b7d-4e1a-9c3f-1a2e4b7d4e1a",
     "establecimiento_id": "1e4a93fd-8f72-4c13-b5c5-2c29bb0b5731",
     "created_at": "2026-06-04T22:00:00.000Z",
     "updated_at": "2026-06-04T22:00:00.000Z",
@@ -981,8 +1101,17 @@ Errores comunes:
 4. El usuario selecciona establecimiento, fecha, lotes y cantidad de bandejas.
 5. Validar que `cantidad >= 1`.
 6. Enviar `POST /siembras`.
-7. Si responde `201`, guardar `data.id` y mostrar detalle con bandejas generadas.
+7. Si responde `201`, guardar `data.id` y mostrar detalle con bandejas generadas (quedan en `cooling_period`).
 8. Si responde `422 LOTE_TIPO_INCORRECTO`, revisar que el selector de semilla solo use lotes `semilla` y el de sustrato solo use lotes `sustrato`.
+9. Si responde `422 LOTE_ESTABLECIMIENTO_MISMATCH`, revisar que los lotes seleccionados pertenezcan al mismo establecimiento elegido para la siembra (o no tengan establecimiento asignado).
+
+### Flujo de ingreso a nursery
+
+1. Mostrar la siembra con sus bandejas en `cooling_period` (via `GET /siembras/:id` o `GET /bandejas?siembra_id=...&estado=cooling_period`).
+2. El usuario confirma el ingreso a nursery para toda la siembra.
+3. Enviar `POST /siembras/:id/ingresar-nursery` (sin body).
+4. Si responde `200`, refrescar la siembra: todas las bandejas que estaban en `cooling_period` ahora estan `en_nursery` con `fecha_entrada_nursery` seteada.
+5. Si responde `422 SIEMBRA_SIN_BANDEJAS_EN_COOLING`, informar que no hay bandejas pendientes de ingresar (ya se hizo antes).
 
 ### Flujo de listado de siembras
 
@@ -1023,13 +1152,15 @@ Errores comunes:
 ## 13. Consideraciones de UI/UX
 
 - Mostrar crear siembra solo para `operario`, `supervisor` o `admin_global`.
+- Mostrar boton "ingresar a nursery" solo para `operario`, `supervisor` o `admin_global`, y solo cuando la siembra tenga bandejas en `cooling_period`.
 - Mostrar editar observaciones solo para `supervisor` o `admin_global`.
 - Mostrar eliminar siembra solo para `admin_global`.
 - En formulario de siembra, separar claramente lote de semilla y lote de sustrato.
 - El selector de semilla debe consultar/mostrar solo lotes `tipo=semilla`.
 - El selector de sustrato debe consultar/mostrar solo lotes `tipo=sustrato`.
-- En bandejas, recordar que el default del backend es `estado=en_nursery` si no se envia estado.
-- Mostrar mensajes especificos para `LOTE_TIPO_INCORRECTO`, `SIEMBRA_FIELD_IMMUTABLE` y `SIEMBRA_HAS_TRASPLANTADAS`.
+- En bandejas, recordar que el default del backend es `estado=en_nursery` si no se envia estado; las bandejas en `cooling_period` no aparecen a menos que se pida explicitamente.
+- En el detalle de siembra, mostrar visualmente el estado de las bandejas (`cooling_period` / `en_nursery` / `trasplantada`) para que el operario sepa cuando puede ingresar a nursery o trasplantar.
+- Mostrar mensajes especificos para `LOTE_TIPO_INCORRECTO`, `LOTE_ESTABLECIMIENTO_MISMATCH`, `SIEMBRA_FIELD_IMMUTABLE`, `SIEMBRA_HAS_TRASPLANTADAS` y `SIEMBRA_SIN_BANDEJAS_EN_COOLING`.
 - Despues de crear una siembra, usar la respuesta para capturar los IDs de bandejas sin hacer otro request inmediato.
 
 ## 14. Ejemplos con fetch
@@ -1126,6 +1257,16 @@ await apiFetch(`/siembras/${siembraId}`, {
 });
 ```
 
+### Ingresar bandejas a nursery
+
+```ts
+const response = await apiFetch(`/siembras/${siembraId}/ingresar-nursery`, {
+  method: "POST"
+});
+
+const siembraActualizada = response.data;
+```
+
 ### Listar bandejas
 
 ```ts
@@ -1160,9 +1301,13 @@ const bandeja = response.data;
 - PATCH de siembra solo envia `observaciones`.
 - La UI maneja `SIEMBRA_FIELD_IMMUTABLE`.
 - La UI maneja `LOTE_TIPO_INCORRECTO`.
+- La UI maneja `LOTE_ESTABLECIMIENTO_MISMATCH`.
 - La UI maneja `SIEMBRA_HAS_TRASPLANTADAS`.
-- En listado de bandejas, enviar `estado` explicitamente si no se quiere usar el default `en_nursery`.
+- La UI maneja `SIEMBRA_SIN_BANDEJAS_EN_COOLING`.
+- En listado de bandejas, enviar `estado` explicitamente si no se quiere usar el default `en_nursery` (incluye `cooling_period`).
+- La UI distingue bandejas `cooling_period` de `en_nursery` y solo permite trasplante o aplicaciones de nursery sobre bandejas `en_nursery`.
 - Crear siembra se muestra solo para `operario`, `supervisor` o `admin_global`.
+- Ingresar a nursery se muestra solo para `operario`, `supervisor` o `admin_global`.
 - Editar observaciones se muestra solo para `supervisor` o `admin_global`.
 - Eliminar siembra se muestra solo para `admin_global`.
 

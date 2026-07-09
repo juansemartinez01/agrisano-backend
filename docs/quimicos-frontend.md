@@ -1321,7 +1321,7 @@ unidad_stock y rate_unidad son requeridos. Si se omiten, la API devuelve 400.
   "nombre": "Fungicida X",
   "unidad_medida": "litros",
   "unidad_stock": "l",
-  "rate_unidad": "ml/l",
+  "rate_unidad": "mL/L",
   "nombre_lista": true,
   "withholding_period_dias": 7,
   "manufacture_date": "2024-03-01",
@@ -1344,7 +1344,7 @@ Todos los registros devuelven los 7 campos nuevos. Los que no tengan valor viene
   "stock_actual": "2.500",
   "activo": true,
   "unidad_stock": "l",
-  "rate_unidad": "ml/l",
+  "rate_unidad": "mL/L",
   "nombre_lista": false,
   "withholding_period_dias": 7,
   "manufacture_date": "2024-03-01",
@@ -1355,8 +1355,27 @@ Valores válidos
 
 unidad_stock: "kg" · "g" · "l" · "ml"
 
-rate_unidad: "kg/l" · "g/l" · "ml/l" · "l/l"
+rate_unidad: "kg/L" · "g/L" · "mL/L" · "L/L" (actualizado — antes se aceptaba en minúsculas, ver sección "Cambios recientes" al final del documento)
 
 Nota para M06 y M09
 
 unidad_stock y rate_unidad van a ser consumidos por los módulos de movimientos de stock (M06) y aplicaciones químicas (M09) para mostrar las unidades correctas al registrar entradas/salidas y dosificaciones. Por ahora el front puede guardarlos sin lógica adicional — la integración viene en una query separada.
+
+## Cambios recientes — Nomenclatura de `rate_unidad` (2026-07-08)
+
+`rate_unidad` cambió de notación en minúsculas a notación estándar con "L" (litro) en mayúscula. Esto afecta a `Quimico.rate_unidad` y también a `AplicacionQuimica.dosis_unidad` (comparten el mismo enum en base de datos).
+
+| Valor anterior | Valor nuevo |
+| --- | --- |
+| `kg/l` | `kg/L` |
+| `g/l` | `g/L` |
+| `ml/l` | `mL/L` |
+| `l/l` | `L/L` |
+
+- Los registros existentes se migraron automáticamente en el backend — no requiere backfill del front.
+- Enviar los valores viejos (minúsculas) ahora devuelve `400 BAD_REQUEST`.
+- `unidad_medida` (`kg`/`l`) **no** cambió — solo `rate_unidad`/`dosis_unidad`.
+
+## Cambios recientes — Eliminación del módulo Recetas (2026-07-08)
+
+El módulo de Recetas (`/recetas`, `/admin/recetas`) se eliminó por completo. Ya no existe ningún campo `receta_id` en ningún endpoint del backend. Si el front tenía pantallas o referencias a recetas, deben quitarse.

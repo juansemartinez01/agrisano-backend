@@ -144,6 +144,16 @@ export class SiembraService {
           status: 422,
         });
       }
+      if (
+        semilla.establecimiento_id !== null &&
+        semilla.establecimiento_id !== dto.establecimiento_id
+      ) {
+        throw new AppError({
+          code: ErrorCodes.LOTE_ESTABLECIMIENTO_MISMATCH,
+          message: `lote_semilla_id '${group.lote_semilla_id}' no pertenece al establecimiento de la siembra`,
+          status: 422,
+        });
+      }
       const sustrato = await this.lotesService.mustFindById(
         group.lote_sustrato_id,
         { strictTenant: true },
@@ -152,6 +162,16 @@ export class SiembraService {
         throw new AppError({
           code: ErrorCodes.LOTE_TIPO_INCORRECTO,
           message: `lote_sustrato_id '${group.lote_sustrato_id}' debe ser tipo sustrato`,
+          status: 422,
+        });
+      }
+      if (
+        sustrato.establecimiento_id !== null &&
+        sustrato.establecimiento_id !== dto.establecimiento_id
+      ) {
+        throw new AppError({
+          code: ErrorCodes.LOTE_ESTABLECIMIENTO_MISMATCH,
+          message: `lote_sustrato_id '${group.lote_sustrato_id}' no pertenece al establecimiento de la siembra`,
           status: 422,
         });
       }
