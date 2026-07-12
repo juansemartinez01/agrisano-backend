@@ -105,15 +105,15 @@ export class CosechaService {
 
       // 2. UPDATE mesa: estado=en_cosecha, posicion_actual=NULL
       await qr.query(
-        `UPDATE mesas SET estado = 'en_cosecha', posicion_actual = NULL, updated_at = now() WHERE id = $1`,
-        [dto.mesa_id],
+        `UPDATE mesas SET estado = 'en_cosecha', posicion_actual = NULL, updated_at = now() WHERE id = $1 AND tenant_id = $2`,
+        [dto.mesa_id, tenantId],
       );
 
       // 3. FIFO recalc: decrement positions of remaining mesas in tunnel
       await qr.query(
         `UPDATE mesas SET posicion_actual = posicion_actual - 1, updated_at = now()
-         WHERE tunel_id = $1 AND posicion_actual > 1 AND deleted_at IS NULL`,
-        [tunel_id],
+         WHERE tunel_id = $1 AND tenant_id = $2 AND posicion_actual > 1 AND deleted_at IS NULL`,
+        [tunel_id, tenantId],
       );
 
       // 4. Write HistorialMesa entry inside transaction

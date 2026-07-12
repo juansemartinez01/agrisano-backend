@@ -2,11 +2,14 @@
 
 ## 1. Objetivo del modulo
 
-El modulo de quimicos administra productos quimicos disponibles por establecimiento. Cada quimico pertenece a:
+El modulo de quimicos administra el catalogo de productos quimicos disponibles por establecimiento (fertilizantes, fitosanitarios, etc.). Cada quimico pertenece a:
 
 - Un tenant.
 - Un establecimiento.
+- Opcionalmente una marca (`marca_id`).
 - Cero, uno o varios principios activos.
+
+El **stock** de un quimico ya no vive en el propio quimico: se administra por lotes en el modulo `lotes-quimicos` (ver seccion 12). Un quimico puede tener varios lotes activos, cada uno con su propia `cantidad_inicial`/`cantidad_actual`, proveedor y fechas.
 
 Los principios activos son catalogos globales. No dependen de un tenant ni de un establecimiento. Se usan para clasificar o describir la composicion de los quimicos.
 
@@ -15,16 +18,18 @@ Desde frontend, este modulo sirve para:
 - Listar quimicos.
 - Consultar el detalle de un quimico con sus principios activos.
 - Crear quimicos para un establecimiento.
-- Editar nombre, unidad de medida, estado activo y principios activos asociados.
+- Editar nombre, unidad de medida, dosis, carencia, marca, estado activo y principios activos asociados.
 - Desactivar quimicos con `activo=false`.
 - Eliminar quimicos, si el usuario tiene permisos.
 - Listar, crear, editar y eliminar principios activos.
+- Administrar lotes de stock de cada quimico (`lotes-quimicos`).
 
 Controladores del modulo:
 
 - `QuimicosController`: rutas bajo `/quimicos`.
 - `PrincipiosActivosController`: rutas bajo `/principios-activos`.
 - `AdminQuimicosController`: ruta administrativa bajo `/admin/quimicos`.
+- `LotesQuimicosController`: rutas bajo `/lotes-quimicos` y `/quimicos/:quimicoId/lotes`.
 
 No hay prefijo global `/api` configurado en `main.ts`, por lo tanto las rutas son directas sobre el host base.
 
@@ -46,7 +51,7 @@ El puerto por defecto es `3000`, salvo que el backend se levante con otra variab
 
 ## 3. Autenticacion
 
-Todos los endpoints de quimicos y principios activos requieren JWT.
+Todos los endpoints de quimicos, principios activos y lotes de quimicos requieren JWT.
 
 Header obligatorio:
 
@@ -82,7 +87,7 @@ Importante: los roles quedan dentro del JWT al momento del login. Si se cambian 
 
 ## 4. Tenancy
 
-Los quimicos son tenant-scoped. Siempre se consultan y modifican dentro del tenant actual.
+Los quimicos y sus lotes son tenant-scoped. Siempre se consultan y modifican dentro del tenant actual.
 
 Los principios activos son globales, pero sus endpoints tambien requieren JWT.
 
@@ -135,12 +140,19 @@ Tabla de permisos:
 | `POST /principios-activos` | `admin_global` |
 | `PATCH /principios-activos/:id` | `admin_global` |
 | `DELETE /principios-activos/:id` | `admin_global` |
+| `GET /lotes-quimicos` | Cualquier usuario autenticado |
+| `GET /lotes-quimicos/:id` | Cualquier usuario autenticado |
+| `GET /quimicos/:quimicoId/lotes` | Cualquier usuario autenticado |
+| `POST /lotes-quimicos` | `supervisor`, `admin_global` |
+| `PATCH /lotes-quimicos/:id` | `supervisor`, `admin_global` |
+| `POST /lotes-quimicos/:id/ajuste` | `supervisor`, `admin_global` |
+| `DELETE /lotes-quimicos/:id` | `admin_global` |
 
 Notas:
 
-- Listar y obtener quimicos no tienen decorador `@Roles`, pero siguen requiriendo JWT.
-- Crear y actualizar quimicos requieren `supervisor` o `admin_global`.
-- Eliminar quimicos requiere `admin_global`.
+- Listar y obtener quimicos (y lotes) no tienen decorador `@Roles`, pero siguen requiriendo JWT.
+- Crear y actualizar quimicos/lotes requieren `supervisor` o `admin_global`.
+- Eliminar quimicos/lotes requiere `admin_global`.
 - Crear, editar y eliminar principios activos requiere `admin_global`.
 - El rol `admin` no habilita automaticamente las acciones de este modulo si no esta listado arriba.
 
@@ -193,16 +205,25 @@ Codigos relevantes para frontend:
 | --- | --- | --- |
 | `400` | `BAD_REQUEST` | Body o query invalida |
 | `400` | `TENANT_REQUIRED` | Falta tenant requerido |
-| `400` | `QUIMICO_FIELD_IMMUTABLE` | Se intento modificar un campo no permitido |
+| `400` | `QUIMICO_FIELD_IMMUTABLE` | Se intento modificar un campo no permitido en `PATCH /quimicos/:id` |
+| `400` | `LOTE_QUIMICO_FIELD_IMMUTABLE` | Se intento modificar un campo no permitido en `PATCH /lotes-quimicos/:id` |
 | `401` | `AUTH_INVALID` | Token ausente, invalido o tenant mismatch |
 | `403` | `AUTH_FORBIDDEN` | El usuario no tiene rol permitido |
-| `404` | `NOT_FOUND` | Quimico o establecimiento no encontrado |
+| `404` | `NOT_FOUND` | Quimico, establecimiento o lote de quimico no encontrado (codigo generico) |
 | `404` | `PRINCIPIO_ACTIVO_NOT_FOUND` | Principio activo no encontrado |
+| `404` | `PROVEEDOR_NOT_FOUND` | `proveedor_id` de un lote no existe o es de otro tenant |
+| `404` | `MARCA_NOT_FOUND` | `marca_id` no existe o es de otro tenant |
 | `409` | `QUIMICO_NOMBRE_DUPLICADO` | Ya existe un quimico con ese nombre en el establecimiento |
 | `409` | `PRINCIPIO_ACTIVO_NOMBRE_DUPLICADO` | Ya existe un principio activo con ese nombre |
 | `409` | `PRINCIPIO_ACTIVO_REFERENCIADO` | El principio activo esta asociado a uno o mas quimicos |
+| `409` | `LOTE_QUIMICO_NUMERO_DUPLICADO` | Ya existe un lote con ese `numero_lote` para ese quimico |
+| `409` | `LOTE_QUIMICO_REFERENCED` | El lote esta referenciado por aplicaciones quimicas |
+| `422` | `PROVEEDOR_ESTABLECIMIENTO_MISMATCH` | El `proveedor_id` del lote no pertenece al establecimiento del quimico |
+| `422` | `LOTE_QUIMICO_STOCK_INSUFICIENTE` | El ajuste de stock supera la cantidad disponible en el lote |
 | `429` | `RATE_LIMITED` | Demasiadas requests |
 | `500` | `INTERNAL` | Error interno |
+
+Nota: `LOTE_QUIMICO_NOT_FOUND` existe declarado en `error-codes.ts` pero nunca se lanza — buscar un lote/quimico inexistente siempre devuelve el codigo generico `NOT_FOUND` (via `mustFindById`).
 
 Cuando se envia un ID de principio activo inexistente en `principios_activos`, el backend responde `400 BAD_REQUEST` con detalle:
 
@@ -272,6 +293,30 @@ Ejemplo:
 }
 ```
 
+### Enum `QuimicoUnidadMedida`
+
+```ts
+enum QuimicoUnidadMedida {
+  KG = 'kg',
+  L = 'l',
+}
+```
+
+`unidad_medida` es un enum de **solo 2 valores** (`kg`, `l`), no un string libre.
+
+### Enum `QuimicoRateUnidad` (para `rate_unidad`)
+
+```ts
+enum QuimicoRateUnidad {
+  KG_L = 'kg/L',
+  G_L = 'g/L',
+  ML_L = 'mL/L',
+  L_L = 'L/L',
+}
+```
+
+Estos son los valores actuales, con esta capitalizacion exacta (antes del 2026-07-08 se aceptaban en minusculas; ver nota al final de la seccion 9). Este mismo enum es usado por `AplicacionQuimica.dosis_unidad` — ver [aplicaciones-quimicas-frontend.md](aplicaciones-quimicas-frontend.md).
+
 ### Quimico
 
 ```ts
@@ -280,8 +325,10 @@ type Quimico = {
   tenant_id: string | null;
   establecimiento_id: string;
   nombre: string;
-  unidad_medida: string;
-  stock_actual: string | number;
+  unidad_medida: QuimicoUnidadMedida;
+  rate_unidad: QuimicoRateUnidad;
+  withholding_period_dias: number | null;   // dias de carencia tras aplicacion; null = sin carencia
+  marca_id: string | null;
   activo: boolean;
   created_at: string;
   updated_at: string;
@@ -290,7 +337,7 @@ type Quimico = {
 };
 ```
 
-Nota: `stock_actual` es una columna decimal. Dependiendo de TypeORM/driver puede llegar como string. Frontend debe tratarlo con cuidado si necesita operar numericamente.
+Nota: **no existe** el campo `stock_actual` en `Quimico`. El stock se administra por lote en `lotes-quimicos` (seccion 12) — para saber el stock total de un quimico, sumar `cantidad_actual` de sus lotes via `GET /quimicos/:quimicoId/lotes`.
 
 Ejemplo:
 
@@ -300,8 +347,10 @@ Ejemplo:
   "tenant_id": "00000000-0000-0000-0000-000000000001",
   "establecimiento_id": "1e4a93fd-8f72-4c13-b5c5-2c29bb0b5731",
   "nombre": "Fungicida A",
-  "unidad_medida": "ml",
-  "stock_actual": "0.000",
+  "unidad_medida": "l",
+  "rate_unidad": "mL/L",
+  "withholding_period_dias": 7,
+  "marca_id": null,
   "activo": true,
   "created_at": "2026-06-04T19:03:01.913Z",
   "updated_at": "2026-06-04T19:03:01.913Z",
@@ -314,6 +363,46 @@ Ejemplo:
       "updated_at": "2026-06-04T19:03:01.913Z"
     }
   ]
+}
+```
+
+### LoteQuimico
+
+```ts
+type LoteQuimico = {
+  id: string;
+  tenant_id: string | null;
+  quimico_id: string;
+  establecimiento_id: string;    // copiado del quimico al crear el lote
+  proveedor_id: string;
+  numero_lote: string;
+  cantidad_inicial: string | number;  // decimal, puede llegar como string segun el driver
+  cantidad_actual: string | number;
+  dom: string | null;                 // fecha de fabricacion/origen, "YYYY-MM-DD"
+  fecha_vencimiento: string | null;   // "YYYY-MM-DD"
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+};
+```
+
+Ejemplo:
+
+```json
+{
+  "id": "c2a1b3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+  "tenant_id": "00000000-0000-0000-0000-000000000001",
+  "quimico_id": "f0c6de8c-513f-4a8d-b104-870d627325b8",
+  "establecimiento_id": "1e4a93fd-8f72-4c13-b5c5-2c29bb0b5731",
+  "proveedor_id": "7c1e2b4a-6f2d-4b5a-8e3f-1a2b3c4d5e6f",
+  "numero_lote": "LQ-2026-001",
+  "cantidad_inicial": "10.000",
+  "cantidad_actual": "6.500",
+  "dom": "2026-01-15",
+  "fecha_vencimiento": "2027-01-15",
+  "created_at": "2026-06-04T19:03:01.913Z",
+  "updated_at": "2026-06-04T19:03:01.913Z",
+  "deleted_at": null
 }
 ```
 
@@ -373,7 +462,10 @@ Body para crear:
 type CreateQuimicoDto = {
   establecimiento_id: string;
   nombre: string;
-  unidad_medida: string;
+  unidad_medida: QuimicoUnidadMedida;      // "kg" | "l"
+  rate_unidad: QuimicoRateUnidad;          // requerido
+  withholding_period_dias?: number;        // opcional, entero >= 0
+  marca_id?: string;                       // opcional, uuid
   principios_activos?: string[];
 };
 ```
@@ -382,7 +474,10 @@ Validaciones:
 
 - `establecimiento_id`: obligatorio, UUID.
 - `nombre`: obligatorio, string no vacio, maximo 150 caracteres.
-- `unidad_medida`: obligatorio, string no vacio, maximo 30 caracteres.
+- `unidad_medida`: obligatorio, valor del enum `QuimicoUnidadMedida` (`kg` o `l`).
+- `rate_unidad`: obligatorio, valor del enum `QuimicoRateUnidad`.
+- `withholding_period_dias`: opcional, entero, minimo `0`.
+- `marca_id`: opcional, UUID. Si se envia, debe existir en el tenant (`404 MARCA_NOT_FOUND`).
 - `principios_activos`: opcional, array de UUIDs.
 
 Reglas de negocio:
@@ -390,8 +485,8 @@ Reglas de negocio:
 - El establecimiento debe existir dentro del tenant actual.
 - No puede existir otro quimico con el mismo `nombre`, mismo `establecimiento_id` y mismo tenant.
 - Si se envia `principios_activos`, todos los IDs deben existir.
-- `stock_actual` se crea siempre en `0`.
 - `activo` queda en `true` por default.
+- El quimico se crea sin stock propio; el stock se carga despues creando uno o mas lotes con `POST /lotes-quimicos` (seccion 12).
 
 Ejemplo:
 
@@ -399,20 +494,23 @@ Ejemplo:
 {
   "establecimiento_id": "1e4a93fd-8f72-4c13-b5c5-2c29bb0b5731",
   "nombre": "Fungicida A",
-  "unidad_medida": "ml",
+  "unidad_medida": "l",
+  "rate_unidad": "mL/L",
+  "withholding_period_dias": 7,
   "principios_activos": [
     "7b930d86-6267-4602-9c40-96c89356c361"
   ]
 }
 ```
 
-Ejemplo sin principios activos:
+Ejemplo minimo (sin campos opcionales):
 
 ```json
 {
   "establecimiento_id": "1e4a93fd-8f72-4c13-b5c5-2c29bb0b5731",
   "nombre": "Fertilizante B",
-  "unidad_medida": "kg"
+  "unidad_medida": "kg",
+  "rate_unidad": "kg/L"
 }
 ```
 
@@ -423,32 +521,31 @@ Body para actualizar:
 ```ts
 type UpdateQuimicoDto = {
   nombre?: string;
-  unidad_medida?: string;
+  unidad_medida?: QuimicoUnidadMedida;
   activo?: boolean;
   principios_activos?: string[];
+  rate_unidad?: QuimicoRateUnidad;
+  withholding_period_dias?: number;
+  marca_id?: string;
 };
 ```
 
-Validaciones:
-
-- `nombre`: opcional, string no vacio, maximo 150 caracteres.
-- `unidad_medida`: opcional, string no vacio, maximo 30 caracteres.
-- `activo`: opcional, boolean.
-- `principios_activos`: opcional, array de UUIDs.
+Validaciones: mismas reglas de formato que en `CreateQuimicoDto`, todos los campos opcionales.
 
 Importante:
 
-- Solo se pueden modificar `nombre`, `unidad_medida`, `activo` y `principios_activos`.
-- `establecimiento_id`, `tenant_id` y `stock_actual` no se pueden modificar desde este endpoint.
+- Los unicos campos que el controller permite en el body de `PATCH /quimicos/:id` son: `nombre`, `unidad_medida`, `activo`, `principios_activos`, `rate_unidad`, `withholding_period_dias`, `marca_id`.
+- `establecimiento_id` y `tenant_id` no se pueden modificar desde este endpoint (son los unicos campos que el mensaje de error menciona explicitamente como inmutables).
 - Si se envia `principios_activos`, reemplaza por completo la asociacion anterior.
 - Para quitar todos los principios activos, enviar `principios_activos: []`.
+- Si se envia `marca_id`, se revalida contra el catalogo de marcas (`404 MARCA_NOT_FOUND` si no existe). No hay forma de "limpiar" una `marca_id` ya asignada enviando `null` — el campo es `@IsUUID()` opcional, no acepta `null`.
 
 Ejemplo:
 
 ```json
 {
   "nombre": "Fungicida A Actualizado",
-  "unidad_medida": "ml",
+  "withholding_period_dias": 10,
   "activo": true,
   "principios_activos": [
     "7b930d86-6267-4602-9c40-96c89356c361"
@@ -456,7 +553,7 @@ Ejemplo:
 }
 ```
 
-Ejemplo para quitar asociaciones:
+Ejemplo para quitar asociaciones de principios activos:
 
 ```json
 {
@@ -464,7 +561,7 @@ Ejemplo para quitar asociaciones:
 }
 ```
 
-Ejemplo invalido:
+Ejemplo invalido (campo no permitido):
 
 ```json
 {
@@ -481,7 +578,7 @@ Respuesta del ejemplo invalido:
   "statusCode": 400,
   "error": {
     "code": "QUIMICO_FIELD_IMMUTABLE",
-    "message": "Solo se pueden modificar: nombre, unidad_medida, activo, principios_activos"
+    "message": "Campo no permitido. Los campos inmutables son: id, tenant_id, establecimiento_id"
   },
   "timestamp": "2026-06-04T22:00:00.000Z",
   "path": "/quimicos/f0c6de8c-513f-4a8d-b104-870d627325b8"
@@ -521,6 +618,19 @@ Ejemplo:
 ```txt
 /quimicos?page=1&limit=10&q=fungicida&establecimiento_id=1e4a93fd-8f72-4c13-b5c5-2c29bb0b5731&activo=true&sortBy=nombre&sortOrder=ASC
 ```
+
+### Nomenclatura de `rate_unidad` (historico, 2026-07-08)
+
+`rate_unidad` (y `AplicacionQuimica.dosis_unidad`, que comparte el mismo enum) cambio de notacion en minusculas a notacion estandar con "L" (litro) en mayuscula:
+
+| Valor anterior | Valor nuevo |
+| --- | --- |
+| `kg/l` | `kg/L` |
+| `g/l` | `g/L` |
+| `ml/l` | `mL/L` |
+| `l/l` | `L/L` |
+
+Los registros existentes se migraron automaticamente en el backend. Enviar los valores viejos (minusculas) ahora devuelve `400 BAD_REQUEST`. `unidad_medida` (`kg`/`l`) no se vio afectada por este cambio.
 
 ## 10. Endpoints de principios activos
 
@@ -742,8 +852,10 @@ Respuesta `200`:
       "tenant_id": "00000000-0000-0000-0000-000000000001",
       "establecimiento_id": "1e4a93fd-8f72-4c13-b5c5-2c29bb0b5731",
       "nombre": "Fungicida A",
-      "unidad_medida": "ml",
-      "stock_actual": "0.000",
+      "unidad_medida": "l",
+      "rate_unidad": "mL/L",
+      "withholding_period_dias": 7,
+      "marca_id": null,
       "activo": true,
       "created_at": "2026-06-04T19:03:01.913Z",
       "updated_at": "2026-06-04T19:03:01.913Z",
@@ -795,8 +907,10 @@ Respuesta `200`:
     "tenant_id": "00000000-0000-0000-0000-000000000001",
     "establecimiento_id": "1e4a93fd-8f72-4c13-b5c5-2c29bb0b5731",
     "nombre": "Fungicida A",
-    "unidad_medida": "ml",
-    "stock_actual": "0.000",
+    "unidad_medida": "l",
+    "rate_unidad": "mL/L",
+    "withholding_period_dias": 7,
+    "marca_id": null,
     "activo": true,
     "created_at": "2026-06-04T19:03:01.913Z",
     "updated_at": "2026-06-04T19:03:01.913Z",
@@ -835,7 +949,9 @@ Body:
 {
   "establecimiento_id": "1e4a93fd-8f72-4c13-b5c5-2c29bb0b5731",
   "nombre": "Fungicida A",
-  "unidad_medida": "ml",
+  "unidad_medida": "l",
+  "rate_unidad": "mL/L",
+  "withholding_period_dias": 7,
   "principios_activos": [
     "7b930d86-6267-4602-9c40-96c89356c361"
   ]
@@ -848,7 +964,10 @@ Campos:
 | --- | --- | --- | --- |
 | `establecimiento_id` | uuid | Si | Debe existir en el tenant |
 | `nombre` | string | Si | No vacio, maximo 150 caracteres |
-| `unidad_medida` | string | Si | No vacio, maximo 30 caracteres |
+| `unidad_medida` | enum | Si | `kg` o `l` |
+| `rate_unidad` | enum | Si | `kg/L`, `g/L`, `mL/L` o `L/L` |
+| `withholding_period_dias` | int | No | Minimo `0` |
+| `marca_id` | uuid | No | Debe existir en el tenant |
 | `principios_activos` | uuid[] | No | Todos los IDs deben existir |
 
 Respuesta `201`:
@@ -861,8 +980,10 @@ Respuesta `201`:
     "tenant_id": "00000000-0000-0000-0000-000000000001",
     "establecimiento_id": "1e4a93fd-8f72-4c13-b5c5-2c29bb0b5731",
     "nombre": "Fungicida A",
-    "unidad_medida": "ml",
-    "stock_actual": "0.000",
+    "unidad_medida": "l",
+    "rate_unidad": "mL/L",
+    "withholding_period_dias": 7,
+    "marca_id": null,
     "activo": true,
     "created_at": "2026-06-04T19:03:01.913Z",
     "updated_at": "2026-06-04T19:03:01.913Z",
@@ -885,6 +1006,7 @@ Errores comunes:
 - `400 TENANT_REQUIRED`: falta tenant.
 - `403 AUTH_FORBIDDEN`: rol insuficiente.
 - `404 NOT_FOUND`: establecimiento inexistente o fuera del tenant.
+- `404 MARCA_NOT_FOUND`: `marca_id` inexistente o fuera del tenant.
 - `409 QUIMICO_NOMBRE_DUPLICADO`: ya existe un quimico con ese nombre en ese establecimiento.
 
 ### 11.4. Actualizar quimico
@@ -903,7 +1025,7 @@ Body:
 ```json
 {
   "nombre": "Fungicida A Actualizado",
-  "unidad_medida": "ml",
+  "withholding_period_dias": 10,
   "activo": true,
   "principios_activos": [
     "7b930d86-6267-4602-9c40-96c89356c361"
@@ -918,7 +1040,10 @@ Campos:
 | Campo | Tipo | Requerido | Validacion |
 | --- | --- | --- | --- |
 | `nombre` | string | No | No vacio, maximo 150 caracteres |
-| `unidad_medida` | string | No | No vacio, maximo 30 caracteres |
+| `unidad_medida` | enum | No | `kg` o `l` |
+| `rate_unidad` | enum | No | `kg/L`, `g/L`, `mL/L` o `L/L` |
+| `withholding_period_dias` | int | No | Minimo `0` |
+| `marca_id` | uuid | No | Debe existir en el tenant |
 | `activo` | boolean | No | `true` o `false` |
 | `principios_activos` | uuid[] | No | Todos los IDs deben existir |
 
@@ -932,8 +1057,10 @@ Respuesta `200`:
     "tenant_id": "00000000-0000-0000-0000-000000000001",
     "establecimiento_id": "1e4a93fd-8f72-4c13-b5c5-2c29bb0b5731",
     "nombre": "Fungicida A Actualizado",
-    "unidad_medida": "ml",
-    "stock_actual": "0.000",
+    "unidad_medida": "l",
+    "rate_unidad": "mL/L",
+    "withholding_period_dias": 10,
+    "marca_id": null,
     "activo": true,
     "created_at": "2026-06-04T19:03:01.913Z",
     "updated_at": "2026-06-04T20:00:00.000Z",
@@ -945,11 +1072,10 @@ Respuesta `200`:
 
 Reglas importantes:
 
-- Solo se pueden modificar `nombre`, `unidad_medida`, `activo` y `principios_activos`.
+- Solo se pueden enviar `nombre`, `unidad_medida`, `rate_unidad`, `withholding_period_dias`, `marca_id`, `activo` y `principios_activos`.
 - Si se envia `principios_activos`, reemplaza toda la lista asociada.
 - Para borrar todas las asociaciones, enviar `principios_activos: []`.
-- No se puede modificar `establecimiento_id`.
-- No se puede modificar `stock_actual` desde este endpoint.
+- No se puede modificar `establecimiento_id` ni `tenant_id`.
 - Si cambia `nombre`, se valida duplicado dentro del mismo establecimiento y tenant.
 
 Errores comunes:
@@ -957,6 +1083,7 @@ Errores comunes:
 - `400 BAD_REQUEST`: body invalido o principios activos inexistentes.
 - `400 QUIMICO_FIELD_IMMUTABLE`: body contiene campos no permitidos.
 - `404 NOT_FOUND`: quimico inexistente o fuera del tenant.
+- `404 MARCA_NOT_FOUND`: `marca_id` inexistente o fuera del tenant.
 - `409 QUIMICO_NOMBRE_DUPLICADO`: nuevo nombre duplicado en el establecimiento.
 - `403 AUTH_FORBIDDEN`: rol insuficiente.
 
@@ -986,8 +1113,10 @@ Respuesta `200`:
     "tenant_id": "00000000-0000-0000-0000-000000000001",
     "establecimiento_id": "1e4a93fd-8f72-4c13-b5c5-2c29bb0b5731",
     "nombre": "Fungicida A",
-    "unidad_medida": "ml",
-    "stock_actual": "0.000",
+    "unidad_medida": "l",
+    "rate_unidad": "mL/L",
+    "withholding_period_dias": 7,
+    "marca_id": null,
     "activo": false,
     "created_at": "2026-06-04T19:03:01.913Z",
     "updated_at": "2026-06-04T20:05:00.000Z",
@@ -1059,8 +1188,10 @@ Respuesta `200`:
       "tenant_id": "00000000-0000-0000-0000-000000000001",
       "establecimiento_id": "1e4a93fd-8f72-4c13-b5c5-2c29bb0b5731",
       "nombre": "Fungicida A",
-      "unidad_medida": "ml",
-      "stock_actual": "0.000",
+      "unidad_medida": "l",
+      "rate_unidad": "mL/L",
+      "withholding_period_dias": 7,
+      "marca_id": null,
       "activo": true,
       "created_at": "2026-06-04T19:03:01.913Z",
       "updated_at": "2026-06-04T19:03:01.913Z",
@@ -1075,7 +1206,152 @@ Respuesta `200`:
 }
 ```
 
-## 12. Flujos recomendados para frontend
+## 12. Endpoints de lotes de quimicos (`lotes-quimicos`)
+
+Cada lote representa una entrada de stock de un quimico especifico: numero de lote, proveedor, cantidad inicial/actual y fechas. El stock de un quimico es la suma de `cantidad_actual` de todos sus lotes.
+
+### 12.1. Listar lotes
+
+```http
+GET /lotes-quimicos
+```
+
+Roles:
+
+- Cualquier usuario autenticado.
+
+Query params:
+
+| Param | Tipo | Requerido | Default | Descripcion |
+| --- | --- | --- | --- | --- |
+| `page` | number | No | `1` | Pagina actual |
+| `limit` | number | No | `20` | Cantidad por pagina, maximo `200` |
+| `q` | string | No | - | Busca por `numero_lote` |
+| `quimico_id` | uuid | No | - | Filtra por quimico |
+| `establecimiento_id` | uuid | No | - | Filtra por establecimiento |
+| `con_stock` | boolean | No | - | Si es `true`, solo lotes con `cantidad_actual > 0` |
+| `sortBy` | string | No | `created_at` | `numero_lote`, `fecha_vencimiento` o `created_at` |
+| `sortOrder` | string | No | `DESC` | `ASC` o `DESC` |
+
+Respuesta `200`: paginada, con objetos `LoteQuimico` (seccion 8).
+
+### 12.2. Obtener lote por ID
+
+```http
+GET /lotes-quimicos/:id
+```
+
+Roles: cualquier usuario autenticado. Devuelve `404 NOT_FOUND` si no existe o esta fuera del tenant.
+
+### 12.3. Lotes de un quimico especifico
+
+```http
+GET /quimicos/:quimicoId/lotes
+```
+
+Roles: cualquier usuario autenticado. Mismos query params que `GET /lotes-quimicos` (el `quimico_id` se toma del path, no hace falta repetirlo en query). Util para calcular el stock total sumando `cantidad_actual` de todos los items.
+
+### 12.4. Crear lote
+
+```http
+POST /lotes-quimicos
+```
+
+Roles: `supervisor`, `admin_global`.
+
+Body:
+
+```json
+{
+  "quimico_id": "f0c6de8c-513f-4a8d-b104-870d627325b8",
+  "proveedor_id": "7c1e2b4a-6f2d-4b5a-8e3f-1a2b3c4d5e6f",
+  "numero_lote": "LQ-2026-001",
+  "cantidad_inicial": 10,
+  "dom": "2026-01-15",
+  "fecha_vencimiento": "2027-01-15"
+}
+```
+
+Campos:
+
+| Campo | Tipo | Requerido | Validacion |
+| --- | --- | --- | --- |
+| `quimico_id` | uuid | Si | Debe existir en el tenant |
+| `proveedor_id` | uuid | Si | Debe existir en el tenant y pertenecer al mismo establecimiento del quimico |
+| `numero_lote` | string | Si | No vacio, maximo 100 caracteres |
+| `cantidad_inicial` | number | Si | Minimo `0.001` |
+| `dom` | date | No | Formato `YYYY-MM-DD` |
+| `fecha_vencimiento` | date | No | Formato `YYYY-MM-DD` |
+
+Reglas de negocio:
+
+- `establecimiento_id` del lote se copia automaticamente del quimico (no se envia en el body).
+- `cantidad_actual` se inicializa igual a `cantidad_inicial`.
+- El `proveedor_id` debe pertenecer al mismo `establecimiento_id` que el quimico; si no, `422 PROVEEDOR_ESTABLECIMIENTO_MISMATCH`.
+- No puede existir otro lote con el mismo `numero_lote` para el mismo `quimico_id` y tenant (`409 LOTE_QUIMICO_NUMERO_DUPLICADO`).
+
+Errores comunes:
+
+- `400 BAD_REQUEST`: body invalido.
+- `404 NOT_FOUND`: `quimico_id` inexistente o fuera del tenant.
+- `404 PROVEEDOR_NOT_FOUND`: `proveedor_id` inexistente o fuera del tenant.
+- `422 PROVEEDOR_ESTABLECIMIENTO_MISMATCH`: el proveedor no pertenece al establecimiento del quimico.
+- `409 LOTE_QUIMICO_NUMERO_DUPLICADO`: `numero_lote` duplicado para ese quimico.
+- `403 AUTH_FORBIDDEN`: rol insuficiente.
+
+### 12.5. Actualizar lote
+
+```http
+PATCH /lotes-quimicos/:id
+```
+
+Roles: `supervisor`, `admin_global`.
+
+Solo se permiten estos campos en el body: `numero_lote`, `proveedor_id`, `dom`, `fecha_vencimiento`. Cualquier otro campo (incluida `cantidad_actual`) responde `400 LOTE_QUIMICO_FIELD_IMMUTABLE` con el mensaje `"Solo se pueden modificar numero_lote, proveedor_id, dom y fecha_vencimiento"`.
+
+Si se cambia `proveedor_id`, se revalida contra el establecimiento del lote (`422 PROVEEDOR_ESTABLECIMIENTO_MISMATCH` si no coincide). Si se cambia `numero_lote`, se revalida unicidad (`409 LOTE_QUIMICO_NUMERO_DUPLICADO`).
+
+Para modificar la cantidad de stock, usar el endpoint de ajuste (seccion 12.6), no este PATCH.
+
+### 12.6. Ajustar stock de un lote
+
+```http
+POST /lotes-quimicos/:id/ajuste
+```
+
+Roles: `supervisor`, `admin_global`.
+
+Body:
+
+```json
+{
+  "cantidad": 2.5,
+  "observaciones": "Merma por derrame"
+}
+```
+
+Campos:
+
+| Campo | Tipo | Requerido | Validacion |
+| --- | --- | --- | --- |
+| `cantidad` | number | Si | Minimo `0.001` |
+| `observaciones` | string | No | Maximo 2000 caracteres |
+
+Importante: este endpoint **siempre resta** `cantidad` de `cantidad_actual` (no existe un modo de sumar/reponer stock via este endpoint). Si `cantidad_actual` es menor que `cantidad`, la operacion se rechaza atomicamente con `422 LOTE_QUIMICO_STOCK_INSUFICIENTE` (la resta se hace en un solo `UPDATE` condicionado, no hay lectura-luego-escritura).
+
+Respuesta `200`: el `LoteQuimico` actualizado.
+
+### 12.7. Eliminar lote
+
+```http
+DELETE /lotes-quimicos/:id
+```
+
+Roles: `admin_global`.
+
+Antes de eliminar, el backend verifica que el lote no este referenciado por `aplicaciones_quimicas_detalle`. Si lo esta, responde `409 LOTE_QUIMICO_REFERENCED`. Hace soft delete.
+
+## 13. Flujos recomendados para frontend
 
 ### Flujo de carga de listado de quimicos
 
@@ -1085,25 +1361,27 @@ Respuesta `200`:
 4. Usar `meta.total`, `meta.page` y `meta.limit` para paginacion.
 5. Permitir filtros por establecimiento, activo y busqueda `q`.
 6. Si se quieren ver solo activos, enviar `activo=true`.
+7. Para mostrar stock total por quimico, hacer una llamada adicional a `GET /quimicos/:quimicoId/lotes` y sumar `cantidad_actual` (el listado de quimicos no trae stock embebido).
 
 ### Flujo de creacion de quimico
 
 1. Cargar establecimientos disponibles.
 2. Cargar `GET /principios-activos`.
-3. Validar `establecimiento_id`, `nombre` y `unidad_medida`.
-4. Permitir seleccionar cero, uno o varios principios activos.
+3. Validar `establecimiento_id`, `nombre`, `unidad_medida` y `rate_unidad`.
+4. Permitir seleccionar cero, uno o varios principios activos, y opcionalmente `marca_id`/`withholding_period_dias`.
 5. Enviar `POST /quimicos`.
 6. Si responde `201`, guardar `data.id` y navegar al detalle o refrescar listado.
 7. Si responde `409 QUIMICO_NOMBRE_DUPLICADO`, mostrar que ya existe un quimico con ese nombre en el establecimiento.
+8. Si el quimico necesita stock inicial, encadenar un `POST /lotes-quimicos` con ese `quimico_id`.
 
 ### Flujo de edicion de quimico
 
 1. Cargar detalle con `GET /quimicos/:id`.
 2. Cargar catalogo con `GET /principios-activos`.
-3. Permitir editar solo `nombre`, `unidad_medida`, `activo` y principios activos.
+3. Permitir editar solo `nombre`, `unidad_medida`, `rate_unidad`, `withholding_period_dias`, `marca_id`, `activo` y principios activos.
 4. Enviar `PATCH /quimicos/:id`.
 5. Recordar que `principios_activos` reemplaza la asociacion completa.
-6. Nunca enviar `establecimiento_id`, `tenant_id` ni `stock_actual`.
+6. Nunca enviar `establecimiento_id` ni `tenant_id`.
 
 ### Flujo de principios activos
 
@@ -1113,6 +1391,14 @@ Respuesta `200`:
 4. Para eliminar, enviar `DELETE /principios-activos/:id`.
 5. Si responde `PRINCIPIO_ACTIVO_REFERENCIADO`, informar que no puede eliminarse porque esta siendo usado por quimicos.
 
+### Flujo de manejo de stock (lotes)
+
+1. Desde el detalle de un quimico, listar sus lotes con `GET /quimicos/:quimicoId/lotes`.
+2. Para cargar stock nuevo, enviar `POST /lotes-quimicos` con `quimico_id`, `proveedor_id`, `numero_lote` y `cantidad_inicial`.
+3. Para descontar stock (uso manual, merma, ajuste de inventario), enviar `POST /lotes-quimicos/:id/ajuste` con la `cantidad` a restar.
+4. El descuento automatico de stock al registrar una aplicacion quimica ocurre en el modulo de aplicaciones, no aca — ver [aplicaciones-quimicas-frontend.md](aplicaciones-quimicas-frontend.md).
+5. Si un ajuste responde `422 LOTE_QUIMICO_STOCK_INSUFICIENTE`, refrescar el lote para mostrar el stock real disponible.
+
 ### Flujo de eliminacion de quimico
 
 1. Mostrar confirmacion.
@@ -1120,21 +1406,23 @@ Respuesta `200`:
 3. Si responde `200`, quitarlo del listado o refrescar.
 4. Si responde `403`, ocultar esta accion para el rol actual.
 
-## 13. Consideraciones de UI/UX
+## 14. Consideraciones de UI/UX
 
 - Mostrar crear y editar quimicos solo para `supervisor` o `admin_global`.
 - Mostrar eliminar quimico solo para `admin_global`.
 - Mostrar crear, editar y eliminar principios activos solo para `admin_global`.
-- Mostrar `stock_actual` como solo lectura.
+- Mostrar crear/editar lotes solo para `supervisor` o `admin_global`; eliminar lote solo para `admin_global`.
+- El stock ya no es un campo de solo lectura del quimico: se muestra/gestiona a nivel de lote.
 - Mostrar `establecimiento_id` como seleccionable solo al crear quimico.
 - En edicion, mostrar establecimiento como solo lectura o no mostrarlo como campo editable.
 - En la edicion de principios activos de un quimico, usar un multiselect.
 - Al guardar principios activos, enviar todos los seleccionados, no solo los cambios.
 - Para quitar todos, enviar `principios_activos: []`.
 - Si frontend no quiere mostrar inactivos por defecto, debe enviar `activo=true`, porque el backend no aplica ese filtro automaticamente.
-- Mostrar mensajes especificos para `QUIMICO_NOMBRE_DUPLICADO`, `QUIMICO_FIELD_IMMUTABLE`, `PRINCIPIO_ACTIVO_NOMBRE_DUPLICADO` y `PRINCIPIO_ACTIVO_REFERENCIADO`.
+- Mostrar `withholding_period_dias` como "dias de carencia" en la UI, en la misma pantalla donde se elige `rate_unidad`.
+- Mostrar mensajes especificos para `QUIMICO_NOMBRE_DUPLICADO`, `QUIMICO_FIELD_IMMUTABLE`, `PRINCIPIO_ACTIVO_NOMBRE_DUPLICADO`, `PRINCIPIO_ACTIVO_REFERENCIADO`, `LOTE_QUIMICO_NUMERO_DUPLICADO`, `LOTE_QUIMICO_STOCK_INSUFICIENTE`, `LOTE_QUIMICO_REFERENCED` y `PROVEEDOR_ESTABLECIMIENTO_MISMATCH`.
 
-## 14. Ejemplos con fetch
+## 15. Ejemplos con fetch
 
 ### Cliente base
 
@@ -1205,7 +1493,9 @@ const response = await apiFetch("/quimicos", {
   body: JSON.stringify({
     establecimiento_id: establecimientoId,
     nombre: "Fungicida A",
-    unidad_medida: "ml",
+    unidad_medida: "l",
+    rate_unidad: "mL/L",
+    withholding_period_dias: 7,
     principios_activos: [principioActivoId]
   })
 });
@@ -1227,7 +1517,7 @@ const response = await apiFetch(`/quimicos/${quimicoId}`, {
   method: "PATCH",
   body: JSON.stringify({
     nombre: "Fungicida A Actualizado",
-    unidad_medida: "ml",
+    withholding_period_dias: 10,
     activo: true,
     principios_activos: [principioActivoId]
   })
@@ -1270,21 +1560,50 @@ await apiFetch(`/quimicos/${quimicoId}`, {
 });
 ```
 
-## 15. Checklist para integracion frontend
+### Crear lote de quimico
+
+```ts
+const response = await apiFetch("/lotes-quimicos", {
+  method: "POST",
+  body: JSON.stringify({
+    quimico_id: quimicoId,
+    proveedor_id: proveedorId,
+    numero_lote: "LQ-2026-001",
+    cantidad_inicial: 10
+  })
+});
+
+const nuevoLote = response.data;
+```
+
+### Ajustar stock de un lote
+
+```ts
+const response = await apiFetch(`/lotes-quimicos/${loteId}/ajuste`, {
+  method: "POST",
+  body: JSON.stringify({
+    cantidad: 2.5,
+    observaciones: "Merma por derrame"
+  })
+});
+
+const loteActualizado = response.data;
+```
+
+## 16. Checklist para integracion frontend
 
 - Login guarda `access_token`.
 - Si se usa tenant por header, frontend guarda y envia `tenant_id`.
 - Se hace login de nuevo despues de cambios de roles.
 - Los listados leen `data` y `meta`.
 - Los errores leen `error.code` y `error.message`.
-- Crear quimico valida `establecimiento_id`.
-- Crear quimico valida `nombre` obligatorio.
-- Crear quimico valida `unidad_medida` obligatoria.
+- Crear quimico valida `establecimiento_id`, `nombre`, `unidad_medida` y `rate_unidad`.
 - `nombre` de quimico no supera 150 caracteres.
-- `unidad_medida` no supera 30 caracteres.
-- En PATCH de quimico solo se envian `nombre`, `unidad_medida`, `activo` y `principios_activos`.
-- En PATCH de quimico no se envia `establecimiento_id`.
-- En PATCH de quimico no se envia `stock_actual`.
+- `unidad_medida` solo acepta `kg` o `l` (no es texto libre).
+- `rate_unidad` solo acepta `kg/L`, `g/L`, `mL/L` o `L/L`.
+- En PATCH de quimico solo se envian `nombre`, `unidad_medida`, `rate_unidad`, `withholding_period_dias`, `marca_id`, `activo` y `principios_activos`.
+- En PATCH de quimico no se envia `establecimiento_id` ni `tenant_id`.
+- No existe `stock_actual` en el modelo de Quimico; el stock se lee/gestiona via `lotes-quimicos`.
 - `activo` se envia como boolean real en JSON, no como string.
 - Principios activos se cargan desde `GET /principios-activos`.
 - `principios_activos` se envia como array de UUIDs.
@@ -1292,90 +1611,13 @@ await apiFetch(`/quimicos/${quimicoId}`, {
 - La UI maneja `QUIMICO_FIELD_IMMUTABLE`.
 - La UI maneja `PRINCIPIO_ACTIVO_NOMBRE_DUPLICADO`.
 - La UI maneja `PRINCIPIO_ACTIVO_REFERENCIADO`.
-- Crear/editar quimicos se muestran solo para `supervisor` o `admin_global`.
-- Eliminar quimicos se muestra solo para `admin_global`.
+- La UI maneja `LOTE_QUIMICO_NUMERO_DUPLICADO`, `LOTE_QUIMICO_STOCK_INSUFICIENTE`, `LOTE_QUIMICO_REFERENCED` y `PROVEEDOR_ESTABLECIMIENTO_MISMATCH` para lotes.
+- El ajuste de stock (`POST /lotes-quimicos/:id/ajuste`) siempre resta; no hay endpoint para sumar stock salvo crear un lote nuevo.
+- Crear/editar quimicos y lotes se muestran solo para `supervisor` o `admin_global`.
+- Eliminar quimicos y lotes se muestra solo para `admin_global`.
 - Crear/editar/eliminar principios activos se muestra solo para `admin_global`.
 - Si se quieren listar solo activos, enviar `activo=true`.
 
-Cambios en el módulo de Químicos (M05) — Nuevos campos en el modelo de Químico
+## 17. Modulo Recetas — eliminado
 
-Se agregaron 7 campos nuevos al endpoint de químicos.
-
-Campos nuevos
-
-Campo	Tipo	Obligatorio	Descripción
-unidad_stock	enum	Sí	Unidad en que se mide el stock: kg, g, l, ml
-rate_unidad	enum	Sí	Unidad de la dosis de aplicación: kg/l, g/l, ml/l, l/l
-nombre_lista	boolean	No (default false)	true si el nombre fue elegido de una lista predefinida, false si fue escrito manualmente
-withholding_period_dias	integer	No	Días de carencia tras aplicación. null = sin carencia
-manufacture_date	date	No	Fecha de fabricación. Formato "YYYY-MM-DD"
-dom	date	No	Fecha de vencimiento. Formato "YYYY-MM-DD"
-supplier	string	No	Proveedor de compra del químico
-POST /quimicos — Crear químico
-
-unidad_stock y rate_unidad son requeridos. Si se omiten, la API devuelve 400.
-
-
-{
-  "establecimiento_id": "...",
-  "nombre": "Fungicida X",
-  "unidad_medida": "litros",
-  "unidad_stock": "l",
-  "rate_unidad": "mL/L",
-  "nombre_lista": true,
-  "withholding_period_dias": 7,
-  "manufacture_date": "2024-03-01",
-  "dom": "2026-03-01",
-  "supplier": "AgroInsumos SA"
-}
-PATCH /quimicos/:id — Actualizar
-
-Todos los campos nuevos son opcionales en el update. Solo enviá los que cambian.
-
-GET /quimicos — Respuesta
-
-Todos los registros devuelven los 7 campos nuevos. Los que no tengan valor vienen null (o false en el caso de nombre_lista).
-
-
-{
-  "id": "...",
-  "nombre": "Fungicida X",
-  "unidad_medida": "litros",
-  "stock_actual": "2.500",
-  "activo": true,
-  "unidad_stock": "l",
-  "rate_unidad": "mL/L",
-  "nombre_lista": false,
-  "withholding_period_dias": 7,
-  "manufacture_date": "2024-03-01",
-  "dom": "2026-03-01",
-  "supplier": null
-}
-Valores válidos
-
-unidad_stock: "kg" · "g" · "l" · "ml"
-
-rate_unidad: "kg/L" · "g/L" · "mL/L" · "L/L" (actualizado — antes se aceptaba en minúsculas, ver sección "Cambios recientes" al final del documento)
-
-Nota para M06 y M09
-
-unidad_stock y rate_unidad van a ser consumidos por los módulos de movimientos de stock (M06) y aplicaciones químicas (M09) para mostrar las unidades correctas al registrar entradas/salidas y dosificaciones. Por ahora el front puede guardarlos sin lógica adicional — la integración viene en una query separada.
-
-## Cambios recientes — Nomenclatura de `rate_unidad` (2026-07-08)
-
-`rate_unidad` cambió de notación en minúsculas a notación estándar con "L" (litro) en mayúscula. Esto afecta a `Quimico.rate_unidad` y también a `AplicacionQuimica.dosis_unidad` (comparten el mismo enum en base de datos).
-
-| Valor anterior | Valor nuevo |
-| --- | --- |
-| `kg/l` | `kg/L` |
-| `g/l` | `g/L` |
-| `ml/l` | `mL/L` |
-| `l/l` | `L/L` |
-
-- Los registros existentes se migraron automáticamente en el backend — no requiere backfill del front.
-- Enviar los valores viejos (minúsculas) ahora devuelve `400 BAD_REQUEST`.
-- `unidad_medida` (`kg`/`l`) **no** cambió — solo `rate_unidad`/`dosis_unidad`.
-
-## Cambios recientes — Eliminación del módulo Recetas (2026-07-08)
-
-El módulo de Recetas (`/recetas`, `/admin/recetas`) se eliminó por completo. Ya no existe ningún campo `receta_id` en ningún endpoint del backend. Si el front tenía pantallas o referencias a recetas, deben quitarse.
+El modulo de Recetas (`/recetas`, `/admin/recetas`) se elimino por completo del backend. No existe ningun campo `receta_id` en ningun endpoint de este documento ni de aplicaciones quimicas. Si el frontend conservaba pantallas o referencias a recetas, deben quitarse.

@@ -1,9 +1,10 @@
-import { IsOptional, IsBoolean, IsIn } from 'class-validator';
+import { IsOptional, IsString, IsBoolean, IsIn } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { PageQueryDto } from 'src/common/query/page-query.dto';
 
 export class QueryEstablecimientosDto extends PageQueryDto {
   @IsOptional()
+  @IsString()
   q?: string;
 
   @IsOptional()
@@ -16,6 +17,7 @@ export class QueryEstablecimientosDto extends PageQueryDto {
   activo?: boolean;
 
   @IsOptional()
+  @IsString()
   sortBy?: string;
 
   @IsOptional()

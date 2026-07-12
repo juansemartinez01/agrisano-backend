@@ -268,16 +268,16 @@ export class UsersService {
   }
 
   // ✅ Roles GLOBAL: tenant_id IS NULL
-  async deleteRole(id: string) {
+  async deleteRole(id: string): Promise<'not_found' | 'protected' | 'deleted'> {
     const role = await this.rolesRepo.findOne({
       where: { id, tenant_id: IsNull() } as any,
     });
-    if (!role) return false;
+    if (!role) return 'not_found';
 
-    if (role.name === 'admin') return false;
+    if (role.name === 'admin') return 'protected';
 
     const res = await this.rolesRepo.delete({ id, tenant_id: IsNull() } as any);
-    return !!res.affected;
+    return res.affected ? 'deleted' : 'not_found';
   }
 
   async restoreUser(id: string) {

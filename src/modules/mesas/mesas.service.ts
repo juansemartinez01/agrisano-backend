@@ -73,8 +73,8 @@ export class MesasService {
     await qr.startTransaction();
     try {
       const result: Array<{ max: string | null }> = await qr.query(
-        `SELECT MAX(posicion_actual) AS max FROM mesas WHERE tunel_id = $1 AND deleted_at IS NULL AND posicion_actual IS NOT NULL`,
-        [dto.tunel_id],
+        `SELECT MAX(posicion_actual) AS max FROM mesas WHERE tunel_id = $1 AND tenant_id = $2 AND deleted_at IS NULL AND posicion_actual IS NOT NULL`,
+        [dto.tunel_id, tenantId],
       );
       const newPos: number = (Number(result[0]?.max) || 0) + 1;
 

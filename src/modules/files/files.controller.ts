@@ -8,16 +8,22 @@ import {
   Inject,
   Get,
   Req,
+  UseGuards,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { AppError } from 'src/common/errors/app-error';
 import { ErrorCodes } from 'src/common/errors/error-codes';
+import { JwtAuthGuard } from 'src/modules/auth/guards/jwt-auth.guard';
+import { RolesGuard } from 'src/modules/auth/guards/roles.guard';
+import { Roles } from 'src/modules/auth/decorators/roles.decorator';
 import type { FilesClient } from './files.provider';
 
+@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('files')
 export class FilesController {
   constructor(@Inject('FILES') private files: FilesClient) {}
 
+  @Roles('operario', 'supervisor', 'admin_global')
   @Post('upload')
   @UseInterceptors(FileInterceptor('file'))
   async uploadFile(@Req() req: any, @UploadedFile() file: any) {
@@ -42,6 +48,7 @@ export class FilesController {
     return { ok: true, data: result };
   }
 
+  @Roles('supervisor', 'admin_global')
   @Delete('delete/:publicId')
   async deleteFile(@Req() req: any, @Param('publicId') publicId: string) {
     const tenantKey = req?.tenantKey ?? null;

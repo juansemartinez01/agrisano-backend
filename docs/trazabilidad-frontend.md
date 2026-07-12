@@ -118,19 +118,18 @@ Tambien puede responder `401` si el tenant del header no coincide con el tenant 
 
 ## 5. Roles y permisos
 
-El modulo usa `JwtAuthGuard`.
+El modulo usa `JwtAuthGuard` + `RolesGuard`.
 
 Tabla de permisos:
 
 | Endpoint | Roles permitidos |
 | --- | --- |
-| `GET /trazabilidad/cosecha/:cosecha_id` | Cualquier usuario autenticado |
-| `GET /trazabilidad/mesa/:mesa_id` | Cualquier usuario autenticado |
+| `GET /trazabilidad/cosecha/:cosecha_id` | `operario`, `supervisor`, `admin_global` |
+| `GET /trazabilidad/mesa/:mesa_id` | `operario`, `supervisor`, `admin_global` |
 
 Notas:
 
-- Este modulo no usa `RolesGuard`.
-- Cualquier usuario con JWT valido puede consultar trazabilidad.
+- Solo usuarios con alguno de esos tres roles pueden consultar trazabilidad.
 - El acceso sigue limitado al tenant actual.
 
 ## 6. Formato general de respuestas exitosas
@@ -199,6 +198,8 @@ type Cosecha = {
   tenant_id: string | null;
   mesa_id: string;
   tunel_id: string;
+  producto_id: string | null;
+  variedad_id: string | null;
   posicion_al_momento: number;
   fecha_hora: string;
   peso_kg: number | string;
@@ -374,6 +375,8 @@ Respuesta `200`:
       "tenant_id": "00000000-0000-0000-0000-000000000001",
       "mesa_id": "1d64fcbb-47d4-4e9b-81e4-5ddf9f9650b5",
       "tunel_id": "9e314fed-4062-4563-913f-a66f2fbb422e",
+      "producto_id": "3b2a7e2a-9f0a-4a3d-8a9d-6a9f0b6a2c1e",
+      "variedad_id": "5c1d8f3b-2e4a-4b7c-9d1e-8a3f2b6c4d5e",
       "posicion_al_momento": 1,
       "fecha_hora": "2026-06-09T12:00:00.000Z",
       "peso_kg": "12.500",
@@ -442,9 +445,9 @@ Respuesta `200`:
           {
             "id": "b0ebf981-5890-4130-9592-60c0e4b11c65",
             "aplicacion_id": "35f8083d-5a3f-4a8d-88f4-df36e7e2b32a",
-            "quimico_id": "7aab9d6e-a454-4135-9d7e-09973f33f801",
+            "lote_quimico_id": "7aab9d6e-a454-4135-9d7e-09973f33f801",
             "cantidad": "2.000",
-            "unidad_medida": "litros"
+            "unidad_medida": "L"
           }
         ]
       }

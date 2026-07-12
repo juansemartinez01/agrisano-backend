@@ -187,6 +187,12 @@ Codigos relevantes para frontend:
 | `401` | `AUTH_INVALID` | Token ausente, invalido o tenant mismatch |
 | `403` | `AUTH_FORBIDDEN` | El usuario no tiene rol permitido |
 | `404` | `NOT_FOUND` | Lote no encontrado o fuera del tenant |
+| `404` | `PROVEEDOR_NOT_FOUND` | `proveedor_id` (o `proveedor_semilla_id`) no existe o es de otro tenant |
+| `404` | `MARCA_NOT_FOUND` | `marca_id` no existe o es de otro tenant |
+| `404` | `PRODUCTO_NOT_FOUND` / `VARIEDAD_NOT_FOUND` | `producto_id`/`variedad_id` no existe o es de otro tenant |
+| `422` | `VARIEDAD_PRODUCTO_MISMATCH` | La `variedad_id` indicada no pertenece al `producto_id` indicado |
+| `422` | `LOTE_PROVEEDOR_SEMILLA_NO_PERMITIDO` | Se envio `proveedor_semilla_id` en un lote de tipo `sustrato` |
+| `422` | `LOTE_PRODUCTO_NO_PERMITIDO` | Se envio `producto_id`/`variedad_id` en un lote de tipo `sustrato` |
 | `409` | `LOTE_NUMERO_DUPLICADO` | Ya existe un lote con ese `numero_lote` para ese `tipo` |
 | `409` | `LOTE_REFERENCED_BY_BANDEJA` | El lote esta referenciado por bandejas |
 | `429` | `RATE_LIMITED` | Demasiadas requests |
@@ -227,16 +233,23 @@ type Lote = {
   tenant_id: string | null;
   tipo: LoteTipo;
   numero_lote: string;
-  proveedor: string | null;
-  observaciones: string | null;
+  establecimiento_id: string | null;
+  proveedor_id: string | null;       // uuid — proveedor del lote (proveedores)
+  marca_id: string | null;           // uuid — marca del insumo (marcas)
+  observaciones: string | null;      // maximo 2000 caracteres
   activo: boolean;
+  // Campos exclusivos de tipo "semilla" — quedan null en lotes de tipo "sustrato"
+  producto_id: string | null;        // uuid — catalogo productos
+  variedad_id: string | null;        // uuid — catalogo variedades, debe pertenecer a producto_id
+  batch: string | null;
+  proveedor_semilla_id: string | null; // uuid — proveedor especifico de la semilla
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
 };
 ```
 
-Ejemplo:
+Ejemplo (lote de semilla):
 
 ```json
 {
@@ -244,9 +257,38 @@ Ejemplo:
   "tenant_id": "00000000-0000-0000-0000-000000000001",
   "tipo": "semilla",
   "numero_lote": "SEM-2026-001",
-  "proveedor": "Proveedor Norte",
+  "establecimiento_id": null,
+  "proveedor_id": "7c1e2b4a-6f2d-4b5a-8e3f-1a2b3c4d5e6f",
+  "marca_id": null,
   "observaciones": "Lote inicial de prueba",
   "activo": true,
+  "producto_id": "3b2a7e2a-9f0a-4a3d-8a9d-6a9f0b6a2c1e",
+  "variedad_id": "5c1d8f3b-2e4a-4b7c-9d1e-8a3f2b6c4d5e",
+  "batch": "BT-4421",
+  "proveedor_semilla_id": "9e1c2d3b-4a5f-4b6c-8d7e-1f2a3b4c5d6e",
+  "created_at": "2026-06-04T19:03:01.913Z",
+  "updated_at": "2026-06-04T19:03:01.913Z",
+  "deleted_at": null
+}
+```
+
+Ejemplo (lote de sustrato — campos de semilla en `null`):
+
+```json
+{
+  "id": "a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d",
+  "tenant_id": "00000000-0000-0000-0000-000000000001",
+  "tipo": "sustrato",
+  "numero_lote": "SUS-2026-001",
+  "establecimiento_id": null,
+  "proveedor_id": "7c1e2b4a-6f2d-4b5a-8e3f-1a2b3c4d5e6f",
+  "marca_id": null,
+  "observaciones": null,
+  "activo": true,
+  "producto_id": null,
+  "variedad_id": null,
+  "batch": null,
+  "proveedor_semilla_id": null,
   "created_at": "2026-06-04T19:03:01.913Z",
   "updated_at": "2026-06-04T19:03:01.913Z",
   "deleted_at": null
@@ -263,8 +305,15 @@ Body para crear:
 type CreateLoteDto = {
   tipo: "semilla" | "sustrato";
   numero_lote: string;
-  proveedor?: string;
-  observaciones?: string;
+  establecimiento_id?: string;      // uuid
+  proveedor_id: string;             // uuid — requerido siempre, sin importar tipo
+  marca_id?: string;                // uuid
+  observaciones?: string;           // maximo 2000 caracteres
+  // Solo si tipo = "semilla" (obligatorios en ese caso; rechazados con 422 si tipo = "sustrato")
+  producto_id?: string;             // uuid
+  variedad_id?: string;             // uuid, debe pertenecer a producto_id
+  proveedor_semilla_id?: string;    // uuid
+  batch?: string;                   // opcional incluso para semilla, maximo 100 caracteres
 };
 ```
 
@@ -272,17 +321,36 @@ Validaciones:
 
 - `tipo`: obligatorio. Valores permitidos: `semilla`, `sustrato`.
 - `numero_lote`: obligatorio, string no vacio, maximo 100 caracteres.
-- `proveedor`: opcional, string, maximo 200 caracteres.
-- `observaciones`: opcional, string.
+- `establecimiento_id`: opcional, uuid.
+- `proveedor_id`: **obligatorio** (uuid), sin importar el `tipo`. No es opcional pese a que la columna en base permite `null`.
+- `marca_id`: opcional, uuid.
+- `observaciones`: opcional, string, maximo 2000 caracteres.
+- `producto_id`, `variedad_id`, `proveedor_semilla_id`: obligatorios (uuid) unicamente cuando `tipo === "semilla"`. Si se envian con `tipo === "sustrato"`, el backend los **rechaza** con `422` (no los ignora silenciosamente).
+- `batch`: opcional, string, maximo 100 caracteres (aplica a cualquier `tipo`, aunque en la practica solo tiene sentido para semilla).
+- Cruce de validacion: `variedad_id` debe pertenecer a `producto_id` (mismo `producto_id` en la fila de `variedades`), sino `422 VARIEDAD_PRODUCTO_MISMATCH`.
 
-Ejemplo:
+Ejemplo (semilla):
 
 ```json
 {
   "tipo": "semilla",
   "numero_lote": "SEM-2026-001",
-  "proveedor": "Proveedor Norte",
+  "proveedor_id": "7c1e2b4a-6f2d-4b5a-8e3f-1a2b3c4d5e6f",
+  "producto_id": "3b2a7e2a-9f0a-4a3d-8a9d-6a9f0b6a2c1e",
+  "variedad_id": "5c1d8f3b-2e4a-4b7c-9d1e-8a3f2b6c4d5e",
+  "proveedor_semilla_id": "9e1c2d3b-4a5f-4b6c-8d7e-1f2a3b4c5d6e",
+  "batch": "BT-4421",
   "observaciones": "Lote inicial de prueba"
+}
+```
+
+Ejemplo (sustrato — los campos de semilla NO deben enviarse):
+
+```json
+{
+  "tipo": "sustrato",
+  "numero_lote": "SUS-2026-001",
+  "proveedor_id": "7c1e2b4a-6f2d-4b5a-8e3f-1a2b3c4d5e6f"
 }
 ```
 
@@ -298,18 +366,19 @@ Body para actualizar:
 ```ts
 type UpdateLoteDto = {
   numero_lote?: string;
-  proveedor?: string;
+  establecimiento_id?: string;
+  proveedor_id?: string;
+  marca_id?: string;
   observaciones?: string;
   activo?: boolean;
+  producto_id?: string;
+  variedad_id?: string;
+  proveedor_semilla_id?: string;
+  batch?: string;
 };
 ```
 
-Validaciones:
-
-- `numero_lote`: opcional, string no vacio, maximo 100 caracteres.
-- `proveedor`: opcional, string, maximo 200 caracteres.
-- `observaciones`: opcional, string.
-- `activo`: opcional, boolean.
+Validaciones: mismas reglas de tipo/formato que en `CreateLoteDto`, pero todos los campos son opcionales (incluido `proveedor_id`, que en update no es obligatorio). La misma regla de "semilla-only" aplica: si el lote es de `tipo === "sustrato"`, enviar `producto_id`/`variedad_id`/`proveedor_semilla_id` sigue siendo rechazado con `422`.
 
 Importante: `tipo` no se puede actualizar. Si frontend envia `tipo` en un `PATCH`, el backend responde:
 
@@ -332,7 +401,6 @@ Ejemplo valido:
 ```json
 {
   "numero_lote": "SEM-2026-001-A",
-  "proveedor": "Proveedor Norte",
   "observaciones": "Actualizado desde frontend",
   "activo": true
 }
@@ -358,10 +426,10 @@ Validaciones y comportamiento:
 
 - `page`: opcional, entero, minimo 1. Default: `1`.
 - `limit`: opcional, entero, minimo 1, maximo 200. Default: `20`.
-- `q`: opcional, string. Busca por `numero_lote` o `proveedor`.
+- `q`: opcional, string. Busca solo por `numero_lote` (`ILIKE`). No busca por proveedor ni ningun otro campo.
 - `tipo`: opcional. Valores permitidos: `semilla`, `sustrato`.
 - `activo`: opcional, boolean. Acepta `true` o `false`.
-- `sortBy`: opcional. Valores permitidos reales: `numero_lote`, `proveedor`, `created_at`.
+- `sortBy`: opcional. Valores realmente permitidos por el servicio: `numero_lote`, `created_at`. (`proveedor` NO es un campo de ordenamiento valido; ya no existe como campo del modelo.)
 - `sortOrder`: opcional. Valores permitidos: `ASC`, `DESC`.
 - Si `sortBy` no es permitido, el backend ordena por `created_at DESC`.
 
@@ -396,10 +464,10 @@ Query params:
 | --- | --- | --- | --- | --- |
 | `page` | number | No | `1` | Pagina actual |
 | `limit` | number | No | `20` | Cantidad por pagina, maximo `200` |
-| `q` | string | No | - | Busca por `numero_lote` o `proveedor` |
+| `q` | string | No | - | Busca solo por `numero_lote` (ILIKE) |
 | `tipo` | string | No | - | `semilla` o `sustrato` |
 | `activo` | boolean | No | - | Filtra activos/inactivos |
-| `sortBy` | string | No | `created_at` | `numero_lote`, `proveedor` o `created_at` |
+| `sortBy` | string | No | `created_at` | `numero_lote` o `created_at` |
 | `sortOrder` | string | No | `DESC` | `ASC` o `DESC` |
 
 Ejemplo:
@@ -419,9 +487,15 @@ Respuesta `200`:
       "tenant_id": "00000000-0000-0000-0000-000000000001",
       "tipo": "semilla",
       "numero_lote": "SEM-2026-001",
-      "proveedor": "Proveedor Norte",
+      "establecimiento_id": null,
+      "proveedor_id": "7c1e2b4a-6f2d-4b5a-8e3f-1a2b3c4d5e6f",
+      "marca_id": null,
       "observaciones": "Lote inicial de prueba",
       "activo": true,
+      "producto_id": "3b2a7e2a-9f0a-4a3d-8a9d-6a9f0b6a2c1e",
+      "variedad_id": "5c1d8f3b-2e4a-4b7c-9d1e-8a3f2b6c4d5e",
+      "batch": "BT-4421",
+      "proveedor_semilla_id": "9e1c2d3b-4a5f-4b6c-8d7e-1f2a3b4c5d6e",
       "created_at": "2026-06-04T19:03:01.913Z",
       "updated_at": "2026-06-04T19:03:01.913Z",
       "deleted_at": null
@@ -473,9 +547,15 @@ Respuesta `200`:
     "tenant_id": "00000000-0000-0000-0000-000000000001",
     "tipo": "semilla",
     "numero_lote": "SEM-2026-001",
-    "proveedor": "Proveedor Norte",
+    "establecimiento_id": null,
+    "proveedor_id": "7c1e2b4a-6f2d-4b5a-8e3f-1a2b3c4d5e6f",
+    "marca_id": null,
     "observaciones": "Lote inicial de prueba",
     "activo": true,
+    "producto_id": "3b2a7e2a-9f0a-4a3d-8a9d-6a9f0b6a2c1e",
+    "variedad_id": "5c1d8f3b-2e4a-4b7c-9d1e-8a3f2b6c4d5e",
+    "batch": "BT-4421",
+    "proveedor_semilla_id": "9e1c2d3b-4a5f-4b6c-8d7e-1f2a3b4c5d6e",
     "created_at": "2026-06-04T19:03:01.913Z",
     "updated_at": "2026-06-04T19:03:01.913Z",
     "deleted_at": null
@@ -506,7 +586,11 @@ Body:
 {
   "tipo": "semilla",
   "numero_lote": "SEM-2026-001",
-  "proveedor": "Proveedor Norte",
+  "proveedor_id": "7c1e2b4a-6f2d-4b5a-8e3f-1a2b3c4d5e6f",
+  "producto_id": "3b2a7e2a-9f0a-4a3d-8a9d-6a9f0b6a2c1e",
+  "variedad_id": "5c1d8f3b-2e4a-4b7c-9d1e-8a3f2b6c4d5e",
+  "proveedor_semilla_id": "9e1c2d3b-4a5f-4b6c-8d7e-1f2a3b4c5d6e",
+  "batch": "BT-4421",
   "observaciones": "Lote inicial de prueba"
 }
 ```
@@ -517,8 +601,14 @@ Campos:
 | --- | --- | --- | --- |
 | `tipo` | string | Si | `semilla` o `sustrato` |
 | `numero_lote` | string | Si | No vacio, maximo 100 caracteres |
-| `proveedor` | string | No | Maximo 200 caracteres |
-| `observaciones` | string | No | Sin maximo definido en DTO |
+| `establecimiento_id` | uuid | No | - |
+| `proveedor_id` | uuid | Si | Siempre requerido, sin importar `tipo` |
+| `marca_id` | uuid | No | - |
+| `observaciones` | string | No | Maximo 2000 caracteres |
+| `producto_id` | uuid | Si, solo si `tipo=semilla` | Rechazado (422) si `tipo=sustrato` |
+| `variedad_id` | uuid | Si, solo si `tipo=semilla` | Debe pertenecer a `producto_id`; rechazado (422) si `tipo=sustrato` |
+| `proveedor_semilla_id` | uuid | Si, solo si `tipo=semilla` | Rechazado (422) si `tipo=sustrato` |
+| `batch` | string | No | Maximo 100 caracteres |
 
 Respuesta `201`:
 
@@ -530,9 +620,15 @@ Respuesta `201`:
     "tenant_id": "00000000-0000-0000-0000-000000000001",
     "tipo": "semilla",
     "numero_lote": "SEM-2026-001",
-    "proveedor": "Proveedor Norte",
+    "establecimiento_id": null,
+    "proveedor_id": "7c1e2b4a-6f2d-4b5a-8e3f-1a2b3c4d5e6f",
+    "marca_id": null,
     "observaciones": "Lote inicial de prueba",
     "activo": true,
+    "producto_id": "3b2a7e2a-9f0a-4a3d-8a9d-6a9f0b6a2c1e",
+    "variedad_id": "5c1d8f3b-2e4a-4b7c-9d1e-8a3f2b6c4d5e",
+    "batch": "BT-4421",
+    "proveedor_semilla_id": "9e1c2d3b-4a5f-4b6c-8d7e-1f2a3b4c5d6e",
     "created_at": "2026-06-04T19:03:01.913Z",
     "updated_at": "2026-06-04T19:03:01.913Z",
     "deleted_at": null
@@ -546,12 +642,16 @@ Notas:
 - `activo` queda en `true` por default.
 - Se registra auditoria con accion `lote_created`.
 - Antes de crear, valida que no exista otro lote con mismo `tenant_id`, `tipo` y `numero_lote`.
+- `proveedor_id` se valida contra el catalogo `proveedores` (`404 PROVEEDOR_NOT_FOUND` si no existe). Igual para `marca_id` (`404 MARCA_NOT_FOUND`) y `producto_id`/`variedad_id` (`404 PRODUCTO_NOT_FOUND` / `VARIEDAD_NOT_FOUND`).
 
 Errores comunes:
 
 - `400 BAD_REQUEST`: body invalido.
 - `400 TENANT_REQUIRED`: falta tenant.
 - `403 AUTH_FORBIDDEN`: rol insuficiente.
+- `404 PROVEEDOR_NOT_FOUND` / `MARCA_NOT_FOUND` / `PRODUCTO_NOT_FOUND` / `VARIEDAD_NOT_FOUND`: catalogo referenciado inexistente.
+- `422 VARIEDAD_PRODUCTO_MISMATCH`: `variedad_id` no pertenece a `producto_id`.
+- `422 LOTE_PROVEEDOR_SEMILLA_NO_PERMITIDO` / `LOTE_PRODUCTO_NO_PERMITIDO`: se enviaron campos de semilla en un lote `sustrato`.
 - `409 LOTE_NUMERO_DUPLICADO`: lote duplicado para ese tipo.
 
 Ejemplo de duplicado:
@@ -592,7 +692,6 @@ Body:
 ```json
 {
   "numero_lote": "SEM-2026-001-A",
-  "proveedor": "Proveedor Norte",
   "observaciones": "Actualizado desde frontend",
   "activo": true
 }
@@ -605,8 +704,12 @@ Campos:
 | Campo | Tipo | Requerido | Validacion |
 | --- | --- | --- | --- |
 | `numero_lote` | string | No | No vacio, maximo 100 caracteres |
-| `proveedor` | string | No | Maximo 200 caracteres |
-| `observaciones` | string | No | Sin maximo definido en DTO |
+| `establecimiento_id` | uuid | No | - |
+| `proveedor_id` | uuid | No | - |
+| `marca_id` | uuid | No | - |
+| `observaciones` | string | No | Maximo 2000 caracteres |
+| `producto_id` / `variedad_id` / `proveedor_semilla_id` | uuid | No | Solo validos si el lote es `tipo=semilla`; rechazados (422) si el lote es `tipo=sustrato` |
+| `batch` | string | No | Maximo 100 caracteres |
 | `activo` | boolean | No | `true` o `false` |
 
 Respuesta `200`:
@@ -619,9 +722,15 @@ Respuesta `200`:
     "tenant_id": "00000000-0000-0000-0000-000000000001",
     "tipo": "semilla",
     "numero_lote": "SEM-2026-001-A",
-    "proveedor": "Proveedor Norte",
+    "establecimiento_id": null,
+    "proveedor_id": "7c1e2b4a-6f2d-4b5a-8e3f-1a2b3c4d5e6f",
+    "marca_id": null,
     "observaciones": "Actualizado desde frontend",
     "activo": true,
+    "producto_id": "3b2a7e2a-9f0a-4a3d-8a9d-6a9f0b6a2c1e",
+    "variedad_id": "5c1d8f3b-2e4a-4b7c-9d1e-8a3f2b6c4d5e",
+    "batch": "BT-4421",
+    "proveedor_semilla_id": "9e1c2d3b-4a5f-4b6c-8d7e-1f2a3b4c5d6e",
     "created_at": "2026-06-04T19:03:01.913Z",
     "updated_at": "2026-06-04T20:00:00.000Z",
     "deleted_at": null
@@ -641,6 +750,9 @@ Errores comunes:
 - `400 BAD_REQUEST`: body invalido.
 - `400 LOTE_TIPO_IMMUTABLE`: se envio `tipo`.
 - `404 NOT_FOUND`: lote inexistente o fuera del tenant.
+- `404 PROVEEDOR_NOT_FOUND` / `MARCA_NOT_FOUND` / `PRODUCTO_NOT_FOUND` / `VARIEDAD_NOT_FOUND`: catalogo referenciado inexistente.
+- `422 VARIEDAD_PRODUCTO_MISMATCH`: `variedad_id` no pertenece a `producto_id`.
+- `422 LOTE_PROVEEDOR_SEMILLA_NO_PERMITIDO` / `LOTE_PRODUCTO_NO_PERMITIDO`: se enviaron campos de semilla en un lote `sustrato`.
 - `409 LOTE_NUMERO_DUPLICADO`: nuevo numero duplicado para ese tipo.
 - `403 AUTH_FORBIDDEN`: rol insuficiente.
 
@@ -670,9 +782,15 @@ Respuesta `200`:
     "tenant_id": "00000000-0000-0000-0000-000000000001",
     "tipo": "semilla",
     "numero_lote": "SEM-2026-001",
-    "proveedor": "Proveedor Norte",
+    "establecimiento_id": null,
+    "proveedor_id": "7c1e2b4a-6f2d-4b5a-8e3f-1a2b3c4d5e6f",
+    "marca_id": null,
     "observaciones": "Lote desactivado desde frontend",
     "activo": false,
+    "producto_id": "3b2a7e2a-9f0a-4a3d-8a9d-6a9f0b6a2c1e",
+    "variedad_id": "5c1d8f3b-2e4a-4b7c-9d1e-8a3f2b6c4d5e",
+    "batch": "BT-4421",
+    "proveedor_semilla_id": "9e1c2d3b-4a5f-4b6c-8d7e-1f2a3b4c5d6e",
     "created_at": "2026-06-04T19:03:01.913Z",
     "updated_at": "2026-06-04T20:05:00.000Z",
     "deleted_at": null
@@ -778,9 +896,15 @@ Respuesta `200`:
       "tenant_id": "00000000-0000-0000-0000-000000000001",
       "tipo": "sustrato",
       "numero_lote": "SUS-2026-001",
-      "proveedor": "Proveedor Sur",
+      "establecimiento_id": null,
+      "proveedor_id": "7c1e2b4a-6f2d-4b5a-8e3f-1a2b3c4d5e6f",
+      "marca_id": null,
       "observaciones": null,
       "activo": true,
+      "producto_id": null,
+      "variedad_id": null,
+      "batch": null,
+      "proveedor_semilla_id": null,
       "created_at": "2026-06-04T19:03:01.913Z",
       "updated_at": "2026-06-04T19:03:01.913Z",
       "deleted_at": null
@@ -842,7 +966,7 @@ Notas:
 - Mostrar `tipo` como campo bloqueado en edicion.
 - Para filtros, ofrecer un selector con `Todos`, `Semilla`, `Sustrato`.
 - Para `activo`, ofrecer `Todos`, `Activos`, `Inactivos`.
-- Para ordenamiento, limitar UI a `numero_lote`, `proveedor`, `created_at`.
+- Para ordenamiento, limitar UI a `numero_lote`, `created_at`.
 - Si un lote esta en uso, preferir desactivarlo antes que eliminarlo.
 - Mostrar mensajes especificos para `LOTE_NUMERO_DUPLICADO`, `LOTE_TIPO_IMMUTABLE` y `LOTE_REFERENCED_BY_BANDEJA`.
 
@@ -897,7 +1021,10 @@ const response = await apiFetch("/lotes", {
   body: JSON.stringify({
     tipo: "semilla",
     numero_lote: "SEM-2026-001",
-    proveedor: "Proveedor Norte",
+    proveedor_id: "7c1e2b4a-6f2d-4b5a-8e3f-1a2b3c4d5e6f",
+    producto_id: "3b2a7e2a-9f0a-4a3d-8a9d-6a9f0b6a2c1e",
+    variedad_id: "5c1d8f3b-2e4a-4b7c-9d1e-8a3f2b6c4d5e",
+    proveedor_semilla_id: "9e1c2d3b-4a5f-4b6c-8d7e-1f2a3b4c5d6e",
     observaciones: "Lote inicial de prueba"
   })
 });
@@ -912,7 +1039,6 @@ const response = await apiFetch(`/lotes/${loteId}`, {
   method: "PATCH",
   body: JSON.stringify({
     numero_lote: "SEM-2026-001-A",
-    proveedor: "Proveedor Norte",
     observaciones: "Actualizado desde frontend",
     activo: true
   })
@@ -953,74 +1079,13 @@ await apiFetch(`/lotes/${loteId}`, {
 - `tipo` no se envia en PATCH.
 - `numero_lote` se valida como obligatorio en creacion.
 - `numero_lote` no supera 100 caracteres.
-- `proveedor` no supera 200 caracteres.
+- `proveedor_id` se envia siempre en creacion (uuid, obligatorio sin importar `tipo`).
+- `producto_id`, `variedad_id` y `proveedor_semilla_id` solo se envian cuando `tipo === "semilla"`; nunca para `tipo === "sustrato"` (el backend los rechaza con 422, no los ignora).
 - `activo` se envia como boolean real en JSON, no como string.
 - Los filtros `page` y `limit` se envian como numeros en query.
 - La UI maneja `LOTE_NUMERO_DUPLICADO`.
 - La UI maneja `LOTE_REFERENCED_BY_BANDEJA`.
+- La UI maneja `VARIEDAD_PRODUCTO_MISMATCH`, `LOTE_PROVEEDOR_SEMILLA_NO_PERMITIDO` y `LOTE_PRODUCTO_NO_PERMITIDO`.
 - Crear/editar se muestran solo para `supervisor` o `admin_global`.
 - Eliminar se muestra solo para `admin_global`.
-
-
-
-
-
-Cambios en el módulo de Lotes (M02) — Nuevos campos para lotes de tipo semilla
-
-Se agregaron 6 campos nuevos al endpoint de lotes. Estos campos solo aplican a lotes de tipo semilla — los lotes de tipo sustrato los ignoran completamente.
-
-Campos nuevos
-
-Campo	Tipo	Obligatorio	Descripción
-producto	enum	Sí (semilla)	Cultivo: lechuga, espinaca, rucula
-variedad	string	Sí (semilla)	Variedad libre, ej: "Butterhead"
-batch	string	No	Número de batch del proveedor
-seed_company	string	No	Empresa productora de la semilla
-supplier	string	No	Proveedor local de compra
-observations	string	No	Notas específicas de la semilla
-POST /lotes — Crear lote de semilla
-
-producto y variedad son requeridos cuando tipo === "semilla". Si se omiten, la API devuelve 400.
-
-
-{
-  "tipo": "semilla",
-  "numero_lote": "S-2024-001",
-  "producto": "lechuga",
-  "variedad": "Butterhead",
-  "batch": "BT-4421",
-  "seed_company": "Rijk Zwaan",
-  "supplier": "AgroInsumos SA",
-  "observations": "Semilla certificada orgánica"
-}
-Para tipo === "sustrato", los 6 campos nuevos simplemente se ignoran — no hace falta enviarlos ni van a aparecer en la respuesta (vienen null).
-
-PATCH /lotes/:id — Actualizar
-
-Todos los campos nuevos son opcionales en el update. Solo enviá los que cambian.
-
-GET /lotes — Respuesta
-
-Todos los registros devuelven los 6 campos nuevos. Los lotes de sustrato los muestran como null.
-
-
-{
-  "id": "...",
-  "tipo": "semilla",
-  "numero_lote": "S-2024-001",
-  "producto": "lechuga",
-  "variedad": "Butterhead",
-  "batch": "BT-4421",
-  "seed_company": "Rijk Zwaan",
-  "supplier": "AgroInsumos SA",
-  "observations": null,
-  "proveedor": null,
-  "observaciones": null,
-  "activo": true
-}
-Nota: observaciones (campo existente, general) y observations (campo nuevo, específico de semilla) coexisten. Son distintos.
-
-Valores válidos para producto
-
-"lechuga" · "espinaca" · "rucula"
 

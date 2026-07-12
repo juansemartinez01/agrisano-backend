@@ -236,7 +236,7 @@ Campos:
 | `mesa_id` | Si | UUID | Mesa destino del trasplante |
 | `tunel_id` | Si | UUID | Tunel donde queda posicionada la mesa |
 | `bandeja_ids` | Si | UUID[] | Minimo 1 bandeja |
-| `observaciones` | No | string | Texto libre |
+| `observaciones` | No | string | Texto libre, maximo 2000 caracteres |
 
 ### Resultado de trasplante
 

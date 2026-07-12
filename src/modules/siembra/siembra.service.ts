@@ -309,8 +309,8 @@ export class SiembraService {
     await qr.startTransaction();
     try {
       await qr.manager.query(
-        `UPDATE bandejas SET deleted_at = now() WHERE siembra_id = $1 AND deleted_at IS NULL`,
-        [id],
+        `UPDATE bandejas SET deleted_at = now() WHERE siembra_id = $1 AND tenant_id = $2 AND deleted_at IS NULL`,
+        [id, tenantId],
       );
       await qr.manager.softDelete(Siembra, id);
       await qr.commitTransaction();

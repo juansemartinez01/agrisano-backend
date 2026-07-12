@@ -6,9 +6,11 @@ import {
   IsDateString,
   IsArray,
   ArrayMinSize,
+  ArrayMaxSize,
   ValidateNested,
   IsInt,
   Min,
+  MaxLength,
 } from 'class-validator';
 
 export class BandejaGroupDto {
@@ -33,10 +35,12 @@ export class CreateSiembraDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(2000)
   observaciones?: string;
 
   @IsArray()
   @ArrayMinSize(1)
+  @ArrayMaxSize(200)
   @ValidateNested({ each: true })
   @Type(() => BandejaGroupDto)
   bandejas!: BandejaGroupDto[];

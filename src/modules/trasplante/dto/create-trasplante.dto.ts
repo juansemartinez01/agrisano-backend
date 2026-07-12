@@ -4,6 +4,8 @@ import {
   IsOptional,
   IsString,
   ArrayMinSize,
+  ArrayMaxSize,
+  MaxLength,
 } from 'class-validator';
 
 export class CreateTrasplanteDto {
@@ -16,9 +18,11 @@ export class CreateTrasplanteDto {
   @IsArray()
   @IsUUID('all', { each: true })
   @ArrayMinSize(1)
+  @ArrayMaxSize(200)
   bandeja_ids!: string[];
 
   @IsOptional()
   @IsString()
+  @MaxLength(2000)
   observaciones?: string;
 }

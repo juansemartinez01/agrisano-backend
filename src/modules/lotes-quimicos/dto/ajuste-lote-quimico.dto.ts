@@ -1,4 +1,4 @@
-import { IsNumber, Min, IsOptional, IsString } from 'class-validator';
+import { IsNumber, Min, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class AjusteLoteQuimicoDto {
   @IsNumber()
@@ -7,5 +7,6 @@ export class AjusteLoteQuimicoDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(2000)
   observaciones?: string;
 }

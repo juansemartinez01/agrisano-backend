@@ -4,6 +4,7 @@ import {
   IsOptional,
   IsString,
   MinLength,
+  MaxLength,
 } from 'class-validator';
 
 export class CreateUserAdminDto {
@@ -12,6 +13,7 @@ export class CreateUserAdminDto {
 
   @IsString()
   @MinLength(6)
+  @MaxLength(72)
   password!: string;
 
   @IsOptional()

@@ -118,8 +118,8 @@ export class TrasplanteService {
       const now = new Date();
       for (const bandeja_id of dto.bandeja_ids) {
         await qr.query(
-          `UPDATE bandejas SET estado = 'trasplantada', mesa_id = $1, fecha_trasplante = now(), updated_at = now() WHERE id = $2`,
-          [dto.mesa_id, bandeja_id],
+          `UPDATE bandejas SET estado = 'trasplantada', mesa_id = $1, fecha_trasplante = now(), updated_at = now() WHERE id = $2 AND tenant_id = $3`,
+          [dto.mesa_id, bandeja_id, tenantId],
         );
         await qr.manager.save(MesaBandeja, {
           mesa_id: dto.mesa_id,
@@ -130,8 +130,8 @@ export class TrasplanteService {
 
       // 8. Update mesa
       await qr.query(
-        `UPDATE mesas SET estado = 'activa', posicion_actual = $1, tunel_id = $2, fecha_ultimo_trasplante = now(), updated_at = now() WHERE id = $3`,
-        [newPos, dto.tunel_id, dto.mesa_id],
+        `UPDATE mesas SET estado = 'activa', posicion_actual = $1, tunel_id = $2, fecha_ultimo_trasplante = now(), updated_at = now() WHERE id = $3 AND tenant_id = $4`,
+        [newPos, dto.tunel_id, dto.mesa_id, tenantId],
       );
 
       // 9. Write HistorialMesa

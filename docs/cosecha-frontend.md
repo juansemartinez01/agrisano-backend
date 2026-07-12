@@ -9,6 +9,7 @@ Una cosecha:
 - Pertenece al tenant actual.
 - Se registra sobre una mesa.
 - Toma automaticamente el tunel actual de la mesa.
+- Requiere indicar producto y variedad cosechados.
 - Guarda el peso cosechado en kilogramos.
 - Guarda la posicion de la mesa al momento de cosechar.
 - Cambia la mesa a estado `en_cosecha`.
@@ -190,7 +191,9 @@ Codigos relevantes para frontend:
 | `403` | `AUTH_FORBIDDEN` | El usuario no tiene rol permitido |
 | `404` | `COSECHA_NOT_FOUND` | Cosecha inexistente o fuera del tenant |
 | `404` | `MESA_NOT_FOUND` | Mesa inexistente o fuera del tenant |
+| `404` | `NOT_FOUND` | `producto_id` o `variedad_id` inexistente o fuera del tenant (codigo generico; `PRODUCTO_NOT_FOUND`/`VARIEDAD_NOT_FOUND` existen en `error-codes.ts` pero nunca se lanzan) |
 | `422` | `COSECHA_MESA_NO_DISPONIBLE` | La mesa no esta activa en posicion 1 |
+| `422` | `VARIEDAD_PRODUCTO_MISMATCH` | La variedad indicada no pertenece al producto indicado |
 | `429` | `RATE_LIMITED` | Demasiadas requests |
 | `500` | `INTERNAL` | Error interno |
 
@@ -224,6 +227,8 @@ Errores de validacion pueden incluir `details.validationErrors`:
 ```ts
 type CreateCosechaDto = {
   mesa_id: string;
+  producto_id: string;
+  variedad_id: string;
   peso_kg: number;
   observaciones?: string;
 };
@@ -234,6 +239,8 @@ Campos:
 | Campo | Requerido | Tipo | Reglas |
 | --- | --- | --- | --- |
 | `mesa_id` | Si | UUID | Mesa a cosechar |
+| `producto_id` | Si | UUID | Debe existir dentro del tenant |
+| `variedad_id` | Si | UUID | Debe existir dentro del tenant y pertenecer al `producto_id` indicado |
 | `peso_kg` | Si | number | Minimo `0.001`, maximo `9999999.999` |
 | `observaciones` | No | string | Maximo 2000 caracteres |
 
@@ -245,6 +252,8 @@ type Cosecha = {
   tenant_id: string | null;
   mesa_id: string;
   tunel_id: string;
+  producto_id: string | null;
+  variedad_id: string | null;
   posicion_al_momento: number;
   fecha_hora: string;
   peso_kg: number | string;
@@ -260,6 +269,8 @@ Notas:
 - `peso_kg` puede volver como string si TypeORM serializa decimal como string.
 - `tunel_id` lo toma el backend desde la mesa.
 - `posicion_al_momento` queda fijo en `1` porque solo se puede cosechar la primera mesa del FIFO.
+- `producto_id` y `variedad_id` son `string | null` a nivel de tipo por cosechas historicas previas a este campo, pero **toda cosecha nueva los requiere obligatoriamente** — nunca van a venir `null` en una cosecha creada hoy.
+- El backend no enriquece la respuesta con el nombre del producto/variedad; el frontend debe resolverlos por separado contra `GET /productos/:id` y `GET /variedades/:id` (o mantener un catalogo cacheado).
 
 ### Resultado de registrar cosecha
 
@@ -293,6 +304,16 @@ Si no cumple, el backend responde:
 }
 ```
 
+### Producto y variedad
+
+`producto_id` y `variedad_id` son obligatorios. El backend valida, en este orden:
+
+- Que `producto_id` exista dentro del tenant (`404 NOT_FOUND`).
+- Que `variedad_id` exista dentro del tenant (`404 NOT_FOUND`).
+- Que la variedad pertenezca al producto indicado (`422 VARIEDAD_PRODUCTO_MISMATCH` si no).
+
+El frontend debe cargar variedades filtradas por el producto seleccionado (`GET /productos/:id/variedades`) para evitar que el usuario arme una combinacion invalida.
+
 ### Efectos de registrar cosecha
 
 Cuando la cosecha se registra correctamente:
@@ -300,6 +321,7 @@ Cuando la cosecha se registra correctamente:
 - Se crea un registro en `cosechas`.
 - Se guarda `mesa_id`.
 - Se guarda `tunel_id` desde la mesa.
+- Se guarda `producto_id` y `variedad_id`.
 - Se guarda `posicion_al_momento = 1`.
 - Se guarda `peso_kg`.
 - Se guarda `usuario_id`.
@@ -375,6 +397,8 @@ Body:
 ```json
 {
   "mesa_id": "1d64fcbb-47d4-4e9b-81e4-5ddf9f9650b5",
+  "producto_id": "c1a2b3c4-1111-4a2b-9c3d-4e5f6a7b8c9d",
+  "variedad_id": "d2b3c4d5-2222-4b3c-8d4e-5f6a7b8c9d0e",
   "peso_kg": 12.5,
   "observaciones": "Cosecha lote mañana"
 }
@@ -391,6 +415,8 @@ Respuesta `201`:
       "tenant_id": "00000000-0000-0000-0000-000000000001",
       "mesa_id": "1d64fcbb-47d4-4e9b-81e4-5ddf9f9650b5",
       "tunel_id": "9e314fed-4062-4563-913f-a66f2fbb422e",
+      "producto_id": "c1a2b3c4-1111-4a2b-9c3d-4e5f6a7b8c9d",
+      "variedad_id": "d2b3c4d5-2222-4b3c-8d4e-5f6a7b8c9d0e",
       "posicion_al_momento": 1,
       "fecha_hora": "2026-06-09T12:00:00.000Z",
       "peso_kg": "12.500",
@@ -411,7 +437,25 @@ Errores comunes:
 - `400 BAD_REQUEST`: UUID invalido, `peso_kg` invalido u observaciones demasiado largas.
 - `403 AUTH_FORBIDDEN`: usuario sin rol permitido.
 - `404 MESA_NOT_FOUND`: mesa inexistente o fuera del tenant.
+- `404 NOT_FOUND`: `producto_id` o `variedad_id` inexistente o fuera del tenant.
 - `422 COSECHA_MESA_NO_DISPONIBLE`: mesa no activa o no esta en posicion 1.
+- `422 VARIEDAD_PRODUCTO_MISMATCH`: la variedad no pertenece al producto indicado.
+
+Ejemplo `422 VARIEDAD_PRODUCTO_MISMATCH`:
+
+```json
+{
+  "ok": false,
+  "requestId": "uuid",
+  "statusCode": 422,
+  "error": {
+    "code": "VARIEDAD_PRODUCTO_MISMATCH",
+    "message": "La variedad no pertenece al producto indicado"
+  },
+  "timestamp": "2026-06-09T12:00:00.000Z",
+  "path": "/cosecha"
+}
+```
 
 Notas:
 
@@ -419,6 +463,7 @@ Notas:
 - El frontend no debe enviar `tunel_id`.
 - El frontend no debe enviar `posicion_al_momento`.
 - El frontend no debe cambiar manualmente estado ni posicion de la mesa.
+- El backend valida `producto_id` antes que `variedad_id`, y `variedad_id` antes de chequear que pertenezca al producto.
 
 ### 11.2. Listar cosechas
 
@@ -453,6 +498,8 @@ Respuesta `200`:
       "tenant_id": "00000000-0000-0000-0000-000000000001",
       "mesa_id": "1d64fcbb-47d4-4e9b-81e4-5ddf9f9650b5",
       "tunel_id": "9e314fed-4062-4563-913f-a66f2fbb422e",
+      "producto_id": "c1a2b3c4-1111-4a2b-9c3d-4e5f6a7b8c9d",
+      "variedad_id": "d2b3c4d5-2222-4b3c-8d4e-5f6a7b8c9d0e",
       "posicion_al_momento": 1,
       "fecha_hora": "2026-06-09T12:00:00.000Z",
       "peso_kg": "12.500",
@@ -469,6 +516,8 @@ Respuesta `200`:
   }
 }
 ```
+
+Nota: el backend no enriquece la lista con `nombre` de producto/variedad. Si la UI necesita mostrarlos, resolverlos client-side contra `GET /productos/:id` y `GET /variedades/:id` (ver seccion 8).
 
 ### 11.3. Obtener cosecha por ID
 
@@ -496,6 +545,8 @@ Respuesta `200`:
     "tenant_id": "00000000-0000-0000-0000-000000000001",
     "mesa_id": "1d64fcbb-47d4-4e9b-81e4-5ddf9f9650b5",
     "tunel_id": "9e314fed-4062-4563-913f-a66f2fbb422e",
+    "producto_id": "c1a2b3c4-1111-4a2b-9c3d-4e5f6a7b8c9d",
+    "variedad_id": "d2b3c4d5-2222-4b3c-8d4e-5f6a7b8c9d0e",
     "posicion_al_momento": 1,
     "fecha_hora": "2026-06-09T12:00:00.000Z",
     "peso_kg": "12.500",
@@ -544,6 +595,8 @@ Respuesta `200`:
       "id": "a6765e17-b76d-43dd-8236-d22675d1ed57",
       "mesa_id": "1d64fcbb-47d4-4e9b-81e4-5ddf9f9650b5",
       "tunel_id": "9e314fed-4062-4563-913f-a66f2fbb422e",
+      "producto_id": "c1a2b3c4-1111-4a2b-9c3d-4e5f6a7b8c9d",
+      "variedad_id": "d2b3c4d5-2222-4b3c-8d4e-5f6a7b8c9d0e",
       "posicion_al_momento": 1,
       "fecha_hora": "2026-06-09T12:00:00.000Z",
       "peso_kg": "12.500",
@@ -572,19 +625,23 @@ Errores comunes:
 3. Cargar mesas del tunel.
 4. Filtrar mesa cosechable: `estado === "activa" && posicion_actual === 1`.
 5. Mostrar accion de cosecha solo sobre esa mesa.
-6. Pedir `peso_kg`.
-7. Permitir `observaciones` opcionales.
+6. Cargar productos (`GET /productos`) para el selector de producto.
+7. Al elegir producto, cargar sus variedades (`GET /productos/:id/variedades`) para el selector de variedad.
+8. Pedir `peso_kg`.
+9. Permitir `observaciones` opcionales.
 
 ### Flujo de registrar cosecha
 
-1. Validar que `peso_kg >= 0.001`.
-2. Validar que `peso_kg <= 9999999.999`.
-3. Enviar `POST /cosecha`.
-4. Mostrar confirmacion.
-5. Guardar o navegar a `data.cosecha.id`.
-6. Refrescar mesa cosechada.
-7. Refrescar mesas del tunel para ver FIFO recalculado.
-8. Refrescar historial de mesa si la pantalla lo muestra.
+1. Validar que `producto_id` este seleccionado.
+2. Validar que `variedad_id` este seleccionado y pertenezca a las variedades cargadas para ese producto.
+3. Validar que `peso_kg >= 0.001`.
+4. Validar que `peso_kg <= 9999999.999`.
+5. Enviar `POST /cosecha`.
+6. Mostrar confirmacion.
+7. Guardar o navegar a `data.cosecha.id`.
+8. Refrescar mesa cosechada.
+9. Refrescar mesas del tunel para ver FIFO recalculado.
+10. Refrescar historial de mesa si la pantalla lo muestra.
 
 ### Flujo de listado
 
@@ -604,14 +661,19 @@ Errores comunes:
 - Mostrar registrar cosecha solo para `operario`, `supervisor` o `admin_global`.
 - No mostrar accion si la mesa no esta `activa`.
 - No mostrar accion si la mesa no esta en `posicion_actual = 1`.
+- Selector de producto obligatorio; al cambiar, resetear/recargar el selector de variedad.
+- Selector de variedad obligatorio, filtrado por el producto seleccionado (`GET /productos/:id/variedades`).
+- No permitir enviar el formulario sin `producto_id` y `variedad_id` seleccionados.
 - Mostrar el peso como input numerico decimal.
 - Evitar enviar coma decimal; enviar numero JSON con punto decimal.
 - No pedir `tunel_id`; lo resuelve el backend desde la mesa.
 - No pedir `posicion_al_momento`; lo resuelve el backend.
 - Deshabilitar el boton de enviar mientras corre la request.
 - Ante `COSECHA_MESA_NO_DISPONIBLE`, refrescar las mesas porque pudo cambiar el FIFO.
+- Ante `VARIEDAD_PRODUCTO_MISMATCH`, refrescar el selector de variedad para el producto seleccionado.
 - Despues de registrar, refrescar tablero de tunel.
 - En listados, ordenar por defecto con `sortOrder=DESC`.
+- En listados y detalle, si se muestran nombres de producto/variedad, resolverlos client-side (el backend no los enriquece).
 
 ## 14. Ejemplos con fetch
 
@@ -652,6 +714,8 @@ const response = await apiFetch("/cosecha", {
   method: "POST",
   body: JSON.stringify({
     mesa_id: mesaId,
+    producto_id: productoId,
+    variedad_id: variedadId,
     peso_kg: 12.5,
     observaciones: "Cosecha desde frontend"
   })
@@ -708,6 +772,8 @@ try {
     method: "POST",
     body: JSON.stringify({
       mesa_id: mesaId,
+      producto_id: productoId,
+      variedad_id: variedadId,
       peso_kg: pesoKg
     })
   });
@@ -716,6 +782,15 @@ try {
 
   if (code === "COSECHA_MESA_NO_DISPONIBLE") {
     // Refrescar mesas del tunel y mostrar que la mesa ya no esta disponible.
+  }
+
+  if (code === "VARIEDAD_PRODUCTO_MISMATCH") {
+    // La variedad elegida no pertenece al producto. Refrescar el selector de variedad.
+  }
+
+  if (code === "NOT_FOUND") {
+    // Puede ser mesa, producto o variedad: el backend usa el mismo codigo generico
+    // para los tres. Si el mensaje no aclara, recargar selectores y reintentar.
   }
 }
 ```
@@ -729,6 +804,8 @@ try {
 - La UI permite cosechar solo mesas `activa`.
 - La UI permite cosechar solo mesas con `posicion_actual === 1`.
 - El formulario pide `mesa_id`.
+- El formulario pide `producto_id` (selector cargado desde `GET /productos`).
+- El formulario pide `variedad_id` (selector filtrado por `GET /productos/:id/variedades`).
 - El formulario pide `peso_kg`.
 - `peso_kg` se envia como numero JSON.
 - `peso_kg` es mayor o igual a `0.001`.
@@ -742,6 +819,9 @@ try {
 - Al terminar, se refrescan mesas del tunel.
 - Al terminar, se refresca historial si la pantalla lo muestra.
 - La UI maneja `COSECHA_MESA_NO_DISPONIBLE`.
+- La UI maneja `404 NOT_FOUND` para `producto_id`/`variedad_id` inexistentes (codigo generico, no hay codes especificos).
+- La UI maneja `VARIEDAD_PRODUCTO_MISMATCH`.
 - El listado general lee `data` y `meta`.
+- Si la UI muestra nombres de producto/variedad, se resuelven contra `GET /productos/:id` / `GET /variedades/:id` (el backend no los enriquece).
 - El listado por mesa lee `data` y `meta`.
 - Los errores leen `error.code` y `error.message`.

@@ -4,6 +4,7 @@ import {
   IsOptional,
   IsString,
   MinLength,
+  MaxLength,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -15,6 +16,7 @@ export class UpdateUserAdminDto {
   @IsOptional()
   @IsString()
   @MinLength(6)
+  @MaxLength(72)
   password?: string;
 
   @IsOptional()

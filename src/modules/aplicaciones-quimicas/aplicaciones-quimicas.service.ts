@@ -294,8 +294,8 @@ export class AplicacionesQuimicasService {
 
           if (hasCarencia && carenciaHastaStr) {
             await qr.query(
-              `UPDATE mesas SET carencia_hasta = $1 WHERE id = $2`,
-              [carenciaHastaStr, mesa_id],
+              `UPDATE mesas SET carencia_hasta = $1 WHERE id = $2 AND tenant_id = $3`,
+              [carenciaHastaStr, mesa_id, tenantId],
             );
             await qr.manager.save(HistorialMesa, {
               mesa_id,

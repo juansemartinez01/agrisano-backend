@@ -23,6 +23,7 @@ export class UpdateLoteDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(2000)
   observaciones?: string;
 
   @IsOptional()

@@ -195,8 +195,8 @@ Codigos relevantes para frontend:
 | `400` | `BAD_REQUEST` | Body o query invalida |
 | `400` | `TENANT_REQUIRED` | Falta tenant requerido |
 | `400` | `MESA_FIELD_IMMUTABLE` | Se intento editar un campo no permitido |
-| `400` | `MESA_ESTADO_INVALIDO` | La accion no corresponde al estado actual |
-| `400` | `MESA_SOLO_BAJA_DELETE` | Se intento eliminar una mesa que no esta dada de baja |
+| `409` | `MESA_ESTADO_INVALIDO` | La accion no corresponde al estado actual |
+| `409` | `MESA_SOLO_BAJA_DELETE` | Se intento eliminar una mesa que no esta dada de baja |
 | `401` | `AUTH_INVALID` | Token ausente, invalido o tenant mismatch |
 | `403` | `AUTH_FORBIDDEN` | El usuario no tiene rol permitido |
 | `404` | `MESA_NOT_FOUND` | Mesa inexistente o fuera del tenant |
@@ -247,6 +247,7 @@ type Mesa = {
   estado: MesaEstado;
   fecha_ultimo_trasplante: string | null;
   plantas_estimadas: number;
+  carencia_hasta: string | null;
   activo: boolean;
   created_at: string;
   updated_at: string;
@@ -266,6 +267,7 @@ Notas:
 - `establecimiento_id` y `tunel_id` se definen solo al crear.
 - `plantas_estimadas` por defecto es `450` si no se envia.
 - `activo` es un flag editable, independiente de `estado`.
+- `carencia_hasta` (fecha) no es editable por el frontend: la setea automaticamente el modulo de aplicaciones quimicas cuando el quimico aplicado tiene `withholding_period_dias > 0`. Indica hasta que fecha la mesa esta en periodo de carencia.
 
 ### Historial de mesa
 
@@ -277,9 +279,12 @@ type HistorialTipoEvento =
   | "cosecha"
   | "cambio_posicion"
   | "aplicacion_quimica"
+  | "en_carencia"
   | "reactivacion"
   | "baja";
 ```
+
+`en_carencia` se registra automaticamente junto con `aplicacion_quimica` cuando la aplicacion deja la mesa en periodo de carencia (ver `carencia_hasta` arriba).
 
 Estructura esperada:
 
@@ -291,10 +296,9 @@ type HistorialMesa = {
   tipo_evento: HistorialTipoEvento;
   fecha_hora: string;
   usuario_id: string | null;
-  datos: Record<string, unknown> | null;
+  detalle: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
-  deleted_at: string | null;
 };
 ```
 
@@ -663,7 +667,7 @@ Efectos:
 
 Errores comunes:
 
-- `400 MESA_ESTADO_INVALIDO`: la mesa ya esta dada de baja o no admite esta accion.
+- `409 MESA_ESTADO_INVALIDO`: la mesa ya esta dada de baja o no admite esta accion.
 - `404 MESA_NOT_FOUND`: mesa inexistente o fuera del tenant.
 
 ### 10.7. Reactivar mesa
@@ -707,7 +711,7 @@ Efectos:
 
 Errores comunes:
 
-- `400 MESA_ESTADO_INVALIDO`: solo se pueden reactivar mesas con `estado: "baja"`.
+- `409 MESA_ESTADO_INVALIDO`: solo se pueden reactivar mesas con `estado: "baja"`.
 - `404 MESA_NOT_FOUND`: mesa inexistente o fuera del tenant.
 
 ### 10.8. Eliminar mesa
@@ -779,10 +783,9 @@ Respuesta `200`:
       "tipo_evento": "baja",
       "fecha_hora": "2026-06-05T20:20:00.000Z",
       "usuario_id": "a7b9f76c-8f56-4cb1-86af-31808f7702d4",
-      "datos": null,
+      "detalle": null,
       "created_at": "2026-06-05T20:20:00.000Z",
-      "updated_at": "2026-06-05T20:20:00.000Z",
-      "deleted_at": null
+      "updated_at": "2026-06-05T20:20:00.000Z"
     }
   ],
   "meta": {

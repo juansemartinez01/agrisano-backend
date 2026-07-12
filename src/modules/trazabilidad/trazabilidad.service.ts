@@ -139,17 +139,18 @@ export class TrazabilidadService {
     const mesaRows = await this.dataSource.query<MesaRow[]>(
       `SELECT id, codigo_qr, estado, tunel_id, establecimiento_id
        FROM mesas
-       WHERE id = $1 AND deleted_at IS NULL`,
-      [cosecha.mesa_id],
+       WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL`,
+      [cosecha.mesa_id, tenantId],
     );
     const mesa: MesaRow | null = mesaRows[0] ?? null;
 
     // STEP 3 — Determine cycle transplant date
     const cycleDateRows = await this.dataSource.query<CycleDateRow[]>(
-      `SELECT MAX(fecha_trasplante) AS cycle_date
-       FROM mesa_bandeja
-       WHERE mesa_id = $1 AND fecha_trasplante <= $2`,
-      [cosecha.mesa_id, cosecha.fecha_hora],
+      `SELECT MAX(mb.fecha_trasplante) AS cycle_date
+       FROM mesa_bandeja mb
+       JOIN bandejas b ON b.id = mb.bandeja_id
+       WHERE mb.mesa_id = $1 AND mb.fecha_trasplante <= $2 AND b.tenant_id = $3`,
+      [cosecha.mesa_id, cosecha.fecha_hora, tenantId],
     );
     const cycleDate: string | null = cycleDateRows[0]?.cycle_date ?? null;
 
@@ -169,8 +170,8 @@ export class TrazabilidadService {
          LEFT JOIN siembras s ON s.id = b.siembra_id
          LEFT JOIN lotes ls ON ls.id = b.lote_semilla_id
          LEFT JOIN lotes lsu ON lsu.id = b.lote_sustrato_id
-         WHERE mb.mesa_id = $1 AND mb.fecha_trasplante = $2`,
-        [cosecha.mesa_id, cycleDate],
+         WHERE mb.mesa_id = $1 AND mb.fecha_trasplante = $2 AND b.tenant_id = $3`,
+        [cosecha.mesa_id, cycleDate, tenantId],
       );
 
       bandejaIds = mbRows.map((r) => r.bandeja_id);

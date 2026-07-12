@@ -31,6 +31,7 @@ export class CreateLoteDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(2000)
   observaciones?: string;
 
   // Semilla-only fields — validated only when tipo === 'semilla'

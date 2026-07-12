@@ -187,6 +187,8 @@ export class AuthService {
     if (!match) throw new UnauthorizedException('Invalid refresh token');
     if (match.expires_at.getTime() <= Date.now())
       throw new UnauthorizedException('Expired refresh token');
+    if (!match.user || match.user.deleted_at || !match.user.is_active)
+      throw new UnauthorizedException('Invalid refresh token');
 
     // 3) rotación
     match.revoked_at = new Date();

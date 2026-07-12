@@ -13,6 +13,8 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UsersService } from '../users/users.service';
+import { AppError } from 'src/common/errors/app-error';
+import { ErrorCodes } from 'src/common/errors/error-codes';
 
 import { CreateRoleAdminDto } from './dto/create-role.admin.dto';
 import { UpdateRoleAdminDto } from './dto/update-role.admin.dto';
@@ -136,7 +138,9 @@ export class AdminRolesController {
 
   @Delete(':id')
   async remove(@Req() req: any, @Param('id') id: string) {
-    const ok = await this.users.deleteRole(id);
+    const result = await this.users.deleteRole(id);
+    const ok = result === 'deleted';
+    const statusCode = ok ? 200 : result === 'protected' ? 409 : 404;
 
     const auditPayload = auditLogPayload({
       requestId: req.id,
@@ -145,7 +149,7 @@ export class AdminRolesController {
       action: 'delete',
       entity: 'role',
       targetRoleId: id,
-      extra: { ok },
+      extra: { result },
     });
 
     (this.logger as any)[ok ? 'info' : 'warn'](auditPayload, 'admin_audit');
@@ -154,7 +158,7 @@ export class AdminRolesController {
       request_id: req.id,
       method: req.method,
       path: req.url,
-      status_code: ok ? 200 : 409,
+      status_code: statusCode,
       actor_user_id: req.user?.sub ?? null,
       actor_email: req.user?.email ?? null,
       action: 'delete',
@@ -163,8 +167,14 @@ export class AdminRolesController {
       payload: auditPayload,
     });
 
-    return ok
-      ? { ok: true }
-      : { ok: false, message: 'Role not found or not deletable' };
+    if (result === 'protected') {
+      throw new AppError({
+        code: ErrorCodes.ROLE_PROTECTED,
+        message: 'El rol admin es un rol protegido del sistema y no puede eliminarse',
+        status: 409,
+      });
+    }
+
+    return ok ? { ok: true } : { ok: false, message: 'Role not found' };
   }
 }
