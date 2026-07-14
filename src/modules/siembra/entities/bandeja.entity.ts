@@ -35,4 +35,7 @@ export class Bandeja extends BaseEntity {
 
   @Column({ type: 'uuid' })
   establecimiento_id!: string;
+
+  @Column({ type: 'date', nullable: true, default: null })
+  carencia_hasta!: string | null;
 }

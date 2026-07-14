@@ -110,6 +110,7 @@ export class SiembraService {
         'b.mesa_id',
         'b.codigo',
         'b.establecimiento_id',
+        'b.carencia_hasta',
         'b.created_at',
         'b.updated_at',
         'ls.id',

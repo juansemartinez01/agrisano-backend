@@ -243,13 +243,32 @@ export class AplicacionesQuimicasService {
         savedDetalles.push(await qr.manager.save(AplicacionQuimicaDetalle, detalle));
       }
 
-      // Nursery bandeja links
+      // Nursery bandeja links + carencia
       if (dto.contexto === AplicacionContexto.NURSERY && dto.bandeja_ids) {
+        const hasCarencia =
+          primaryQuimico.withholding_period_dias !== null &&
+          primaryQuimico.withholding_period_dias !== undefined &&
+          primaryQuimico.withholding_period_dias > 0;
+
+        let carenciaHastaStr: string | null = null;
+        if (hasCarencia) {
+          const carenciaDate = new Date();
+          carenciaDate.setDate(carenciaDate.getDate() + primaryQuimico.withholding_period_dias!);
+          carenciaHastaStr = carenciaDate.toISOString().split('T')[0];
+        }
+
         for (const bandeja_id of dto.bandeja_ids) {
           await qr.manager.save(AplicacionQuimicaBandeja, {
             aplicacion_id: savedAplicacion.id,
             bandeja_id,
           });
+
+          if (hasCarencia && carenciaHastaStr) {
+            await qr.query(
+              `UPDATE bandejas SET carencia_hasta = $1 WHERE id = $2 AND tenant_id = $3`,
+              [carenciaHastaStr, bandeja_id, tenantId],
+            );
+          }
         }
       }
 
