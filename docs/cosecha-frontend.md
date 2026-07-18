@@ -192,7 +192,7 @@ Codigos relevantes para frontend:
 | `404` | `COSECHA_NOT_FOUND` | Cosecha inexistente o fuera del tenant |
 | `404` | `MESA_NOT_FOUND` | Mesa inexistente o fuera del tenant |
 | `404` | `NOT_FOUND` | `producto_id` o `variedad_id` inexistente o fuera del tenant (codigo generico; `PRODUCTO_NOT_FOUND`/`VARIEDAD_NOT_FOUND` existen en `error-codes.ts` pero nunca se lanzan) |
-| `422` | `COSECHA_MESA_NO_DISPONIBLE` | La mesa no esta activa en posicion 1 |
+| `422` | `COSECHA_MESA_NO_DISPONIBLE` | La mesa no esta activa o no tiene posicion asignada en el tunel |
 | `422` | `VARIEDAD_PRODUCTO_MISMATCH` | La variedad indicada no pertenece al producto indicado |
 | `429` | `RATE_LIMITED` | Demasiadas requests |
 | `500` | `INTERNAL` | Error interno |
@@ -268,7 +268,7 @@ Notas:
 
 - `peso_kg` puede volver como string si TypeORM serializa decimal como string.
 - `tunel_id` lo toma el backend desde la mesa.
-- `posicion_al_momento` queda fijo en `1` porque solo se puede cosechar la primera mesa del FIFO.
+- `posicion_al_momento` refleja la posicion real que tenia la mesa en el tunel al momento de cosecharla (ya no esta limitado a `1`; cualquier mesa activa y posicionada puede cosecharse fuera de orden).
 - `producto_id` y `variedad_id` son `string | null` a nivel de tipo por cosechas historicas previas a este campo, pero **toda cosecha nueva los requiere obligatoriamente** — nunca van a venir `null` en una cosecha creada hoy.
 - El backend no enriquece la respuesta con el nombre del producto/variedad; el frontend debe resolverlos por separado contra `GET /productos/:id` y `GET /variedades/:id` (o mantener un catalogo cacheado).
 
@@ -290,7 +290,9 @@ type RegistrarCosechaResult = {
 La mesa solo puede cosecharse si cumple ambas condiciones:
 
 - `estado === "activa"`.
-- `posicion_actual === 1`.
+- `posicion_actual !== null` (esta posicionada en un tunel).
+
+Ya **no** hace falta que sea la mesa en `posicion_actual === 1`: se puede cosechar cualquier mesa activa y posicionada del tunel, fuera de orden.
 
 Si no cumple, el backend responde:
 
@@ -322,26 +324,26 @@ Cuando la cosecha se registra correctamente:
 - Se guarda `mesa_id`.
 - Se guarda `tunel_id` desde la mesa.
 - Se guarda `producto_id` y `variedad_id`.
-- Se guarda `posicion_al_momento = 1`.
+- Se guarda `posicion_al_momento` con la posicion real que tenia la mesa antes de cosecharla.
 - Se guarda `peso_kg`.
 - Se guarda `usuario_id`.
 - La mesa pasa a `estado = "en_cosecha"`.
 - La mesa pasa a `posicion_actual = null`.
-- Las mesas restantes del mismo tunel con `posicion_actual > 1` bajan una posicion.
+- Las mesas restantes del mismo tunel con `posicion_actual` mayor a la posicion cosechada bajan una posicion (para cerrar el hueco, sin importar en que punto de la cola se cosecho).
 - Se crea historial de mesa con `tipo_evento = "cosecha"`.
 - Se registra auditoria `cosecha_registrada`.
 
 La operacion corre dentro de una transaccion. Si algo falla, no deberian quedar cambios parciales.
 
-### FIFO
+### Orden de cosecha
 
-La cosecha libera la posicion 1 del tunel. Luego el backend recalcula:
+La cosecha libera la posicion que tenia la mesa cosechada (cualquiera dentro del tunel, no solo la 1). Luego el backend recalcula, para las mesas del mismo tunel que estaban detras:
 
 ```txt
 posicion_actual = posicion_actual - 1
 ```
 
-para las mesas restantes del mismo tunel.
+aplicado solo a las mesas con `posicion_actual` mayor a la posicion que tenia la mesa recien cosechada, para cerrar el hueco. Las mesas que estaban delante (posicion menor) no se modifican.
 
 El frontend no debe recalcular posiciones manualmente. Debe refrescar datos despues de registrar cosecha.
 
@@ -438,7 +440,7 @@ Errores comunes:
 - `403 AUTH_FORBIDDEN`: usuario sin rol permitido.
 - `404 MESA_NOT_FOUND`: mesa inexistente o fuera del tenant.
 - `404 NOT_FOUND`: `producto_id` o `variedad_id` inexistente o fuera del tenant.
-- `422 COSECHA_MESA_NO_DISPONIBLE`: mesa no activa o no esta en posicion 1.
+- `422 COSECHA_MESA_NO_DISPONIBLE`: mesa no activa o sin posicion asignada en el tunel.
 - `422 VARIEDAD_PRODUCTO_MISMATCH`: la variedad no pertenece al producto indicado.
 
 Ejemplo `422 VARIEDAD_PRODUCTO_MISMATCH`:
@@ -623,8 +625,8 @@ Errores comunes:
 1. Verificar que exista `access_token`.
 2. Cargar tuneles.
 3. Cargar mesas del tunel.
-4. Filtrar mesa cosechable: `estado === "activa" && posicion_actual === 1`.
-5. Mostrar accion de cosecha solo sobre esa mesa.
+4. Filtrar mesas cosechables: `estado === "activa" && posicion_actual !== null`.
+5. Mostrar accion de cosecha sobre cualquiera de esas mesas (ya no solo la de `posicion_actual === 1`; se puede cosechar fuera de orden).
 6. Cargar productos (`GET /productos`) para el selector de producto.
 7. Al elegir producto, cargar sus variedades (`GET /productos/:id/variedades`) para el selector de variedad.
 8. Pedir `peso_kg`.
@@ -660,7 +662,7 @@ Errores comunes:
 
 - Mostrar registrar cosecha solo para `operario`, `supervisor` o `admin_global`.
 - No mostrar accion si la mesa no esta `activa`.
-- No mostrar accion si la mesa no esta en `posicion_actual = 1`.
+- No mostrar accion si la mesa no tiene `posicion_actual` asignada (`null`). Ya no hace falta que sea `posicion_actual === 1`: cualquier mesa activa y posicionada es cosechable.
 - Selector de producto obligatorio; al cambiar, resetear/recargar el selector de variedad.
 - Selector de variedad obligatorio, filtrado por el producto seleccionado (`GET /productos/:id/variedades`).
 - No permitir enviar el formulario sin `producto_id` y `variedad_id` seleccionados.
@@ -802,7 +804,7 @@ try {
 - Se hace login de nuevo despues de cambios de roles.
 - Registrar cosecha se muestra solo para `operario`, `supervisor` o `admin_global`.
 - La UI permite cosechar solo mesas `activa`.
-- La UI permite cosechar solo mesas con `posicion_actual === 1`.
+- La UI permite cosechar cualquier mesa `activa` con `posicion_actual !== null` (ya no restringido a `posicion_actual === 1`).
 - El formulario pide `mesa_id`.
 - El formulario pide `producto_id` (selector cargado desde `GET /productos`).
 - El formulario pide `variedad_id` (selector filtrado por `GET /productos/:id/variedades`).

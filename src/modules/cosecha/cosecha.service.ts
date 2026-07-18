@@ -60,13 +60,15 @@ export class CosechaService {
 
     const mesa = await this.mesasService.getMesaById(dto.mesa_id, tenantId);
 
-    if (mesa.estado !== MesaEstado.ACTIVA || mesa.posicion_actual !== 1) {
+    if (mesa.estado !== MesaEstado.ACTIVA || mesa.posicion_actual === null) {
       throw new AppError({
         code: ErrorCodes.COSECHA_MESA_NO_DISPONIBLE,
-        message: 'La mesa no está disponible para cosecha (debe ser activa en posición 1)',
+        message: 'La mesa no está disponible para cosecha (debe ser activa y estar posicionada en un tunel)',
         status: 422,
       });
     }
+
+    const posicionAlMomento = mesa.posicion_actual;
 
     await this.productosService.mustFindById(dto.producto_id, { strictTenant: true });
     const variedad = await this.variedadesService.mustFindById(dto.variedad_id, {
@@ -96,7 +98,7 @@ export class CosechaService {
         tunel_id,
         producto_id: dto.producto_id,
         variedad_id: dto.variedad_id,
-        posicion_al_momento: 1,
+        posicion_al_momento: posicionAlMomento,
         fecha_hora: new Date(),
         peso_kg: dto.peso_kg,
         usuario_id: userId,
@@ -109,11 +111,11 @@ export class CosechaService {
         [dto.mesa_id, tenantId],
       );
 
-      // 3. FIFO recalc: decrement positions of remaining mesas in tunnel
+      // 3. FIFO recalc: decrement positions of mesas that were behind the harvested one
       await qr.query(
         `UPDATE mesas SET posicion_actual = posicion_actual - 1, updated_at = now()
-         WHERE tunel_id = $1 AND tenant_id = $2 AND posicion_actual > 1 AND deleted_at IS NULL`,
-        [tunel_id, tenantId],
+         WHERE tunel_id = $1 AND tenant_id = $2 AND posicion_actual > $3 AND deleted_at IS NULL`,
+        [tunel_id, tenantId, posicionAlMomento],
       );
 
       // 4. Write HistorialMesa entry inside transaction
