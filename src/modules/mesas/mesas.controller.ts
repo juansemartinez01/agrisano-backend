@@ -98,12 +98,12 @@ export class MesasController {
     @Body() dto: UpdateMesaDto,
     @Req() req: AuthRequest,
   ) {
-    const ALLOWED = new Set(['plantas_estimadas', 'activo']);
+    const ALLOWED = new Set(['nombre', 'plantas_estimadas', 'activo']);
     const body = req.body as Record<string, unknown>;
     if (Object.keys(body ?? {}).some((k) => !ALLOWED.has(k))) {
       throw new AppError({
         code: ErrorCodes.MESA_FIELD_IMMUTABLE,
-        message: 'Solo se pueden modificar plantas_estimadas y activo',
+        message: 'Solo se pueden modificar nombre, plantas_estimadas y activo',
         status: 400,
       });
     }

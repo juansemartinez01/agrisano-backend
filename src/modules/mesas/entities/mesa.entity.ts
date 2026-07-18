@@ -15,6 +15,9 @@ export class Mesa extends BaseEntity {
   @Column({ type: 'uuid' })
   tunel_id!: string;
 
+  @Column({ type: 'varchar', length: 100 })
+  nombre!: string;
+
   @Column({ type: 'varchar', length: 100, unique: true })
   codigo_qr!: string;
 

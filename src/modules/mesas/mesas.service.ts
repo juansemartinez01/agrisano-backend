@@ -66,6 +66,22 @@ export class MesasService {
       });
     }
 
+    const conflict = await this.mesaRepo.findOne({
+      where: {
+        tenant_id: tenantId,
+        tunel_id: dto.tunel_id,
+        nombre: dto.nombre,
+        deleted_at: IsNull(),
+      },
+    });
+    if (conflict) {
+      throw new AppError({
+        code: ErrorCodes.MESA_NOMBRE_DUPLICADO,
+        message: `Ya existe una mesa con nombre '${dto.nombre}' en este tunel`,
+        status: 409,
+      });
+    }
+
     const codigoQr = randomUUID();
 
     const qr = this.dataSource.createQueryRunner();
@@ -82,6 +98,7 @@ export class MesasService {
         tenant_id: tenantId,
         establecimiento_id: dto.establecimiento_id,
         tunel_id: dto.tunel_id,
+        nombre: dto.nombre,
         codigo_qr: codigoQr,
         posicion_actual: newPos,
         estado: MesaEstado.ACTIVA,
@@ -104,7 +121,7 @@ export class MesasService {
     tenantId: string,
   ): Promise<{ items: Mesa[]; total: number }> {
     const { skip, limit } = clampPagination(q.page, q.limit, 200);
-    const SORT_ALLOWED = ['created_at', 'posicion_actual', 'estado'];
+    const SORT_ALLOWED = ['created_at', 'posicion_actual', 'estado', 'nombre'];
     const sortBy = SORT_ALLOWED.includes(q.sortBy ?? '') ? (q.sortBy as string) : 'created_at';
     const sortOrder = q.sortOrder ?? 'DESC';
 
@@ -123,7 +140,7 @@ export class MesasService {
       qb.andWhere('m.activo = :activo', { activo: q.activo });
     if (q.q) {
       const search = `%${q.q}%`;
-      qb.andWhere('m.codigo_qr ILIKE :search', { search });
+      qb.andWhere('(m.codigo_qr ILIKE :search OR m.nombre ILIKE :search)', { search });
     }
 
     qb.orderBy(`m.${sortBy}`, sortOrder).skip(skip).take(limit);
@@ -220,6 +237,25 @@ export class MesasService {
         status: 404,
       });
     }
+
+    if (dto.nombre !== undefined && dto.nombre !== mesa.nombre) {
+      const conflict = await this.mesaRepo
+        .createQueryBuilder('m')
+        .where('m.tenant_id = :tenantId', { tenantId })
+        .andWhere('m.tunel_id = :tunelId', { tunelId: mesa.tunel_id })
+        .andWhere('m.nombre = :nombre', { nombre: dto.nombre })
+        .andWhere('m.id != :id', { id })
+        .andWhere('m.deleted_at IS NULL')
+        .getOne();
+      if (conflict) {
+        throw new AppError({
+          code: ErrorCodes.MESA_NOMBRE_DUPLICADO,
+          message: `Ya existe una mesa con nombre '${dto.nombre}' en este tunel`,
+          status: 409,
+        });
+      }
+    }
+
     await this.mesaRepo.update({ id, tenant_id: tenantId }, dto);
     return { ...mesa, ...dto };
   }
