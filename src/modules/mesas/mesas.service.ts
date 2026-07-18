@@ -257,7 +257,9 @@ export class MesasService {
     }
 
     await this.mesaRepo.update({ id, tenant_id: tenantId }, dto);
-    return { ...mesa, ...dto };
+    return (await this.mesaRepo.findOne({
+      where: { id, tenant_id: tenantId },
+    }))!;
   }
 
   async darDeBaja(id: string, auditReq: AuditReq, tenantId: string): Promise<Mesa> {
