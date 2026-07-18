@@ -1,4 +1,4 @@
-import { IsInt, IsOptional, IsUUID, Min } from 'class-validator';
+import { IsUUID } from 'class-validator';
 
 export class CreateMesaDto {
   @IsUUID()
@@ -6,9 +6,4 @@ export class CreateMesaDto {
 
   @IsUUID()
   tunel_id!: string;
-
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  plantas_estimadas?: number;
 }

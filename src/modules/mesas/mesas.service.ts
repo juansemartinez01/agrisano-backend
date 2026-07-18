@@ -85,7 +85,7 @@ export class MesasService {
         codigo_qr: codigoQr,
         posicion_actual: newPos,
         estado: MesaEstado.ACTIVA,
-        plantas_estimadas: dto.plantas_estimadas ?? 450,
+        plantas_estimadas: 450,
         activo: true,
       });
       const saved = await qr.manager.save(Mesa, mesa);
