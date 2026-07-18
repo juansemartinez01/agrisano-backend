@@ -77,7 +77,7 @@ interface PackingRow {
 interface CosechaMesaRow {
   id: string;
   fecha_hora: string;
-  peso_kg: string;
+  peso_kg: string | null;
   tunel_id: string | null;
   packing_id: string | null;
   peso_bruto_kg: string | null;
@@ -100,7 +100,7 @@ export interface TrazabilidadCosechaResult {
 interface CosechaIndexEntry {
   cosecha_id: string;
   fecha_hora: string;
-  peso_kg: string;
+  peso_kg: string | null;
   packing: { peso_bruto_kg: string; categorias: Record<string, unknown>[] } | null;
 }
 

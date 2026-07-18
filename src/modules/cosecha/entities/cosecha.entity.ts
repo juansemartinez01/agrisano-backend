@@ -32,8 +32,8 @@ export class Cosecha {
   @Column({ type: 'timestamptz', default: () => 'now()' })
   fecha_hora!: Date;
 
-  @Column({ type: 'decimal', precision: 10, scale: 3 })
-  peso_kg!: number;
+  @Column({ type: 'decimal', precision: 10, scale: 3, nullable: true })
+  peso_kg!: number | null;
 
   @Column({ type: 'uuid' })
   usuario_id!: string;

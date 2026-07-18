@@ -100,7 +100,7 @@ export class CosechaService {
         variedad_id: dto.variedad_id,
         posicion_al_momento: posicionAlMomento,
         fecha_hora: new Date(),
-        peso_kg: dto.peso_kg,
+        peso_kg: dto.peso_kg ?? null,
         usuario_id: userId,
         observaciones: dto.observaciones ?? null,
       });
@@ -125,7 +125,7 @@ export class CosechaService {
         tenant_id: tenantId,
         usuario_id: userId,
         fecha_hora: new Date(),
-        detalle: { cosecha_id: saved.id, peso_kg: dto.peso_kg },
+        detalle: { cosecha_id: saved.id, peso_kg: dto.peso_kg ?? null },
       });
 
       await qr.commitTransaction();

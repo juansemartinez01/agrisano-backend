@@ -202,7 +202,7 @@ type Cosecha = {
   variedad_id: string | null;
   posicion_al_momento: number;
   fecha_hora: string;
-  peso_kg: number | string;
+  peso_kg: number | string | null;
   usuario_id: string;
   observaciones: string | null;
   created_at: string;
@@ -295,7 +295,7 @@ type TrazabilidadMesaResult = {
 type CosechaIndexEntry = {
   cosecha_id: string;
   fecha_hora: string;
-  peso_kg: number | string;
+  peso_kg: number | string | null;
   packing: {
     peso_bruto_kg: number | string;
     categorias: Record<string, unknown>[];
@@ -306,6 +306,7 @@ type CosechaIndexEntry = {
 Notas:
 
 - Algunos campos decimales pueden venir como string.
+- `peso_kg` puede venir `null` si la cosecha se registro sin peso (el campo es opcional en `POST /cosecha`).
 - `packing` puede ser `null` si todavia no se registro packing para la cosecha.
 - `mesa` en trazabilidad por cosecha puede venir `null` si la fila de mesa no aparece en la query cruda.
 - Arrays como `bandejas_ciclo`, `aplicaciones_invernadero` y `aplicaciones_nursery` pueden venir vacios.

@@ -10,10 +10,11 @@ export class CreateCosechaDto {
   @IsUUID()
   variedad_id!: string;
 
+  @IsOptional()
   @IsNumber()
   @Min(0.001)
   @Max(9999999.999)
-  peso_kg!: number;
+  peso_kg?: number;
 
   @IsOptional()
   @IsString()

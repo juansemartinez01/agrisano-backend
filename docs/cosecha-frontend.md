@@ -229,7 +229,7 @@ type CreateCosechaDto = {
   mesa_id: string;
   producto_id: string;
   variedad_id: string;
-  peso_kg: number;
+  peso_kg?: number;
   observaciones?: string;
 };
 ```
@@ -241,8 +241,10 @@ Campos:
 | `mesa_id` | Si | UUID | Mesa a cosechar |
 | `producto_id` | Si | UUID | Debe existir dentro del tenant |
 | `variedad_id` | Si | UUID | Debe existir dentro del tenant y pertenecer al `producto_id` indicado |
-| `peso_kg` | Si | number | Minimo `0.001`, maximo `9999999.999` |
+| `peso_kg` | **No** | number | Opcional. Si se envia: minimo `0.001`, maximo `9999999.999` |
 | `observaciones` | No | string | Maximo 2000 caracteres |
+
+`peso_kg` dejo de ser obligatorio: se puede registrar una cosecha sin peso (por ejemplo, si el peso se va a cargar mas adelante en el packing). Si no se envia, la cosecha queda con `peso_kg: null`. **No existe ningun endpoint para editar una cosecha despues de creada**, asi que si no se manda en el `POST`, ese valor queda `null` para siempre en ese registro.
 
 ### Cosecha
 
@@ -256,7 +258,7 @@ type Cosecha = {
   variedad_id: string | null;
   posicion_al_momento: number;
   fecha_hora: string;
-  peso_kg: number | string;
+  peso_kg: number | string | null;
   usuario_id: string;
   observaciones: string | null;
   created_at: string;
@@ -266,7 +268,7 @@ type Cosecha = {
 
 Notas:
 
-- `peso_kg` puede volver como string si TypeORM serializa decimal como string.
+- `peso_kg` puede volver como string si TypeORM serializa decimal como string, o `null` si no se envio al crear la cosecha.
 - `tunel_id` lo toma el backend desde la mesa.
 - `posicion_al_momento` refleja la posicion real que tenia la mesa en el tunel al momento de cosecharla (ya no esta limitado a `1`; cualquier mesa activa y posicionada puede cosecharse fuera de orden).
 - `producto_id` y `variedad_id` son `string | null` a nivel de tipo por cosechas historicas previas a este campo, pero **toda cosecha nueva los requiere obligatoriamente** — nunca van a venir `null` en una cosecha creada hoy.
@@ -325,7 +327,7 @@ Cuando la cosecha se registra correctamente:
 - Se guarda `tunel_id` desde la mesa.
 - Se guarda `producto_id` y `variedad_id`.
 - Se guarda `posicion_al_momento` con la posicion real que tenia la mesa antes de cosecharla.
-- Se guarda `peso_kg`.
+- Se guarda `peso_kg` si se envio; si no, queda `null`.
 - Se guarda `usuario_id`.
 - La mesa pasa a `estado = "en_cosecha"`.
 - La mesa pasa a `posicion_actual = null`.
@@ -629,15 +631,15 @@ Errores comunes:
 5. Mostrar accion de cosecha sobre cualquiera de esas mesas (ya no solo la de `posicion_actual === 1`; se puede cosechar fuera de orden).
 6. Cargar productos (`GET /productos`) para el selector de producto.
 7. Al elegir producto, cargar sus variedades (`GET /productos/:id/variedades`) para el selector de variedad.
-8. Pedir `peso_kg`.
+8. Pedir `peso_kg` (opcional; se puede dejar vacio y cargarlo despues via packing).
 9. Permitir `observaciones` opcionales.
 
 ### Flujo de registrar cosecha
 
 1. Validar que `producto_id` este seleccionado.
 2. Validar que `variedad_id` este seleccionado y pertenezca a las variedades cargadas para ese producto.
-3. Validar que `peso_kg >= 0.001`.
-4. Validar que `peso_kg <= 9999999.999`.
+3. Si se cargo `peso_kg`, validar que sea `>= 0.001`.
+4. Si se cargo `peso_kg`, validar que sea `<= 9999999.999`.
 5. Enviar `POST /cosecha`.
 6. Mostrar confirmacion.
 7. Guardar o navegar a `data.cosecha.id`.
@@ -649,7 +651,7 @@ Errores comunes:
 
 1. Enviar `GET /cosecha?page=1&limit=20`.
 2. Aplicar filtros por mesa, tunel o fechas si corresponde.
-3. Mostrar `peso_kg`, `fecha_hora`, `mesa_id`, `tunel_id` y `observaciones`.
+3. Mostrar `peso_kg` (o un indicador de "sin peso" si vino `null`), `fecha_hora`, `mesa_id`, `tunel_id` y `observaciones`.
 4. Usar `meta` para paginacion.
 
 ### Flujo de detalle
@@ -718,7 +720,7 @@ const response = await apiFetch("/cosecha", {
     mesa_id: mesaId,
     producto_id: productoId,
     variedad_id: variedadId,
-    peso_kg: 12.5,
+    peso_kg: 12.5, // opcional: se puede omitir el campo
     observaciones: "Cosecha desde frontend"
   })
 });
@@ -808,10 +810,10 @@ try {
 - El formulario pide `mesa_id`.
 - El formulario pide `producto_id` (selector cargado desde `GET /productos`).
 - El formulario pide `variedad_id` (selector filtrado por `GET /productos/:id/variedades`).
-- El formulario pide `peso_kg`.
-- `peso_kg` se envia como numero JSON.
-- `peso_kg` es mayor o igual a `0.001`.
-- `peso_kg` es menor o igual a `9999999.999`.
+- El formulario permite dejar `peso_kg` vacio (campo opcional); si se omite, la cosecha se guarda con `peso_kg: null`.
+- Si se completa `peso_kg`, se envia como numero JSON.
+- Si se completa `peso_kg`, es mayor o igual a `0.001`.
+- Si se completa `peso_kg`, es menor o igual a `9999999.999`.
 - `observaciones` es opcional.
 - `observaciones` no supera 2000 caracteres.
 - No se envia `tunel_id`.
