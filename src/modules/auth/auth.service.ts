@@ -90,7 +90,12 @@ export class AuthService {
     } as JwtSignOptions);
   }
 
-  async register(email: string, password: string) {
+  async register(
+    email: string,
+    password: string,
+    nombre?: string,
+    apellido?: string,
+  ) {
     const tenantId = requireTenantId(this.tenancy);
 
     const hash = await bcrypt.hash(password, 10);
@@ -100,11 +105,29 @@ export class AuthService {
       email,
       password_hash: hash,
       roleNames: ['user'],
+      nombre: nombre ?? null,
+      apellido: apellido ?? null,
     });
 
     return {
       id: user.id,
       email: user.email,
+      nombre: user.nombre,
+      apellido: user.apellido,
+      roles: user.roles.map((r) => r.name),
+      tenant_id: user.tenant_id,
+    };
+  }
+
+  async me(userId: string) {
+    const user = await this.users.getByIdAdmin(userId);
+    if (!user) throw new UnauthorizedException('User not found');
+
+    return {
+      id: user.id,
+      email: user.email,
+      nombre: user.nombre,
+      apellido: user.apellido,
       roles: user.roles.map((r) => r.name),
       tenant_id: user.tenant_id,
     };

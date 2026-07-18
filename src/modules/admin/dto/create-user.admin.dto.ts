@@ -20,4 +20,14 @@ export class CreateUserAdminDto {
   @IsArray()
   @IsString({ each: true })
   roles?: string[]; // ['admin','user']
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  nombre?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  apellido?: string;
 }

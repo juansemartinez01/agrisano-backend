@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DeepPartial, ILike, IsNull, Repository } from 'typeorm';
+import { DeepPartial, IsNull, Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { User } from './entities/user.entity';
 import { Role } from './entities/role.entity';
@@ -74,6 +74,8 @@ export class UsersService {
     email: string;
     password_hash: string;
     roleNames?: string[];
+    nombre?: string | null;
+    apellido?: string | null;
   }) {
     const email = params.email.toLowerCase().trim();
     const exists = await this.findByEmail(email);
@@ -89,6 +91,8 @@ export class UsersService {
       password_hash: params.password_hash,
       roles,
       is_active: true,
+      nombre: params.nombre ?? null,
+      apellido: params.apellido ?? null,
     });
 
     return this.usersRepo.save(user);
@@ -104,9 +108,6 @@ export class UsersService {
     const includeDeleted =
       String(q.includeDeleted ?? 'false').toLowerCase() === 'true';
 
-    const where: any = {};
-    if (q.q?.trim()) where.email = ILike(`%${q.q.trim().toLowerCase()}%`);
-
     const qb = this.usersRepo
       .createQueryBuilder('u')
       .leftJoinAndSelect('u.roles', 'r')
@@ -116,8 +117,13 @@ export class UsersService {
       .take(limit);
 
     if (!includeDeleted) qb.andWhere('u.deleted_at IS NULL');
-    if (where.email)
-      qb.andWhere('u.email ILIKE :email', { email: where.email.value });
+    if (q.q?.trim()) {
+      const term = `%${q.q.trim().toLowerCase()}%`;
+      qb.andWhere(
+        '(u.email ILIKE :term OR u.nombre ILIKE :term OR u.apellido ILIKE :term)',
+        { term },
+      );
+    }
 
     const [items, total] = await qb.getManyAndCount();
 
@@ -128,6 +134,8 @@ export class UsersService {
       items: items.map((u) => ({
         id: u.id,
         email: u.email,
+        nombre: u.nombre,
+        apellido: u.apellido,
         is_active: u.is_active,
         deleted_at: u.deleted_at,
         roles: u.roles?.map((r) => r.name) ?? [],
@@ -156,6 +164,8 @@ export class UsersService {
     email: string;
     password: string;
     roles?: string[];
+    nombre?: string;
+    apellido?: string;
   }) {
     const tenantId = requireTenantId(this.tenancy);
 
@@ -165,12 +175,20 @@ export class UsersService {
       email: params.email,
       password_hash,
       roleNames: params.roles?.length ? params.roles : ['user'],
+      nombre: params.nombre ?? null,
+      apellido: params.apellido ?? null,
     });
   }
 
   async updateUserAdmin(
     id: string,
-    dto: { email?: string; password?: string; is_active?: boolean },
+    dto: {
+      email?: string;
+      password?: string;
+      is_active?: boolean;
+      nombre?: string;
+      apellido?: string;
+    },
   ) {
     const tenantId = requireTenantId(this.tenancy);
     const user = await this.usersRepo.findOne({
@@ -188,6 +206,9 @@ export class UsersService {
     }
 
     if (dto.is_active !== undefined) user.is_active = dto.is_active;
+
+    if (dto.nombre !== undefined) user.nombre = dto.nombre;
+    if (dto.apellido !== undefined) user.apellido = dto.apellido;
 
     if (dto.password) {
       user.password_hash = await bcrypt.hash(dto.password, 10);

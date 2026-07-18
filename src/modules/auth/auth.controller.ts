@@ -6,6 +6,7 @@ import { RefreshDto } from './dto/refresh.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RolesGuard } from './guards/roles.guard';
 import { Roles } from './decorators/roles.decorator';
+import { CurrentUser } from './decorators/current-user.decorator';
 import { Throttle } from '@nestjs/throttler';
 
 @Controller('auth')
@@ -16,7 +17,7 @@ export class AuthController {
   @Throttle({ default: { ttl: 60, limit: 10 } })
   @Post('register')
   register(@Body() dto: RegisterDto) {
-    return this.auth.register(dto.email, dto.password);
+    return this.auth.register(dto.email, dto.password, dto.nombre, dto.apellido);
   }
 
   // ✅ más duro
@@ -42,8 +43,8 @@ export class AuthController {
 
   @Get('me')
   @UseGuards(JwtAuthGuard)
-  me() {
-    return { ok: true };
+  me(@CurrentUser() user: { sub: string }) {
+    return this.auth.me(user.sub);
   }
 
   @Roles('admin')

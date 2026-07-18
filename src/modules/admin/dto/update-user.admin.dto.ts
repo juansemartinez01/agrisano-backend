@@ -23,4 +23,14 @@ export class UpdateUserAdminDto {
   @Type(() => Boolean)
   @IsBoolean()
   is_active?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  nombre?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  apellido?: string;
 }

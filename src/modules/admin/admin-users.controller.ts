@@ -50,6 +50,8 @@ export class AdminUsersController {
       item: {
         id: u.id,
         email: u.email,
+        nombre: u.nombre,
+        apellido: u.apellido,
         is_active: u.is_active,
         deleted_at: u.deleted_at,
         roles: u.roles?.map((r) => r.name) ?? [],
@@ -65,6 +67,8 @@ export class AdminUsersController {
       email: dto.email,
       password: dto.password,
       roles: dto.roles,
+      nombre: dto.nombre,
+      apellido: dto.apellido,
     });
 
     const auditPayload = auditLogPayload({
@@ -95,7 +99,13 @@ export class AdminUsersController {
 
     return {
       ok: true,
-      item: { id: u.id, email: u.email, roles: u.roles.map((r) => r.name) },
+      item: {
+        id: u.id,
+        email: u.email,
+        nombre: u.nombre,
+        apellido: u.apellido,
+        roles: u.roles.map((r) => r.name),
+      },
     };
   }
 
