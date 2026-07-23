@@ -53,7 +53,10 @@ function extractNormalizedError(
   // defaults
   let code: ErrorCode =
     status >= 500 ? ErrorCodes.INTERNAL : ErrorCodes.BAD_REQUEST;
-  let message = exception?.message ?? 'Unexpected error';
+  let message =
+    status >= 500
+      ? 'Internal server error'
+      : (exception?.message ?? 'Unexpected error');
   let details: any = undefined;
 
   // Clasificación por tipo de excepción (cuando NO es AppError)
@@ -101,7 +104,8 @@ function extractNormalizedError(
 
 
   // 3) Nest típico: { message: string | string[], ... }
-  if (isObject(httpResp)) {
+  // (nunca para 5xx: evita filtrar mensajes crudos de excepciones no controladas)
+  if (isObject(httpResp) && status < 500) {
     const msg = httpResp.message;
     if (Array.isArray(msg)) message = msg.join(', ');
     else if (typeof msg === 'string') message = msg;

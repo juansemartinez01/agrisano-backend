@@ -111,11 +111,23 @@ export class CosechaService {
         [dto.mesa_id, tenantId],
       );
 
-      // 3. FIFO recalc: decrement positions of mesas that were behind the harvested one
+      // 3. FIFO recalc: decrement positions of mesas that were behind the harvested one.
+      // Se hace en dos pasadas con un offset negativo temporal porque
+      // UQ_mesas_tunel_posicion es un índice único no diferible: un solo
+      // UPDATE que decrementa un rango de posiciones puede, según el orden
+      // de recorrido de filas que elija Postgres, intentar escribir un valor
+      // que todavía ocupa una fila no procesada, violando el constraint.
+      // Pasando primero a negativos se garantiza que no haya colisión posible
+      // en ninguna de las dos pasadas.
       await qr.query(
-        `UPDATE mesas SET posicion_actual = posicion_actual - 1, updated_at = now()
+        `UPDATE mesas SET posicion_actual = -posicion_actual, updated_at = now()
          WHERE tunel_id = $1 AND tenant_id = $2 AND posicion_actual > $3 AND deleted_at IS NULL`,
         [tunel_id, tenantId, posicionAlMomento],
+      );
+      await qr.query(
+        `UPDATE mesas SET posicion_actual = -posicion_actual - 1, updated_at = now()
+         WHERE tunel_id = $1 AND tenant_id = $2 AND posicion_actual < 0 AND deleted_at IS NULL`,
+        [tunel_id, tenantId],
       );
 
       // 4. Write HistorialMesa entry inside transaction
