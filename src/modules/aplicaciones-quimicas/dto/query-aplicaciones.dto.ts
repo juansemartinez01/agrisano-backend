@@ -1,4 +1,11 @@
-import { IsOptional, IsUUID, IsEnum, IsString, IsIn, IsISO8601 } from 'class-validator';
+import {
+  IsOptional,
+  IsUUID,
+  IsEnum,
+  IsString,
+  IsIn,
+  IsISO8601,
+} from 'class-validator';
 import { PageQueryDto } from 'src/common/query/page-query.dto';
 import { AplicacionContexto } from '../entities/aplicacion-quimica.entity';
 
