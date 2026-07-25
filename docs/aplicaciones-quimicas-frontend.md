@@ -141,7 +141,57 @@ Estos son los valores actuales (con esta capitalización exacta). Si no se enví
 
 ### Response `200`
 
-Paginado (`{ data: AplicacionQuimica[], meta: { page, limit, total } }`), sin `detalles` ni `afectados` embebidos — para eso usar el endpoint de detalle (sección 6).
+Paginado (`{ data: AplicacionListItem[], meta: { page, limit, total } }`). Cada item incluye **todos los campos de `AplicacionQuimica`** (sin cambios) más los siguientes campos enriquecidos, pensados para pintar las tarjetas de `/chemicals` con una sola request:
+
+```ts
+type AplicacionListItem = AplicacionQuimica & {
+  usuario: {                     // null si el usuario ya no puede resolverse
+    id: string;
+    nombre: string | null;
+    apellido: string | null;
+    email: string;
+  } | null;
+
+  target_count: number;          // mesas o bandejas distintas afectadas (0 si no hay vínculos)
+
+  target_summary: {
+    tunnels: Array<{             // solo greenhouse (vacío en nursery)
+      id: string | null;         // null si el túnel/mesa ya no resuelve
+      nombre: string | null;
+      table_count: number;
+    }>;
+    seedings: Array<{            // solo nursery (vacío en greenhouse)
+      id: string | null;
+      created_at: string | null; // ISO — fecha de creación de la siembra
+      tray_count: number;
+      product: { id: string; nombre: string } | null;  // null si heterogéneo o no resuelve
+      variety: { id: string; nombre: string } | null;
+    }>;
+  };
+
+  chemical_lines: Array<{        // una línea por lote realmente usado ([0] suele ser el primario)
+    lote_quimico_id: string;
+    chemical_id: string | null;
+    chemical_name: string | null;
+    lot_name: string | null;
+    quantity: number | null;     // cantidad total descontada de ese lote
+    unit: string | null;
+    dose: number | null;                   // SOLO en la línea principal (snapshot)
+    dose_unit: string | null;              // SOLO en la línea principal
+    withholding_period_days: number | null; // SOLO en la línea principal
+    brand: { id: string; nombre: string } | null;
+    supplier: { id: string; nombre: string } | null;
+  }>;
+};
+```
+
+Notas:
+
+- El listado **no** devuelve `mesa_ids`/`bandeja_ids` ni el array completo de targets — para eso está el detalle (sección 6).
+- `dose`/`dose_unit`/`withholding_period_days` solo vienen en la línea del lote primario; las líneas adicionales los traen en `null` (la base no guarda dosis por detalle).
+- Cualquier enriquecimiento cuyo recurso relacionado falte llega como `null`; nunca rompe la respuesta.
+
+Contrato completo con ejemplos: `specs/016-enrich-aplicaciones-quimicas/contracts/aplicaciones-quimicas-read.md`.
 
 ## 6. Obtener aplicación por id — `GET /aplicaciones-quimicas/:id`
 
@@ -150,13 +200,54 @@ Paginado (`{ data: AplicacionQuimica[], meta: { page, limit, total } }`), sin `d
 ```ts
 {
   data: {
-    aplicacion: AplicacionQuimica;
+    aplicacion: AplicacionQuimica & {
+      usuario: { id: string; nombre: string | null; apellido: string | null; email: string } | null;
+    };
     detalles: AplicacionQuimicaDetalle[];
-    bandeja_ids?: string[];   // presente si contexto = nursery
-    mesa_ids?: string[];      // presente si contexto = greenhouse
+    bandeja_ids?: string[];   // presente si contexto = nursery (sin cambios)
+    mesa_ids?: string[];      // presente si contexto = greenhouse (sin cambios)
+
+    targets:                  // NUEVO — targets enriquecidos y agrupados
+      | {
+          context: 'greenhouse';
+          total: number;      // = mesa_ids.length
+          tunnels: Array<{
+            id: string | null;          // null si la mesa/túnel ya no resuelve
+            nombre: string | null;
+            tables: Array<{
+              id: string;
+              nombre: string | null;    // nombre estable de la mesa
+              posicion_actual: number | null; // posición ACTUAL, no histórica
+              estado: string | null;    // estado ACTUAL
+            }>;
+          }>;
+        }
+      | {
+          context: 'nursery';
+          total: number;      // = bandeja_ids.length
+          seedings: Array<{
+            id: string | null;
+            created_at: string | null;
+            tray_count: number;
+            product: { id: string; nombre: string } | null;       // null si heterogéneo
+            variety: { id: string; nombre: string } | null;       // null si heterogéneo
+            seed_lot: { id: string; numero_lote: string } | null; // null si heterogéneo
+            substrate_lot: { id: string; numero_lote: string } | null;
+            trays: Array<{
+              id: string;
+              codigo: string | null;
+              estado: string | null;    // estado ACTUAL (puede ser 'trasplantada')
+            }>;
+          }>;
+        };
   }
 }
 ```
+
+Notas:
+
+- `posicion_actual` y `estado` reflejan el **presente** de la mesa/bandeja, no el momento de la aplicación (una mesa pudo cambiar de posición; una bandeja pudo trasplantarse).
+- Si una mesa/túnel/siembra fue eliminada, el ID del target se conserva y el enriquecimiento correspondiente llega como `null` (agrupado bajo túnel/siembra `null`), sin error 500.
 
 ### Errores
 

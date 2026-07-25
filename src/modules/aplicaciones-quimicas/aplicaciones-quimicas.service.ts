@@ -10,20 +10,45 @@ import { TenancyService } from 'src/modules/tenancy/tenancy.service';
 import { EstablecimientosService } from 'src/modules/establecimientos/establecimientos.service';
 import { LotesQuimicosService } from 'src/modules/lotes-quimicos/lotes-quimicos.service';
 import { Quimico } from 'src/modules/quimicos/entities/quimico.entity';
-import { QuimicoRateUnidad } from 'src/modules/quimicos/entities/quimico.entity';
 import { LoteQuimico } from 'src/modules/lotes-quimicos/entities/lote-quimico.entity';
 import { BandejaService } from 'src/modules/siembra/bandeja.service';
 import { BandejaEstado } from 'src/modules/siembra/entities/bandeja.entity';
 import { MesasService } from 'src/modules/mesas/mesas.service';
 import { MesaEstado } from 'src/modules/mesas/entities/mesa.entity';
-import { HistorialMesa, HistorialTipoEvento } from 'src/modules/mesas/entities/historial-mesa.entity';
+import {
+  HistorialMesa,
+  HistorialTipoEvento,
+} from 'src/modules/mesas/entities/historial-mesa.entity';
 import { clampPagination } from 'src/common/query/query-utils';
-import { AplicacionQuimica, AplicacionContexto } from './entities/aplicacion-quimica.entity';
+import {
+  AplicacionQuimica,
+  AplicacionContexto,
+} from './entities/aplicacion-quimica.entity';
 import { AplicacionQuimicaDetalle } from './entities/aplicacion-quimica-detalle.entity';
 import { AplicacionQuimicaBandeja } from './entities/aplicacion-quimica-bandeja.entity';
 import { AplicacionQuimicaMesa } from './entities/aplicacion-quimica-mesa.entity';
 import { CreateAplicacionDto } from './dto/create-aplicacion.dto';
 import { QueryAplicacionesDto } from './dto/query-aplicaciones.dto';
+import {
+  AplicacionDetalleEnriquecida,
+  AplicacionListItem,
+  ChemicalLine,
+  ChemicalLineRaw,
+  GreenhouseSummaryRaw,
+  GreenhouseTargetRaw,
+  GreenhouseTargets,
+  GreenhouseTunnelGroup,
+  LoteRef,
+  NurserySeedingGroup,
+  NurserySummaryRaw,
+  NurseryTargetRaw,
+  NurseryTargets,
+  RefNombre,
+  SeedingSummary,
+  TunnelSummary,
+  UsuarioRaw,
+  UsuarioResumen,
+} from './types/aplicacion-enriched.types';
 
 export const AUDIT = {
   NURSERY: 'aplicacion_quimica_nursery',
@@ -42,13 +67,6 @@ export interface CreateAplicacionResult {
   aplicacion: AplicacionQuimica;
   detalles: AplicacionQuimicaDetalle[];
   afectados: { bandeja_ids?: string[]; mesa_ids?: string[] };
-}
-
-export interface AplicacionConDetalle {
-  aplicacion: AplicacionQuimica;
-  detalles: AplicacionQuimicaDetalle[];
-  bandeja_ids?: string[];
-  mesa_ids?: string[];
 }
 
 @Injectable()
@@ -104,11 +122,15 @@ export class AplicacionesQuimicasService {
     const tenantId = this.tenancy.requireTenantId();
 
     // 1. Validate establishment
-    await this.estService.mustFindById(dto.establecimiento_id, { strictTenant: true });
+    await this.estService.mustFindById(dto.establecimiento_id, {
+      strictTenant: true,
+    });
 
     // 2. Load + validate primary lote (and its quimico)
     const { lote: primaryLote, quimico: primaryQuimico } =
-      await this.lotesQuimicosService.mustFindByIdWithQuimico(dto.lote_quimico_id);
+      await this.lotesQuimicosService.mustFindByIdWithQuimico(
+        dto.lote_quimico_id,
+      );
     if (primaryQuimico.establecimiento_id !== dto.establecimiento_id) {
       throw new AppError({
         code: ErrorCodes.APLICACION_TARGET_INVALIDO,
@@ -118,17 +140,25 @@ export class AplicacionesQuimicasService {
     }
 
     // 3. Nursery requires bandeja_ids; greenhouse requires mesa_ids
-    if (dto.contexto === AplicacionContexto.NURSERY && !dto.bandeja_ids?.length) {
+    if (
+      dto.contexto === AplicacionContexto.NURSERY &&
+      !dto.bandeja_ids?.length
+    ) {
       throw new AppError({
         code: ErrorCodes.APLICACION_TARGETS_VACIOS,
-        message: 'Se requiere al menos una bandeja para aplicaciones de nursery',
+        message:
+          'Se requiere al menos una bandeja para aplicaciones de nursery',
         status: 422,
       });
     }
-    if (dto.contexto === AplicacionContexto.GREENHOUSE && !dto.mesa_ids?.length) {
+    if (
+      dto.contexto === AplicacionContexto.GREENHOUSE &&
+      !dto.mesa_ids?.length
+    ) {
       throw new AppError({
         code: ErrorCodes.APLICACION_TARGETS_VACIOS,
-        message: 'Se requiere al menos una mesa para aplicaciones de greenhouse',
+        message:
+          'Se requiere al menos una mesa para aplicaciones de greenhouse',
         status: 422,
       });
     }
@@ -136,7 +166,9 @@ export class AplicacionesQuimicasService {
     // 4. Load + validate supplementary lotes in detalles[]
     const loteMap: Record<string, { lote: LoteQuimico; quimico: Quimico }> = {};
     for (const d of dto.detalles ?? []) {
-      const entry = await this.lotesQuimicosService.mustFindByIdWithQuimico(d.lote_quimico_id);
+      const entry = await this.lotesQuimicosService.mustFindByIdWithQuimico(
+        d.lote_quimico_id,
+      );
       if (entry.quimico.establecimiento_id !== dto.establecimiento_id) {
         throw new AppError({
           code: ErrorCodes.APLICACION_TARGET_INVALIDO,
@@ -172,7 +204,10 @@ export class AplicacionesQuimicasService {
     if (dto.contexto === AplicacionContexto.GREENHOUSE && dto.mesa_ids) {
       for (const mesa_id of dto.mesa_ids) {
         const mesa = await this.mesasService.getMesaById(mesa_id, tenantId);
-        if (mesa.estado !== MesaEstado.ACTIVA && mesa.estado !== MesaEstado.EN_COSECHA) {
+        if (
+          mesa.estado !== MesaEstado.ACTIVA &&
+          mesa.estado !== MesaEstado.EN_COSECHA
+        ) {
           throw new AppError({
             code: ErrorCodes.APLICACION_TARGET_INVALIDO,
             message: `La mesa ${mesa_id} no está en estado activa o en_cosecha`,
@@ -214,21 +249,28 @@ export class AplicacionesQuimicasService {
         fecha_hora: new Date(),
         lote_quimico_id: dto.lote_quimico_id,
         dosis: dto.dosis,
-        dosis_unidad: dto.dosis_unidad ?? (primaryQuimico.rate_unidad as QuimicoRateUnidad) ?? null,
+        dosis_unidad: dto.dosis_unidad ?? primaryQuimico.rate_unidad ?? null,
         batch: primaryLote.numero_lote ?? null,
         withholding_period_dias: primaryQuimico.withholding_period_dias ?? null,
       });
       savedAplicacion = await qr.manager.save(AplicacionQuimica, aplicacion);
 
       // Primary detalle — siempre descuenta stock (nursery y greenhouse)
-      await this.decrementarLote(qr, dto.lote_quimico_id, primaryTotalDosis, tenantId);
+      await this.decrementarLote(
+        qr,
+        dto.lote_quimico_id,
+        primaryTotalDosis,
+        tenantId,
+      );
       const primaryDetalle = qr.manager.create(AplicacionQuimicaDetalle, {
         aplicacion_id: savedAplicacion.id,
         lote_quimico_id: dto.lote_quimico_id,
         cantidad: primaryTotalDosis,
         unidad_medida: primaryQuimico.unidad_medida,
       });
-      savedDetalles.push(await qr.manager.save(AplicacionQuimicaDetalle, primaryDetalle));
+      savedDetalles.push(
+        await qr.manager.save(AplicacionQuimicaDetalle, primaryDetalle),
+      );
 
       // Supplementary detalles + decrement stock
       for (const d of dto.detalles ?? []) {
@@ -240,7 +282,9 @@ export class AplicacionesQuimicasService {
           cantidad: d.cantidad,
           unidad_medida: quimico.unidad_medida,
         });
-        savedDetalles.push(await qr.manager.save(AplicacionQuimicaDetalle, detalle));
+        savedDetalles.push(
+          await qr.manager.save(AplicacionQuimicaDetalle, detalle),
+        );
       }
 
       // Nursery bandeja links + carencia
@@ -253,7 +297,9 @@ export class AplicacionesQuimicasService {
         let carenciaHastaStr: string | null = null;
         if (hasCarencia) {
           const carenciaDate = new Date();
-          carenciaDate.setDate(carenciaDate.getDate() + primaryQuimico.withholding_period_dias!);
+          carenciaDate.setDate(
+            carenciaDate.getDate() + primaryQuimico.withholding_period_dias!,
+          );
           carenciaHastaStr = carenciaDate.toISOString().split('T')[0];
         }
 
@@ -283,7 +329,9 @@ export class AplicacionesQuimicasService {
         let carenciaHastaStr: string | null = null;
         if (hasCarencia) {
           const carenciaDate = new Date(aplicacionDate);
-          carenciaDate.setDate(carenciaDate.getDate() + primaryQuimico.withholding_period_dias!);
+          carenciaDate.setDate(
+            carenciaDate.getDate() + primaryQuimico.withholding_period_dias!,
+          );
           carenciaHastaStr = carenciaDate.toISOString().split('T')[0];
         }
 
@@ -342,7 +390,9 @@ export class AplicacionesQuimicasService {
     }
 
     const auditAction =
-      dto.contexto === AplicacionContexto.NURSERY ? AUDIT.NURSERY : AUDIT.GREENHOUSE;
+      dto.contexto === AplicacionContexto.NURSERY
+        ? AUDIT.NURSERY
+        : AUDIT.GREENHOUSE;
     await this.writeAudit(
       auditAction,
       'aplicacion_quimica',
@@ -365,10 +415,12 @@ export class AplicacionesQuimicasService {
   async listAplicaciones(
     q: QueryAplicacionesDto,
     tenantId: string,
-  ): Promise<{ items: AplicacionQuimica[]; total: number }> {
+  ): Promise<{ items: AplicacionListItem[]; total: number }> {
     const { skip, limit } = clampPagination(q.page, q.limit, 200);
     const SORT_ALLOWED = ['fecha_hora', 'created_at'];
-    const sortBy = SORT_ALLOWED.includes(q.sortBy ?? '') ? (q.sortBy as string) : 'fecha_hora';
+    const sortBy = SORT_ALLOWED.includes(q.sortBy ?? '')
+      ? (q.sortBy as string)
+      : 'fecha_hora';
     const sortOrder = q.sortOrder ?? 'DESC';
 
     const qb = this.aplicacionRepo
@@ -377,11 +429,16 @@ export class AplicacionesQuimicasService {
 
     if (q.establecimiento_id)
       qb.andWhere('a.establecimiento_id = :eid', { eid: q.establecimiento_id });
-    if (q.contexto) qb.andWhere('a.contexto = :contexto', { contexto: q.contexto });
+    if (q.contexto)
+      qb.andWhere('a.contexto = :contexto', { contexto: q.contexto });
     if (q.fecha_desde)
-      qb.andWhere('a.fecha_hora >= :fecha_desde', { fecha_desde: q.fecha_desde });
+      qb.andWhere('a.fecha_hora >= :fecha_desde', {
+        fecha_desde: q.fecha_desde,
+      });
     if (q.fecha_hasta)
-      qb.andWhere('a.fecha_hora <= :fecha_hasta', { fecha_hasta: q.fecha_hasta });
+      qb.andWhere('a.fecha_hora <= :fecha_hasta', {
+        fecha_hasta: q.fecha_hasta,
+      });
 
     if (q.quimico_id) {
       qb.innerJoin(
@@ -396,10 +453,14 @@ export class AplicacionesQuimicasService {
     qb.orderBy(`a.${sortBy}`, sortOrder).skip(skip).take(limit);
 
     const [items, total] = await qb.getManyAndCount();
-    return { items, total };
+    const enriched = await this.enrichAplicaciones(items, tenantId);
+    return { items: enriched, total };
   }
 
-  async getAplicacionById(id: string, tenantId: string): Promise<AplicacionConDetalle> {
+  async getAplicacionById(
+    id: string,
+    tenantId: string,
+  ): Promise<AplicacionDetalleEnriquecida> {
     const aplicacion = await this.aplicacionRepo.findOne({
       where: { id, tenant_id: tenantId },
     });
@@ -411,23 +472,426 @@ export class AplicacionesQuimicasService {
       });
     }
 
-    const detalles = await this.detalleRepo.find({ where: { aplicacion_id: id } });
+    const [detalles, usuariosMap] = await Promise.all([
+      this.detalleRepo.find({ where: { aplicacion_id: id } }),
+      this.buildUsuariosMap([aplicacion.usuario_id], tenantId),
+    ]);
+    const usuario = usuariosMap.get(aplicacion.usuario_id) ?? null;
 
     if (aplicacion.contexto === AplicacionContexto.NURSERY) {
-      const links = await this.bandejaRepo.find({ where: { aplicacion_id: id } });
+      const { targets, bandejaIds } = await this.buildNurseryTargets(id);
       return {
-        aplicacion,
+        aplicacion: { ...aplicacion, usuario },
         detalles,
-        bandeja_ids: links.map((l) => l.bandeja_id),
+        bandeja_ids: bandejaIds,
+        targets,
       };
     } else {
-      const links = await this.mesaRepo.find({ where: { aplicacion_id: id } });
+      const { targets, mesaIds } = await this.buildGreenhouseTargets(id);
       return {
-        aplicacion,
+        aplicacion: { ...aplicacion, usuario },
         detalles,
-        mesa_ids: links.map((l) => l.mesa_id),
+        mesa_ids: mesaIds,
+        targets,
       };
     }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────
+  // Enriquecimiento de lectura (listado + detalle) — queries batch por
+  // página; nunca una query por aplicación/mesa/bandeja individual.
+  // ──────────────────────────────────────────────────────────────────────
+
+  private toNumberOrNull(
+    value: string | number | null | undefined,
+  ): number | null {
+    if (value === null || value === undefined) return null;
+    const n = typeof value === 'number' ? value : parseFloat(value);
+    return Number.isNaN(n) ? null : n;
+  }
+
+  private refOrNull(
+    id: string | null,
+    nombre: string | null,
+  ): RefNombre | null {
+    return id !== null && nombre !== null ? { id, nombre } : null;
+  }
+
+  private loteRefOrNull(
+    id: string | null,
+    numero_lote: string | null,
+  ): LoteRef | null {
+    return id !== null && numero_lote !== null ? { id, numero_lote } : null;
+  }
+
+  private async enrichAplicaciones(
+    aplicaciones: AplicacionQuimica[],
+    tenantId: string,
+  ): Promise<AplicacionListItem[]> {
+    if (!aplicaciones.length) return [];
+
+    const ghIds = aplicaciones
+      .filter((a) => a.contexto === AplicacionContexto.GREENHOUSE)
+      .map((a) => a.id);
+    const nuIds = aplicaciones
+      .filter((a) => a.contexto === AplicacionContexto.NURSERY)
+      .map((a) => a.id);
+    const userIds = [...new Set(aplicaciones.map((a) => a.usuario_id))];
+
+    const [usuarios, chemicalLines, ghSummary, nuSummary] = await Promise.all([
+      this.buildUsuariosMap(userIds, tenantId),
+      this.buildChemicalLinesMap(aplicaciones),
+      this.buildGreenhouseSummaryMap(ghIds),
+      this.buildNurserySummaryMap(nuIds),
+    ]);
+
+    return aplicaciones.map((a) => {
+      const tunnels = ghSummary.get(a.id) ?? [];
+      const seedings = nuSummary.get(a.id) ?? [];
+      const target_count =
+        a.contexto === AplicacionContexto.GREENHOUSE
+          ? tunnels.reduce((sum, t) => sum + t.table_count, 0)
+          : seedings.reduce((sum, s) => sum + s.tray_count, 0);
+      return {
+        ...a,
+        usuario: usuarios.get(a.usuario_id) ?? null,
+        target_count,
+        target_summary: { tunnels, seedings },
+        chemical_lines: chemicalLines.get(a.id) ?? [],
+      };
+    });
+  }
+
+  private async buildUsuariosMap(
+    userIds: string[],
+    tenantId: string,
+  ): Promise<Map<string, UsuarioResumen>> {
+    const map = new Map<string, UsuarioResumen>();
+    if (!userIds.length) return map;
+
+    // Select explícito: jamás exponer password_hash u otros campos sensibles.
+    const rows = await this.dataSource
+      .createQueryBuilder()
+      .select('u.id', 'id')
+      .addSelect('u.nombre', 'nombre')
+      .addSelect('u.apellido', 'apellido')
+      .addSelect('u.email', 'email')
+      .from('users', 'u')
+      .where('u.id IN (:...ids)', { ids: userIds })
+      .andWhere('(u.tenant_id = :tenantId OR u.tenant_id IS NULL)', {
+        tenantId,
+      })
+      .getRawMany<UsuarioRaw>();
+
+    for (const r of rows) {
+      map.set(r.id, {
+        id: r.id,
+        nombre: r.nombre,
+        apellido: r.apellido,
+        email: r.email,
+      });
+    }
+    return map;
+  }
+
+  private async buildChemicalLinesMap(
+    aplicaciones: AplicacionQuimica[],
+  ): Promise<Map<string, ChemicalLine[]>> {
+    const map = new Map<string, ChemicalLine[]>();
+    if (!aplicaciones.length) return map;
+
+    const rows = await this.detalleRepo
+      .createQueryBuilder('d')
+      .select('d.aplicacion_id', 'aplicacion_id')
+      .addSelect('d.lote_quimico_id', 'lote_quimico_id')
+      .addSelect('d.cantidad', 'cantidad')
+      .addSelect('d.unidad_medida', 'unidad_medida')
+      .addSelect('lq.numero_lote', 'lote_numero')
+      .addSelect('q.id', 'quimico_id')
+      .addSelect('q.nombre', 'quimico_nombre')
+      .addSelect('m.id', 'marca_id')
+      .addSelect('m.nombre', 'marca_nombre')
+      .addSelect('p.id', 'proveedor_id')
+      .addSelect('p.nombre', 'proveedor_nombre')
+      .leftJoin('lotes_quimicos', 'lq', 'lq.id = d.lote_quimico_id')
+      .leftJoin('quimicos', 'q', 'q.id = lq.quimico_id')
+      .leftJoin('marcas', 'm', 'm.id = q.marca_id')
+      .leftJoin('proveedores', 'p', 'p.id = lq.proveedor_id')
+      .where('d.aplicacion_id IN (:...ids)', {
+        ids: aplicaciones.map((a) => a.id),
+      })
+      .orderBy('d.id', 'ASC')
+      .getRawMany<ChemicalLineRaw>();
+
+    const aplicacionById = new Map(aplicaciones.map((a) => [a.id, a]));
+    const primaryAssigned = new Set<string>();
+
+    for (const r of rows) {
+      const a = aplicacionById.get(r.aplicacion_id);
+      const isPrimary =
+        a !== undefined &&
+        a.lote_quimico_id !== null &&
+        r.lote_quimico_id === a.lote_quimico_id &&
+        !primaryAssigned.has(r.aplicacion_id);
+      if (isPrimary) primaryAssigned.add(r.aplicacion_id);
+
+      const line: ChemicalLine = {
+        lote_quimico_id: r.lote_quimico_id,
+        chemical_id: r.quimico_id,
+        chemical_name: r.quimico_nombre,
+        lot_name: r.lote_numero,
+        quantity: this.toNumberOrNull(r.cantidad),
+        unit: r.unidad_medida,
+        dose: isPrimary ? this.toNumberOrNull(a.dosis) : null,
+        dose_unit: isPrimary ? (a.dosis_unidad ?? null) : null,
+        withholding_period_days: isPrimary
+          ? (a.withholding_period_dias ?? null)
+          : null,
+        brand: this.refOrNull(r.marca_id, r.marca_nombre),
+        supplier: this.refOrNull(r.proveedor_id, r.proveedor_nombre),
+      };
+
+      const lines = map.get(r.aplicacion_id);
+      if (lines) lines.push(line);
+      else map.set(r.aplicacion_id, [line]);
+    }
+    return map;
+  }
+
+  private async buildGreenhouseSummaryMap(
+    aplicacionIds: string[],
+  ): Promise<Map<string, TunnelSummary[]>> {
+    const map = new Map<string, TunnelSummary[]>();
+    if (!aplicacionIds.length) return map;
+
+    const rows = await this.mesaRepo
+      .createQueryBuilder('aqm')
+      .select('aqm.aplicacion_id', 'aplicacion_id')
+      .addSelect('ms.tunel_id', 'tunel_id')
+      .addSelect('t.nombre', 'tunel_nombre')
+      .addSelect('COUNT(*)', 'table_count')
+      .leftJoin('mesas', 'ms', 'ms.id = aqm.mesa_id')
+      .leftJoin('tuneles', 't', 't.id = ms.tunel_id')
+      .where('aqm.aplicacion_id IN (:...ids)', { ids: aplicacionIds })
+      .groupBy('aqm.aplicacion_id')
+      .addGroupBy('ms.tunel_id')
+      .addGroupBy('t.nombre')
+      .getRawMany<GreenhouseSummaryRaw>();
+
+    for (const r of rows) {
+      const summary: TunnelSummary = {
+        id: r.tunel_id,
+        nombre: r.tunel_nombre,
+        table_count: this.toNumberOrNull(r.table_count) ?? 0,
+      };
+      const tunnels = map.get(r.aplicacion_id);
+      if (tunnels) tunnels.push(summary);
+      else map.set(r.aplicacion_id, [summary]);
+    }
+    return map;
+  }
+
+  private async buildNurserySummaryMap(
+    aplicacionIds: string[],
+  ): Promise<Map<string, SeedingSummary[]>> {
+    const map = new Map<string, SeedingSummary[]>();
+    if (!aplicacionIds.length) return map;
+
+    const rows = await this.bandejaRepo
+      .createQueryBuilder('aqb')
+      .select('aqb.aplicacion_id', 'aplicacion_id')
+      .addSelect('b.siembra_id', 'siembra_id')
+      .addSelect('s.created_at', 'siembra_created_at')
+      .addSelect('pr.id', 'producto_id')
+      .addSelect('pr.nombre', 'producto_nombre')
+      .addSelect('v.id', 'variedad_id')
+      .addSelect('v.nombre', 'variedad_nombre')
+      .addSelect('COUNT(*)', 'tray_count')
+      .leftJoin('bandejas', 'b', 'b.id = aqb.bandeja_id')
+      .leftJoin('siembras', 's', 's.id = b.siembra_id')
+      .leftJoin('lotes', 'ls', 'ls.id = b.lote_semilla_id')
+      .leftJoin('productos', 'pr', 'pr.id = ls.producto_id')
+      .leftJoin('variedades', 'v', 'v.id = ls.variedad_id')
+      .where('aqb.aplicacion_id IN (:...ids)', { ids: aplicacionIds })
+      .groupBy('aqb.aplicacion_id')
+      .addGroupBy('b.siembra_id')
+      .addGroupBy('s.created_at')
+      .addGroupBy('pr.id')
+      .addGroupBy('pr.nombre')
+      .addGroupBy('v.id')
+      .addGroupBy('v.nombre')
+      .getRawMany<NurserySummaryRaw>();
+
+    // Colapsar heterogeneidad por campo: si una misma siembra emite >1 fila,
+    // se suma tray_count y cada campo (product / variety) degrada a null solo
+    // si sus valores difieren entre las bandejas afectadas (FR-007).
+    const grouped = new Map<string, Map<string, SeedingSummary>>();
+    for (const r of rows) {
+      const perAplicacion =
+        grouped.get(r.aplicacion_id) ?? new Map<string, SeedingSummary>();
+      grouped.set(r.aplicacion_id, perAplicacion);
+
+      const key = r.siembra_id ?? '__sin_siembra__';
+      const trayCount = this.toNumberOrNull(r.tray_count) ?? 0;
+      const product = this.refOrNull(r.producto_id, r.producto_nombre);
+      const variety = this.refOrNull(r.variedad_id, r.variedad_nombre);
+      const existing = perAplicacion.get(key);
+      if (existing) {
+        existing.tray_count += trayCount;
+        if (
+          !(existing.product && product && existing.product.id === product.id)
+        ) {
+          existing.product = null;
+        }
+        if (
+          !(existing.variety && variety && existing.variety.id === variety.id)
+        ) {
+          existing.variety = null;
+        }
+      } else {
+        perAplicacion.set(key, {
+          id: r.siembra_id,
+          created_at: r.siembra_created_at,
+          tray_count: trayCount,
+          product,
+          variety,
+        });
+      }
+    }
+
+    for (const [aplicacionId, perAplicacion] of grouped) {
+      map.set(aplicacionId, [...perAplicacion.values()]);
+    }
+    return map;
+  }
+
+  private async buildGreenhouseTargets(
+    aplicacionId: string,
+  ): Promise<{ targets: GreenhouseTargets; mesaIds: string[] }> {
+    const rows = await this.mesaRepo
+      .createQueryBuilder('aqm')
+      .select('aqm.mesa_id', 'mesa_id')
+      .addSelect('ms.nombre', 'mesa_nombre')
+      .addSelect('ms.posicion_actual', 'posicion_actual')
+      .addSelect('ms.estado', 'mesa_estado')
+      .addSelect('ms.tunel_id', 'tunel_id')
+      .addSelect('t.nombre', 'tunel_nombre')
+      .leftJoin('mesas', 'ms', 'ms.id = aqm.mesa_id')
+      .leftJoin('tuneles', 't', 't.id = ms.tunel_id')
+      .where('aqm.aplicacion_id = :id', { id: aplicacionId })
+      .getRawMany<GreenhouseTargetRaw>();
+
+    const tunnelMap = new Map<string, GreenhouseTunnelGroup>();
+    for (const r of rows) {
+      const key = r.tunel_id ?? '__sin_tunel__';
+      let group = tunnelMap.get(key);
+      if (!group) {
+        group = { id: r.tunel_id, nombre: r.tunel_nombre, tables: [] };
+        tunnelMap.set(key, group);
+      }
+      group.tables.push({
+        id: r.mesa_id,
+        nombre: r.mesa_nombre,
+        posicion_actual: this.toNumberOrNull(r.posicion_actual),
+        estado: r.mesa_estado,
+      });
+    }
+
+    return {
+      targets: {
+        context: 'greenhouse',
+        total: rows.length,
+        tunnels: [...tunnelMap.values()],
+      },
+      mesaIds: rows.map((r) => r.mesa_id),
+    };
+  }
+
+  private async buildNurseryTargets(
+    aplicacionId: string,
+  ): Promise<{ targets: NurseryTargets; bandejaIds: string[] }> {
+    const rows = await this.bandejaRepo
+      .createQueryBuilder('aqb')
+      .select('aqb.bandeja_id', 'bandeja_id')
+      .addSelect('b.codigo', 'bandeja_codigo')
+      .addSelect('b.estado', 'bandeja_estado')
+      .addSelect('b.siembra_id', 'siembra_id')
+      .addSelect('s.created_at', 'siembra_created_at')
+      .addSelect('ls.id', 'lote_semilla_id')
+      .addSelect('ls.numero_lote', 'lote_semilla_numero')
+      .addSelect('lsu.id', 'lote_sustrato_id')
+      .addSelect('lsu.numero_lote', 'lote_sustrato_numero')
+      .addSelect('pr.id', 'producto_id')
+      .addSelect('pr.nombre', 'producto_nombre')
+      .addSelect('v.id', 'variedad_id')
+      .addSelect('v.nombre', 'variedad_nombre')
+      .leftJoin('bandejas', 'b', 'b.id = aqb.bandeja_id')
+      .leftJoin('siembras', 's', 's.id = b.siembra_id')
+      .leftJoin('lotes', 'ls', 'ls.id = b.lote_semilla_id')
+      .leftJoin('lotes', 'lsu', 'lsu.id = b.lote_sustrato_id')
+      .leftJoin('productos', 'pr', 'pr.id = ls.producto_id')
+      .leftJoin('variedades', 'v', 'v.id = ls.variedad_id')
+      .where('aqb.aplicacion_id = :id', { id: aplicacionId })
+      .getRawMany<NurseryTargetRaw>();
+
+    const seedingMap = new Map<string, NurseryTargetRaw[]>();
+    for (const r of rows) {
+      const key = r.siembra_id ?? '__sin_siembra__';
+      const group = seedingMap.get(key);
+      if (group) group.push(r);
+      else seedingMap.set(key, [r]);
+    }
+
+    const seedings: NurserySeedingGroup[] = [...seedingMap.values()].map(
+      (group) => {
+        const first = group[0];
+        return {
+          id: first.siembra_id,
+          created_at: first.siembra_created_at,
+          tray_count: group.length,
+          product: this.homogeneousRef(
+            group.map((r) => this.refOrNull(r.producto_id, r.producto_nombre)),
+          ),
+          variety: this.homogeneousRef(
+            group.map((r) => this.refOrNull(r.variedad_id, r.variedad_nombre)),
+          ),
+          seed_lot: this.homogeneousLote(
+            group.map((r) =>
+              this.loteRefOrNull(r.lote_semilla_id, r.lote_semilla_numero),
+            ),
+          ),
+          substrate_lot: this.homogeneousLote(
+            group.map((r) =>
+              this.loteRefOrNull(r.lote_sustrato_id, r.lote_sustrato_numero),
+            ),
+          ),
+          trays: group.map((r) => ({
+            id: r.bandeja_id,
+            codigo: r.bandeja_codigo,
+            estado: r.bandeja_estado,
+          })),
+        };
+      },
+    );
+
+    return {
+      targets: { context: 'nursery', total: rows.length, seedings },
+      bandejaIds: rows.map((r) => r.bandeja_id),
+    };
+  }
+
+  /** Devuelve el valor solo si todas las filas comparten el mismo id; si el
+   *  conjunto es heterogéneo o algún valor no resuelve, degrada a null. */
+  private homogeneousRef(values: (RefNombre | null)[]): RefNombre | null {
+    const first = values[0] ?? null;
+    if (first === null) return null;
+    return values.every((v) => v !== null && v.id === first.id) ? first : null;
+  }
+
+  private homogeneousLote(values: (LoteRef | null)[]): LoteRef | null {
+    const first = values[0] ?? null;
+    if (first === null) return null;
+    return values.every((v) => v !== null && v.id === first.id) ? first : null;
   }
 
   async getAplicacionesByMesa(
@@ -442,11 +906,7 @@ export class AplicacionesQuimicasService {
 
     const qb = this.aplicacionRepo
       .createQueryBuilder('a')
-      .innerJoin(
-        'aplicacion_quimica_mesa',
-        'aqm',
-        'aqm.aplicacion_id = a.id',
-      )
+      .innerJoin('aplicacion_quimica_mesa', 'aqm', 'aqm.aplicacion_id = a.id')
       .where('aqm.mesa_id = :mesa_id', { mesa_id })
       .andWhere('a.tenant_id = :tenantId', { tenantId })
       .orderBy('a.fecha_hora', sortOrder)
