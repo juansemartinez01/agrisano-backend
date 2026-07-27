@@ -89,9 +89,6 @@ interface CosechaEnrichRow {
   producto_nombre: string | null;
   variedad_id: string | null;
   variedad_nombre: string | null;
-  usuario_email: string | null;
-  usuario_nombre: string | null;
-  usuario_apellido: string | null;
 }
 
 interface BandejaCicloRaw {
@@ -221,6 +218,10 @@ interface CosechaMesaRawRow {
   posicion_al_momento: number;
   packing_id: string | null;
   peso_bruto_kg: string | null;
+  packing_usuario_id: string | null;
+  packing_usuario_email: string | null;
+  packing_usuario_nombre: string | null;
+  packing_usuario_apellido: string | null;
   categorias: Record<string, unknown>[] | null;
 }
 
@@ -268,7 +269,12 @@ interface CosechaIndexEntry {
   usuario: UsuarioResumen | null;
   observaciones: string | null;
   posicion_al_momento: number;
-  packing: { peso_bruto_kg: string; categorias: Record<string, unknown>[] } | null;
+  packing: {
+    peso_bruto_kg: string;
+    usuario_id: string | null;
+    usuario: UsuarioResumen | null;
+    categorias: Record<string, unknown>[];
+  } | null;
 }
 
 export interface TrazabilidadMesaResult {
@@ -284,7 +290,9 @@ const APLICACION_SELECT = `
   a.id, a.fecha_hora, a.observaciones, a.usuario_id, a.contexto, a.establecimiento_id,
   a.lote_quimico_id, a.dosis, a.dosis_unidad, a.batch, a.withholding_period_dias,
   a.operation_group_id,
-  au.email AS au_email, au.nombre AS au_nombre, au.apellido AS au_apellido,
+  COALESCE(a.usuario_email_snapshot, au.email) AS au_email,
+  COALESCE(a.usuario_nombre_snapshot, au.nombre) AS au_nombre,
+  COALESCE(a.usuario_apellido_snapshot, au.apellido) AS au_apellido,
   hlq.id AS hlq_id, hlq.numero_lote AS hlq_numero_lote,
   hq.id AS hq_id, hq.nombre AS hq_nombre,
   hm.id AS hm_id, hm.nombre AS hm_nombre,
@@ -423,7 +431,9 @@ export class TrazabilidadService {
       ),
       this.dataSource.query<PackingRawRow[]>(
         `SELECT lp.id, lp.fecha_hora, lp.peso_bruto_kg, lp.usuario_id, lp.observaciones,
-                pu.email AS pu_email, pu.nombre AS pu_nombre, pu.apellido AS pu_apellido,
+                COALESCE(lp.usuario_email_snapshot, pu.email) AS pu_email,
+                COALESCE(lp.usuario_nombre_snapshot, pu.nombre) AS pu_nombre,
+                COALESCE(lp.usuario_apellido_snapshot, pu.apellido) AS pu_apellido,
                 json_agg(row_to_json(lpc)) FILTER (WHERE lpc.id IS NOT NULL) AS categorias
          FROM lotes_packing lp
          LEFT JOIN users pu ON pu.id = lp.usuario_id
@@ -434,13 +444,11 @@ export class TrazabilidadService {
       ),
       this.dataSource.query<CosechaEnrichRow[]>(
         `SELECT p.id AS producto_id, p.nombre AS producto_nombre,
-                v.id AS variedad_id, v.nombre AS variedad_nombre,
-                u.email AS usuario_email, u.nombre AS usuario_nombre, u.apellido AS usuario_apellido
-         FROM (SELECT $1::uuid AS producto_id, $2::uuid AS variedad_id, $3::uuid AS usuario_id) x
+                v.id AS variedad_id, v.nombre AS variedad_nombre
+         FROM (SELECT $1::uuid AS producto_id, $2::uuid AS variedad_id) x
          LEFT JOIN productos p ON p.id = x.producto_id
-         LEFT JOIN variedades v ON v.id = x.variedad_id
-         LEFT JOIN users u ON u.id = x.usuario_id`,
-        [cosecha.producto_id, cosecha.variedad_id, cosecha.usuario_id],
+         LEFT JOIN variedades v ON v.id = x.variedad_id`,
+        [cosecha.producto_id, cosecha.variedad_id],
       ),
     ]);
 
@@ -484,12 +492,7 @@ export class TrazabilidadService {
       ...cosecha,
       producto: enrich?.producto_id ? { id: enrich.producto_id, nombre: enrich.producto_nombre! } : null,
       variedad: enrich?.variedad_id ? { id: enrich.variedad_id, nombre: enrich.variedad_nombre! } : null,
-      usuario: toUsuarioResumen(
-        cosecha.usuario_id,
-        enrich?.usuario_email ?? null,
-        enrich?.usuario_nombre ?? null,
-        enrich?.usuario_apellido ?? null,
-      ),
+      usuario: cosecha.usuario,
     };
 
     // STEP 3 — Load cycle bandejas (with siembra + lote lineage) and greenhouse
@@ -504,7 +507,9 @@ export class TrazabilidadService {
           `SELECT mb.bandeja_id, mb.fecha_trasplante,
                   b.siembra_id, b.lote_semilla_id, b.lote_sustrato_id, b.estado, b.carencia_hasta,
                   s.id AS s_id, s.fecha AS s_fecha, s.observaciones AS s_obs, s.usuario_id AS s_usuario_id,
-                  su.email AS su_email, su.nombre AS su_nombre, su.apellido AS su_apellido,
+                  COALESCE(s.usuario_email_snapshot, su.email) AS su_email,
+                  COALESCE(s.usuario_nombre_snapshot, su.nombre) AS su_nombre,
+                  COALESCE(s.usuario_apellido_snapshot, su.apellido) AS su_apellido,
                   ls.numero_lote AS lote_semilla_numero, ls.tipo AS lote_semilla_tipo,
                   lsu.numero_lote AS lote_sustrato_numero, lsu.tipo AS lote_sustrato_tipo
            FROM mesa_bandeja mb
@@ -617,17 +622,23 @@ export class TrazabilidadService {
                 c.producto_id, c.variedad_id, c.usuario_id, c.observaciones, c.posicion_al_momento,
                 p.nombre AS producto_nombre,
                 v.nombre AS variedad_nombre,
-                u.email AS usuario_email, u.nombre AS usuario_nombre, u.apellido AS usuario_apellido,
-                lp.id AS packing_id, lp.peso_bruto_kg,
+                COALESCE(c.usuario_email_snapshot, u.email) AS usuario_email,
+                COALESCE(c.usuario_nombre_snapshot, u.nombre) AS usuario_nombre,
+                COALESCE(c.usuario_apellido_snapshot, u.apellido) AS usuario_apellido,
+                lp.id AS packing_id, lp.peso_bruto_kg, lp.usuario_id AS packing_usuario_id,
+                COALESCE(lp.usuario_email_snapshot, pu.email) AS packing_usuario_email,
+                COALESCE(lp.usuario_nombre_snapshot, pu.nombre) AS packing_usuario_nombre,
+                COALESCE(lp.usuario_apellido_snapshot, pu.apellido) AS packing_usuario_apellido,
                 json_agg(row_to_json(lpc)) FILTER (WHERE lpc.id IS NOT NULL) AS categorias
          FROM cosechas c
          LEFT JOIN productos p ON p.id = c.producto_id
          LEFT JOIN variedades v ON v.id = c.variedad_id
          LEFT JOIN users u ON u.id = c.usuario_id
          LEFT JOIN lotes_packing lp ON lp.cosecha_id = c.id
+         LEFT JOIN users pu ON pu.id = lp.usuario_id
          LEFT JOIN lotes_packing_categorias lpc ON lpc.lote_packing_id = lp.id
          WHERE c.mesa_id = $1 AND c.tenant_id = $2
-         GROUP BY c.id, p.id, v.id, u.id, lp.id, lp.peso_bruto_kg
+         GROUP BY c.id, p.id, v.id, u.id, lp.id, lp.peso_bruto_kg, lp.usuario_id, pu.id
          ORDER BY c.fecha_hora DESC`,
         [mesa_id, tenantId],
       ),
@@ -672,6 +683,15 @@ export class TrazabilidadService {
           packing: r.packing_id
             ? {
                 peso_bruto_kg: r.peso_bruto_kg!,
+                usuario_id: r.packing_usuario_id,
+                usuario: r.packing_usuario_id
+                  ? toUsuarioResumen(
+                      r.packing_usuario_id,
+                      r.packing_usuario_email,
+                      r.packing_usuario_nombre,
+                      r.packing_usuario_apellido,
+                    )
+                  : null,
                 categorias: r.categorias ?? [],
               }
             : null,

@@ -43,6 +43,16 @@ export class HistorialMesa {
   @Column({ type: 'uuid' })
   usuario_id!: string;
 
+  // Snapshot del responsable al momento de creación (auditoría histórica).
+  @Column({ type: 'varchar', length: 150, nullable: true })
+  usuario_email_snapshot!: string | null;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  usuario_nombre_snapshot!: string | null;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  usuario_apellido_snapshot!: string | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   created_at!: Date;
 

@@ -22,6 +22,11 @@ import {
 } from 'src/modules/mesas/entities/historial-mesa.entity';
 import { clampPagination } from 'src/common/query/query-utils';
 import {
+  buildUsuariosMap,
+  fetchUsuarioSnapshot,
+  resolveUsuarioResumen,
+} from 'src/common/utils/usuario-resumen.util';
+import {
   AplicacionQuimica,
   AplicacionContexto,
 } from './entities/aplicacion-quimica.entity';
@@ -47,7 +52,6 @@ import {
   RefNombre,
   SeedingSummary,
   TunnelSummary,
-  UsuarioRaw,
   UsuarioResumen,
 } from './types/aplicacion-enriched.types';
 
@@ -244,12 +248,18 @@ export class AplicacionesQuimicasService {
     const operationGroupId = dto.operation_group_id ?? randomUUID();
 
     try {
+      const usuarioSnapshot = await fetchUsuarioSnapshot(
+        qr.manager,
+        userId,
+        tenantId,
+      );
       const aplicacion = qr.manager.create(AplicacionQuimica, {
         tenant_id: tenantId,
         establecimiento_id: dto.establecimiento_id,
         contexto: dto.contexto,
         observaciones: dto.observaciones ?? null,
         usuario_id: userId,
+        ...usuarioSnapshot,
         fecha_hora: new Date(),
         lote_quimico_id: dto.lote_quimico_id,
         dosis: dto.dosis,
@@ -351,6 +361,7 @@ export class AplicacionesQuimicasService {
             tipo_evento: HistorialTipoEvento.APLICACION_QUIMICA,
             tenant_id: tenantId,
             usuario_id: userId,
+            ...usuarioSnapshot,
             fecha_hora: aplicacionDate,
             detalle: {
               aplicacion_id: savedAplicacion.id,
@@ -374,6 +385,7 @@ export class AplicacionesQuimicasService {
               tipo_evento: HistorialTipoEvento.EN_CARENCIA,
               tenant_id: tenantId,
               usuario_id: userId,
+              ...usuarioSnapshot,
               fecha_hora: aplicacionDate,
               detalle: {
                 aplicacion_id: savedAplicacion.id,
@@ -479,9 +491,13 @@ export class AplicacionesQuimicasService {
 
     const [detalles, usuariosMap] = await Promise.all([
       this.detalleRepo.find({ where: { aplicacion_id: id } }),
-      this.buildUsuariosMap([aplicacion.usuario_id], tenantId),
+      buildUsuariosMap(this.dataSource, [aplicacion.usuario_id], tenantId),
     ]);
-    const usuario = usuariosMap.get(aplicacion.usuario_id) ?? null;
+    const usuario = resolveUsuarioResumen(
+      aplicacion.usuario_id,
+      aplicacion,
+      usuariosMap.get(aplicacion.usuario_id),
+    );
 
     if (aplicacion.contexto === AplicacionContexto.NURSERY) {
       const { targets, bandejaIds } = await this.buildNurseryTargets(id);
@@ -544,7 +560,7 @@ export class AplicacionesQuimicasService {
     const userIds = [...new Set(aplicaciones.map((a) => a.usuario_id))];
 
     const [usuarios, chemicalLines, ghSummary, nuSummary] = await Promise.all([
-      this.buildUsuariosMap(userIds, tenantId),
+      buildUsuariosMap(this.dataSource, userIds, tenantId),
       this.buildChemicalLinesMap(aplicaciones),
       this.buildGreenhouseSummaryMap(ghIds),
       this.buildNurserySummaryMap(nuIds),
@@ -559,7 +575,7 @@ export class AplicacionesQuimicasService {
           : seedings.reduce((sum, s) => sum + s.tray_count, 0);
       return {
         ...a,
-        usuario: usuarios.get(a.usuario_id) ?? null,
+        usuario: resolveUsuarioResumen(a.usuario_id, a, usuarios.get(a.usuario_id)),
         target_count,
         target_summary: { tunnels, seedings },
         chemical_lines: chemicalLines.get(a.id) ?? [],
@@ -567,36 +583,18 @@ export class AplicacionesQuimicasService {
     });
   }
 
-  private async buildUsuariosMap(
-    userIds: string[],
+  /** Adjunta `usuario` (snapshot + join en vivo) sin el resto del enriquecimiento de listado. */
+  private async attachUsuario<T extends AplicacionQuimica>(
+    aplicaciones: T[],
     tenantId: string,
-  ): Promise<Map<string, UsuarioResumen>> {
-    const map = new Map<string, UsuarioResumen>();
-    if (!userIds.length) return map;
-
-    // Select explícito: jamás exponer password_hash u otros campos sensibles.
-    const rows = await this.dataSource
-      .createQueryBuilder()
-      .select('u.id', 'id')
-      .addSelect('u.nombre', 'nombre')
-      .addSelect('u.apellido', 'apellido')
-      .addSelect('u.email', 'email')
-      .from('users', 'u')
-      .where('u.id IN (:...ids)', { ids: userIds })
-      .andWhere('(u.tenant_id = :tenantId OR u.tenant_id IS NULL)', {
-        tenantId,
-      })
-      .getRawMany<UsuarioRaw>();
-
-    for (const r of rows) {
-      map.set(r.id, {
-        id: r.id,
-        nombre: r.nombre,
-        apellido: r.apellido,
-        email: r.email,
-      });
-    }
-    return map;
+  ): Promise<(T & { usuario: UsuarioResumen | null })[]> {
+    if (!aplicaciones.length) return [];
+    const userIds = aplicaciones.map((a) => a.usuario_id);
+    const usuarios = await buildUsuariosMap(this.dataSource, userIds, tenantId);
+    return aplicaciones.map((a) => ({
+      ...a,
+      usuario: resolveUsuarioResumen(a.usuario_id, a, usuarios.get(a.usuario_id)),
+    }));
   }
 
   private async buildChemicalLinesMap(
@@ -903,7 +901,10 @@ export class AplicacionesQuimicasService {
     mesa_id: string,
     q: QueryAplicacionesDto,
     tenantId: string,
-  ): Promise<{ items: AplicacionQuimica[]; total: number }> {
+  ): Promise<{
+    items: (AplicacionQuimica & { usuario: UsuarioResumen | null })[];
+    total: number;
+  }> {
     await this.mesasService.getMesaById(mesa_id, tenantId);
 
     const { skip, limit } = clampPagination(q.page, q.limit, 200);
@@ -919,14 +920,18 @@ export class AplicacionesQuimicasService {
       .take(limit);
 
     const [items, total] = await qb.getManyAndCount();
-    return { items, total };
+    const enriched = await this.attachUsuario(items, tenantId);
+    return { items: enriched, total };
   }
 
   async getAplicacionesByBandeja(
     bandeja_id: string,
     q: QueryAplicacionesDto,
     tenantId: string,
-  ): Promise<{ items: AplicacionQuimica[]; total: number }> {
+  ): Promise<{
+    items: (AplicacionQuimica & { usuario: UsuarioResumen | null })[];
+    total: number;
+  }> {
     await this.bandejaService.getBandeja(bandeja_id);
 
     const { skip, limit } = clampPagination(q.page, q.limit, 200);
@@ -946,7 +951,8 @@ export class AplicacionesQuimicasService {
       .take(limit);
 
     const [items, total] = await qb.getManyAndCount();
-    return { items, total };
+    const enriched = await this.attachUsuario(items, tenantId);
+    return { items: enriched, total };
   }
 
   private async writeAudit(

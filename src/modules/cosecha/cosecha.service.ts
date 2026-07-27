@@ -13,6 +13,12 @@ import { HistorialMesa, HistorialTipoEvento } from 'src/modules/mesas/entities/h
 import { ProductosService } from 'src/modules/productos/productos.service';
 import { VariedadesService } from 'src/modules/productos/variedades.service';
 import { clampPagination } from 'src/common/query/query-utils';
+import {
+  buildUsuariosMap,
+  fetchUsuarioSnapshot,
+  resolveUsuarioResumen,
+  UsuarioResumen,
+} from 'src/common/utils/usuario-resumen.util';
 import { Cosecha } from './entities/cosecha.entity';
 import { CreateCosechaDto } from './dto/create-cosecha.dto';
 import { QueryCosechasDto } from './dto/query-cosechas.dto';
@@ -91,6 +97,8 @@ export class CosechaService {
 
     let saved: Cosecha;
     try {
+      const usuarioSnapshot = await fetchUsuarioSnapshot(qr.manager, userId, tenantId);
+
       // 1. INSERT cosecha record
       saved = await qr.manager.save(Cosecha, {
         tenant_id: tenantId,
@@ -102,6 +110,7 @@ export class CosechaService {
         fecha_hora: new Date(),
         peso_kg: dto.peso_kg ?? null,
         usuario_id: userId,
+        ...usuarioSnapshot,
         observaciones: dto.observaciones ?? null,
       });
 
@@ -136,6 +145,7 @@ export class CosechaService {
         tipo_evento: HistorialTipoEvento.COSECHA,
         tenant_id: tenantId,
         usuario_id: userId,
+        ...usuarioSnapshot,
         fecha_hora: new Date(),
         detalle: { cosecha_id: saved.id, peso_kg: dto.peso_kg ?? null },
       });
@@ -157,7 +167,10 @@ export class CosechaService {
   async listCosechas(
     q: QueryCosechasDto,
     tenantId: string,
-  ): Promise<{ items: Cosecha[]; total: number }> {
+  ): Promise<{
+    items: (Cosecha & { usuario: UsuarioResumen | null })[];
+    total: number;
+  }> {
     const { skip, limit } = clampPagination(q.page, q.limit, 200);
 
     const qb = this.cosechaRepo
@@ -180,10 +193,14 @@ export class CosechaService {
     qb.orderBy('c.fecha_hora', q.sortOrder ?? 'DESC').skip(skip).take(limit);
 
     const [items, total] = await qb.getManyAndCount();
-    return { items, total };
+    const enriched = await this.attachUsuario(items, tenantId);
+    return { items: enriched, total };
   }
 
-  async getCosechaById(id: string, tenantId: string): Promise<Cosecha> {
+  async getCosechaById(
+    id: string,
+    tenantId: string,
+  ): Promise<Cosecha & { usuario: UsuarioResumen | null }> {
     const cosecha = await this.cosechaRepo.findOne({
       where: { id, tenant_id: tenantId },
     });
@@ -194,14 +211,19 @@ export class CosechaService {
         status: 404,
       });
     }
-    return cosecha;
+    const usuarios = await buildUsuariosMap(this.dataSource, [cosecha.usuario_id], tenantId);
+    const usuario = resolveUsuarioResumen(cosecha.usuario_id, cosecha, usuarios.get(cosecha.usuario_id));
+    return { ...cosecha, usuario };
   }
 
   async getCosechasByMesa(
     mesa_id: string,
     q: QueryCosechasDto,
     tenantId: string,
-  ): Promise<{ items: Cosecha[]; total: number }> {
+  ): Promise<{
+    items: (Cosecha & { usuario: UsuarioResumen | null })[];
+    total: number;
+  }> {
     await this.mesasService.getMesaById(mesa_id, tenantId);
 
     const { skip, limit } = clampPagination(q.page, q.limit, 200);
@@ -215,7 +237,21 @@ export class CosechaService {
       .take(limit);
 
     const [items, total] = await qb.getManyAndCount();
-    return { items, total };
+    const enriched = await this.attachUsuario(items, tenantId);
+    return { items: enriched, total };
+  }
+
+  private async attachUsuario<T extends Cosecha>(
+    cosechas: T[],
+    tenantId: string,
+  ): Promise<(T & { usuario: UsuarioResumen | null })[]> {
+    if (!cosechas.length) return [];
+    const userIds = cosechas.map((c) => c.usuario_id);
+    const usuarios = await buildUsuariosMap(this.dataSource, userIds, tenantId);
+    return cosechas.map((c) => ({
+      ...c,
+      usuario: resolveUsuarioResumen(c.usuario_id, c, usuarios.get(c.usuario_id)),
+    }));
   }
 
   private async writeAudit(

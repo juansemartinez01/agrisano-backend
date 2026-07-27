@@ -9,6 +9,12 @@ import { auditLogPayload } from 'src/common/audit/audit.util';
 import { TenancyService } from 'src/modules/tenancy/tenancy.service';
 import { CosechaService } from 'src/modules/cosecha/cosecha.service';
 import { clampPagination } from 'src/common/query/query-utils';
+import {
+  buildUsuariosMap,
+  fetchUsuarioSnapshot,
+  resolveUsuarioResumen,
+  UsuarioResumen,
+} from 'src/common/utils/usuario-resumen.util';
 import { LotePacking } from './entities/lote-packing.entity';
 import { LotePackingCategoria } from './entities/lote-packing-categoria.entity';
 import { CreatePackingDto } from './dto/create-packing.dto';
@@ -27,7 +33,7 @@ interface AuditReq {
 }
 
 export interface RegistrarPackingResult {
-  lote_packing: LotePacking;
+  lote_packing: LotePacking & { usuario: UsuarioResumen | null };
   categorias: LotePackingCategoria[];
 }
 
@@ -86,6 +92,8 @@ export class PackingService {
     let saved: LotePacking;
     let savedCategorias: LotePackingCategoria[];
     try {
+      const usuarioSnapshot = await fetchUsuarioSnapshot(qr.manager, userId, tenantId);
+
       // 1. INSERT lote_packing
       saved = await qr.manager.save(LotePacking, {
         tenant_id: tenantId,
@@ -93,6 +101,7 @@ export class PackingService {
         fecha_hora: new Date(),
         peso_bruto_kg: dto.peso_bruto_kg,
         usuario_id: userId,
+        ...usuarioSnapshot,
         observaciones: dto.observaciones ?? null,
       });
 
@@ -119,7 +128,8 @@ export class PackingService {
     // POST-TRANSACTION: audit
     await this.writeAudit(AUDIT.PACKING, 'lote_packing', saved.id, auditReq, tenantId, 201);
 
-    return { lote_packing: saved, categorias: savedCategorias };
+    const usuario = resolveUsuarioResumen(saved.usuario_id, saved, undefined);
+    return { lote_packing: { ...saved, usuario }, categorias: savedCategorias };
   }
 
   async getPackingById(
@@ -139,7 +149,9 @@ export class PackingService {
     const categorias = await this.categoriaRepo.find({
       where: { lote_packing_id: id },
     });
-    return { lote_packing: lp, categorias };
+    const usuarios = await buildUsuariosMap(this.dataSource, [lp.usuario_id], tenantId);
+    const usuario = resolveUsuarioResumen(lp.usuario_id, lp, usuarios.get(lp.usuario_id));
+    return { lote_packing: { ...lp, usuario }, categorias };
   }
 
   async getPackingByCosecha(
@@ -161,13 +173,18 @@ export class PackingService {
     const categorias = await this.categoriaRepo.find({
       where: { lote_packing_id: lp.id },
     });
-    return { lote_packing: lp, categorias };
+    const usuarios = await buildUsuariosMap(this.dataSource, [lp.usuario_id], tenantId);
+    const usuario = resolveUsuarioResumen(lp.usuario_id, lp, usuarios.get(lp.usuario_id));
+    return { lote_packing: { ...lp, usuario }, categorias };
   }
 
   async listPacking(
     q: QueryPackingDto,
     tenantId: string,
-  ): Promise<{ items: LotePacking[]; total: number }> {
+  ): Promise<{
+    items: (LotePacking & { usuario: UsuarioResumen | null })[];
+    total: number;
+  }> {
     const { skip, limit } = clampPagination(q.page, q.limit, 200);
 
     const qb = this.lotePackingRepo
@@ -181,7 +198,14 @@ export class PackingService {
     qb.orderBy('lp.fecha_hora', q.sortOrder ?? 'DESC').skip(skip).take(limit);
 
     const [items, total] = await qb.getManyAndCount();
-    return { items, total };
+    if (!items.length) return { items: [], total };
+    const userIds = items.map((lp) => lp.usuario_id);
+    const usuarios = await buildUsuariosMap(this.dataSource, userIds, tenantId);
+    const enriched = items.map((lp) => ({
+      ...lp,
+      usuario: resolveUsuarioResumen(lp.usuario_id, lp, usuarios.get(lp.usuario_id)),
+    }));
+    return { items: enriched, total };
   }
 
   private async writeAudit(

@@ -36,6 +36,17 @@ export class AplicacionQuimica {
   @Column({ type: 'uuid' })
   usuario_id!: string;
 
+  // Snapshot del responsable al momento de creación (auditoría histórica:
+  // no se re-escribe si el usuario cambia su nombre o es desactivado después).
+  @Column({ type: 'varchar', length: 150, nullable: true })
+  usuario_email_snapshot!: string | null;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  usuario_nombre_snapshot!: string | null;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  usuario_apellido_snapshot!: string | null;
+
   @Column({ type: 'timestamptz', default: () => 'now()' })
   fecha_hora!: Date;
 

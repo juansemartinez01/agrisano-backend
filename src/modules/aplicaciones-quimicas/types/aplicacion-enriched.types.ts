@@ -1,16 +1,12 @@
 import { AplicacionQuimica } from '../entities/aplicacion-quimica.entity';
 import { AplicacionQuimicaDetalle } from '../entities/aplicacion-quimica-detalle.entity';
+import { UsuarioResumen } from 'src/common/utils/usuario-resumen.util';
+
+export type { UsuarioResumen };
 
 // ──────────────────────────────────────────────────────────────────────
 // Shapes enriquecidos de respuesta (aditivos sobre el contrato actual)
 // ──────────────────────────────────────────────────────────────────────
-
-export interface UsuarioResumen {
-  id: string;
-  nombre: string | null;
-  apellido: string | null;
-  email: string;
-}
 
 export interface RefNombre {
   id: string;
@@ -119,13 +115,6 @@ export interface AplicacionDetalleEnriquecida {
 // ──────────────────────────────────────────────────────────────────────
 // Filas crudas de las queries batch (getRawMany)
 // ──────────────────────────────────────────────────────────────────────
-
-export interface UsuarioRaw {
-  id: string;
-  nombre: string | null;
-  apellido: string | null;
-  email: string;
-}
 
 export interface ChemicalLineRaw {
   aplicacion_id: string;

@@ -11,6 +11,7 @@ import { TenancyService } from 'src/modules/tenancy/tenancy.service';
 import { EstablecimientosService } from 'src/modules/establecimientos/establecimientos.service';
 import { TunelesService } from 'src/modules/tuneles/tuneles.service';
 import { clampPagination } from 'src/common/query/query-utils';
+import { fetchUsuarioSnapshot } from 'src/common/utils/usuario-resumen.util';
 import { Mesa, MesaEstado } from './entities/mesa.entity';
 import { HistorialMesa, HistorialTipoEvento } from './entities/historial-mesa.entity';
 import { HistorialMesaService } from './historial-mesa.service';
@@ -289,11 +290,13 @@ export class MesasService {
         `UPDATE mesas SET estado = 'baja', posicion_actual = NULL, updated_at = now() WHERE id = $1 AND tenant_id = $2`,
         [id, tenantId],
       );
+      const usuarioSnapshot = await fetchUsuarioSnapshot(qr.manager, auditReq.userId, tenantId);
       const historial = qr.manager.create(HistorialMesa, {
         tenant_id: tenantId,
         mesa_id: id,
         tipo_evento: HistorialTipoEvento.BAJA,
         usuario_id: auditReq.userId,
+        ...usuarioSnapshot,
         fecha_hora: new Date(),
       });
       await qr.manager.save(HistorialMesa, historial);
@@ -336,11 +339,13 @@ export class MesasService {
         `UPDATE mesas SET estado = 'activa', posicion_actual = NULL, updated_at = now() WHERE id = $1 AND tenant_id = $2`,
         [id, tenantId],
       );
+      const usuarioSnapshot = await fetchUsuarioSnapshot(qr.manager, auditReq.userId, tenantId);
       const historial = qr.manager.create(HistorialMesa, {
         tenant_id: tenantId,
         mesa_id: id,
         tipo_evento: HistorialTipoEvento.REACTIVACION,
         usuario_id: auditReq.userId,
+        ...usuarioSnapshot,
         fecha_hora: new Date(),
       });
       await qr.manager.save(HistorialMesa, historial);

@@ -5,6 +5,12 @@ import { randomUUID } from 'crypto';
 import { AppError } from 'src/common/errors/app-error';
 import { ErrorCodes } from 'src/common/errors/error-codes';
 import { clampPagination } from 'src/common/query/query-utils';
+import {
+  buildUsuariosMap,
+  fetchUsuarioSnapshot,
+  resolveUsuarioResumen,
+  UsuarioResumen,
+} from 'src/common/utils/usuario-resumen.util';
 import { TenancyService } from 'src/modules/tenancy/tenancy.service';
 import { LotesService } from 'src/modules/lotes/lotes.service';
 import { LoteTipo } from 'src/modules/lotes/entities/lote.entity';
@@ -34,6 +40,7 @@ type BandejaWithRefs = Bandeja & {
 };
 
 export interface SiembraWithBandejas extends Siembra {
+  usuario: UsuarioResumen | null;
   bandejas: BandejaWithRefs[];
 }
 
@@ -52,7 +59,10 @@ export class SiembraService {
 
   async listSiembras(
     q: QuerySiembrasDto,
-  ): Promise<{ items: Siembra[]; total: number }> {
+  ): Promise<{
+    items: (Siembra & { usuario: UsuarioResumen | null })[];
+    total: number;
+  }> {
     const tenantId = this.tenancy.requireTenantId();
     const { page, limit, skip } = clampPagination(q.page, q.limit, 200);
     const SORT_ALLOWED = ['fecha', 'created_at'];
@@ -76,7 +86,13 @@ export class SiembraService {
     qb.orderBy(`s.${sortBy}`, sortOrder).skip(skip).take(limit);
 
     const [items, total] = await qb.getManyAndCount();
-    return { items, total };
+    const userIds = items.map((s) => s.usuario_id);
+    const usuarios = await buildUsuariosMap(this.dataSource, userIds, tenantId);
+    const enriched = items.map((s) => ({
+      ...s,
+      usuario: resolveUsuarioResumen(s.usuario_id, s, usuarios.get(s.usuario_id)),
+    }));
+    return { items: enriched, total };
   }
 
   async getSiembraWithBandejas(id: string): Promise<SiembraWithBandejas> {
@@ -92,6 +108,9 @@ export class SiembraService {
         status: 404,
       });
     }
+
+    const usuarios = await buildUsuariosMap(this.dataSource, [siembra.usuario_id], tenantId);
+    const usuario = resolveUsuarioResumen(siembra.usuario_id, siembra, usuarios.get(siembra.usuario_id));
 
     const bandejas = await this.bandejaRepo
       .createQueryBuilder('b')
@@ -122,7 +141,7 @@ export class SiembraService {
       ])
       .getMany() as BandejaWithRefs[];
 
-    return { ...siembra, bandejas };
+    return { ...siembra, usuario, bandejas };
   }
 
   async createSiembra(
@@ -182,12 +201,14 @@ export class SiembraService {
     await qr.connect();
     await qr.startTransaction();
     try {
+      const usuarioSnapshot = await fetchUsuarioSnapshot(qr.manager, userId, tenantId);
       const siembra = qr.manager.create(Siembra, {
         tenant_id: tenantId,
         establecimiento_id: dto.establecimiento_id,
         fecha: dto.fecha ?? new Date().toISOString().split('T')[0],
         observaciones: dto.observaciones ?? null,
         usuario_id: userId,
+        ...usuarioSnapshot,
       });
       const savedSiembra = await qr.manager.save(Siembra, siembra);
 

@@ -14,6 +14,12 @@ import { BandejaService } from 'src/modules/siembra/bandeja.service';
 import { BandejaEstado } from 'src/modules/siembra/entities/bandeja.entity';
 import { TunelesService } from 'src/modules/tuneles/tuneles.service';
 import { clampPagination } from 'src/common/query/query-utils';
+import {
+  buildUsuariosMap,
+  fetchUsuarioSnapshot,
+  resolveUsuarioResumen,
+  UsuarioResumen,
+} from 'src/common/utils/usuario-resumen.util';
 import { MesaBandeja } from './entities/mesa-bandeja.entity';
 import { CreateTrasplanteDto } from './dto/create-trasplante.dto';
 import { QueryTrasplantesDto } from './dto/query-trasplantes.dto';
@@ -107,6 +113,8 @@ export class TrasplanteService {
 
     let newPos: number;
     try {
+      const usuarioSnapshot = await fetchUsuarioSnapshot(qr.manager, userId, tenantId);
+
       // 6. Calculate new FIFO position
       const result = (await qr.query(
         `SELECT MAX(posicion_actual) AS max FROM mesas WHERE tunel_id = $1 AND deleted_at IS NULL AND posicion_actual IS NOT NULL`,
@@ -125,6 +133,8 @@ export class TrasplanteService {
           mesa_id: dto.mesa_id,
           bandeja_id,
           fecha_trasplante: now,
+          usuario_id: userId,
+          ...usuarioSnapshot,
         });
       }
 
@@ -140,6 +150,7 @@ export class TrasplanteService {
         tipo_evento: HistorialTipoEvento.TRASPLANTE,
         tenant_id: tenantId,
         usuario_id: userId,
+        ...usuarioSnapshot,
         fecha_hora: new Date(),
         detalle: {
           tunel_id: dto.tunel_id,
@@ -172,7 +183,10 @@ export class TrasplanteService {
     mesa_id: string,
     q: QueryTrasplantesDto,
     tenantId: string,
-  ): Promise<{ items: MesaBandeja[]; total: number }> {
+  ): Promise<{
+    items: (MesaBandeja & { usuario: UsuarioResumen | null })[];
+    total: number;
+  }> {
     // Validate mesa exists and belongs to tenant (throws 404 if not)
     await this.mesasService.getMesaById(mesa_id, tenantId);
 
@@ -187,7 +201,19 @@ export class TrasplanteService {
       .take(limit);
 
     const [items, total] = await qb.getManyAndCount();
-    return { items, total };
+    if (!items.length) return { items: [], total };
+
+    const userIds = items
+      .map((mb) => mb.usuario_id)
+      .filter((id): id is string => id !== null);
+    const usuarios = await buildUsuariosMap(this.dataSource, userIds, tenantId);
+    const enriched = items.map((mb) => ({
+      ...mb,
+      usuario: mb.usuario_id
+        ? resolveUsuarioResumen(mb.usuario_id, mb, usuarios.get(mb.usuario_id))
+        : null,
+    }));
+    return { items: enriched, total };
   }
 
   private async writeAudit(
