@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, QueryRunner, Repository } from 'typeorm';
@@ -238,6 +239,9 @@ export class AplicacionesQuimicasService {
 
     let savedAplicacion: AplicacionQuimica;
     const savedDetalles: AplicacionQuimicaDetalle[] = [];
+    // Si el caller no manda uno (ej: para agrupar chunks de un mismo pedido
+    // trozado en el frontend), se genera uno propio de esta request.
+    const operationGroupId = dto.operation_group_id ?? randomUUID();
 
     try {
       const aplicacion = qr.manager.create(AplicacionQuimica, {
@@ -252,6 +256,7 @@ export class AplicacionesQuimicasService {
         dosis_unidad: dto.dosis_unidad ?? primaryQuimico.rate_unidad ?? null,
         batch: primaryLote.numero_lote ?? null,
         withholding_period_dias: primaryQuimico.withholding_period_dias ?? null,
+        operation_group_id: operationGroupId,
       });
       savedAplicacion = await qr.manager.save(AplicacionQuimica, aplicacion);
 

@@ -61,6 +61,12 @@ export class AplicacionQuimica {
   @Column({ type: 'int', nullable: true })
   withholding_period_dias!: number | null;
 
+  // Groups multiple independently-created rows that originated from the same
+  // logical user action (e.g. a >200-target request the frontend chunked into
+  // several sequential POSTs). Purely presentational — never merges DB rows.
+  @Column({ type: 'uuid', nullable: true })
+  operation_group_id!: string | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   created_at!: Date;
 

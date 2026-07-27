@@ -50,7 +50,7 @@ Proyecto único NestJS: todo el trabajo vive en `src/modules/aplicaciones-quimic
 - [X] T007 [P] [US1] Implementar método privado `buildNurserySummaryMap(aplicacionIds: string[]): Promise<Map<string, SeedingSummary[]>>` en `aplicaciones-quimicas.service.ts` — una query: `aplicacion_quimica_bandeja` `WHERE aplicacion_id IN (:ids)` + `LEFT JOIN bandejas` + `LEFT JOIN siembras` + `LEFT JOIN lotes (semilla)` + `LEFT JOIN productos` + `LEFT JOIN variedades`, `GROUP BY aplicacion_id, siembra_id, siembra.created_at, producto, variedad` con `COUNT(*) AS tray_count`; colapsar en memoria filas duplicadas de la misma siembra (heterogeneidad ⇒ sumar `tray_count`, `product`/`variety` ⇒ `null`)
 - [X] T008 [US1] Modificar `listAplicaciones` en `aplicaciones-quimicas.service.ts`: tras la query paginada actual (intacta), separar IDs por contexto, ejecutar T004–T007 con `Promise.all` (solo las que apliquen), y ensamblar `AplicacionListItem[]` con `usuario`, `target_count` (Σ table_count / Σ tray_count; sin vínculos ⇒ 0), `target_summary` (`tunnels`/`seedings`, el otro array vacío) y `chemical_lines`; cambiar tipo de retorno a `{ items: AplicacionListItem[]; total: number }`
 - [X] T009 [US1] Verificar `list()` en `src/modules/aplicaciones-quimicas/aplicaciones-quimicas.controller.ts` compila sin cambios de ruta ni envelope (`page(r.items, p, limit, r.total)`); ajustar solo tipado si hace falta
-- [ ] T010 [US1] Verificación funcional del listado según quickstart.md: item greenhouse (túneles + table_count), item nursery (seedings + tray_count + product/variety), chemical_lines sin duplicar principal, campos previos intactos, `meta` correcto
+- [X] T010 [US1] Verificación funcional del listado según quickstart.md: item greenhouse (túneles + table_count), item nursery (seedings + tray_count + product/variety), chemical_lines sin duplicar principal, campos previos intactos, `meta` correcto
 
 **Checkpoint**: US1 completa y demostrable por sí sola (MVP).
 
@@ -65,7 +65,7 @@ Proyecto único NestJS: todo el trabajo vive en `src/modules/aplicaciones-quimic
 - [X] T011 [P] [US2] Implementar método privado `buildGreenhouseTargets(aplicacionId: string): Promise<{ targets: GreenhouseTargets; mesaIds: string[] }>` en `aplicaciones-quimicas.service.ts` — una query por filas (sin GROUP BY): `aplicacion_quimica_mesa WHERE aplicacion_id = :id` + `LEFT JOIN mesas` + `LEFT JOIN tuneles`; agrupar por túnel en memoria; mesas con `id`, `nombre`, `posicion_actual`, `estado`; mesa no resuelta ⇒ entrada con enriquecimiento `null` bajo túnel `null`; `total` = filas de vínculo
 - [X] T012 [P] [US2] Implementar método privado `buildNurseryTargets(aplicacionId: string): Promise<{ targets: NurseryTargets; bandejaIds: string[] }>` en `aplicaciones-quimicas.service.ts` — una query por filas: `aplicacion_quimica_bandeja WHERE aplicacion_id = :id` + `LEFT JOIN bandejas` + `LEFT JOIN siembras` + `LEFT JOIN lotes semilla` + `LEFT JOIN lotes sustrato` + `LEFT JOIN productos` + `LEFT JOIN variedades`; agrupar por `siembra_id` en memoria con `tray_count`, `trays[]` (`id`, `codigo`, `estado` actual — puede ser `trasplantada`), y `product`/`variety`/`seed_lot`/`substrate_lot` homogéneos ⇒ valor, heterogéneos o no resueltos ⇒ `null`
 - [X] T013 [US2] Modificar `getAplicacionById` en `aplicaciones-quimicas.service.ts`: mantener `aplicacion`, `detalles`, `mesa_ids`/`bandeja_ids` (ahora derivados de las mismas filas de T011/T012, sin query extra), agregar `usuario` (reutilizar T004 con un solo ID) y `targets`; tipo de retorno `AplicacionDetalleEnriquecida`; verificar `getOne()` del controller compila sin cambios
-- [ ] T014 [US2] Verificación funcional del detalle según quickstart.md: greenhouse (mesas por túnel, nombre/posición/estado), nursery (seedings con lotes y trays), invariante `targets.total === mesa_ids/bandeja_ids.length`
+- [X] T014 [US2] Verificación funcional del detalle según quickstart.md: greenhouse (mesas por túnel, nombre/posición/estado), nursery (seedings con lotes y trays), invariante `targets.total === mesa_ids/bandeja_ids.length`
 
 **Checkpoint**: US2 completa — pantalla `/chemicals` end-to-end.
 
@@ -78,7 +78,7 @@ Proyecto único NestJS: todo el trabajo vive en `src/modules/aplicaciones-quimic
 **Independent Test**: respuestas 200 con `usuario: null`, `brand/supplier: null`, seeding heterogéneo ⇒ `product/variety/seed_lot/substrate_lot: null`, aplicación sin vínculos ⇒ `target_count: 0`.
 
 - [X] T015 [US3] Auditar en `aplicaciones-quimicas.service.ts` que todos los joins de enriquecimiento de T004–T013 sean `LEFT JOIN` sin filtro `deleted_at` (snapshot de soft-deleted permitido), que ningún faltante lance excepción ni se convierta a 0, y que aplicaciones sin vínculos devuelvan `target_count: 0` con `target_summary` de arrays vacíos
-- [ ] T016 [US3] Verificación funcional de degradación según quickstart.md: usuario eliminado ⇒ `usuario: null` (listado y detalle), químico sin marca / lote sin proveedor ⇒ `brand`/`supplier: null`, siembra heterogénea ⇒ campos `null`, todo con status 200
+- [X] T016 [US3] Verificación funcional de degradación según quickstart.md: usuario eliminado ⇒ `usuario: null` (listado y detalle), químico sin marca / lote sin proveedor ⇒ `brand`/`supplier: null`, siembra heterogénea ⇒ campos `null`, todo con status 200
 
 **Checkpoint**: las tres user stories verificadas.
 
@@ -109,3 +109,15 @@ Proyecto único NestJS: todo el trabajo vive en `src/modules/aplicaciones-quimic
 ## Implementation Strategy
 
 **MVP**: Phase 1 + 2 + 3 (US1) — el listado enriquecido es el valor principal del ticket y es demostrable solo. Luego US2 (detalle), US3 (resiliencia) y Polish como incrementos independientes. Total: **19 tareas** (US1: 7, US2: 4, US3: 2, setup/foundational: 3, polish: 3).
+
+---
+
+## Verificación en entorno de desarrollo (2026-07-25)
+
+Probado contra `https://agrisano-backend-production.up.railway.app` (tenant seed, usuario admin, header `x-tenant-id` requerido en cada request):
+
+- **T010 ✅ listado**: greenhouse y nursery enriquecidos; caso real de 71 bandejas con `target_count=71`, seeding con producto/variedad/fecha; línea principal con `dose=0.1`, línea adicional con `dose=null`; dos lotes del mismo químico como líneas separadas; campos previos intactos; filtros (`contexto`, `quimico_id`, fechas), `sortBy`, `sortOrder` y paginación (`page=2`) OK.
+- **T014 ✅ detalle**: invariantes `targets.total === mesa_ids.length` (1/1) y `=== bandeja_ids.length` (71/71); mesas agrupadas por túnel con nombre/posición/estado; seedings con `product`, `variety`, `seed_lot`, `substrate_lot` y 71 `trays` con código y estado; `detalles[]` intactos.
+- **T016 ✅ (parcial)**: `brand: null` (químico sin marca) sin error; aplicaciones con `target_count: 0` responden 200 con arrays vacíos en listado y detalle; 404 correcto en ID inexistente. Pendientes los escenarios "usuario eliminado" y "siembra heterogénea" (no existen esos datos en dev y no se mutó el entorno para crearlos).
+- **T019 ✅ (proxy)**: latencia estable ~680 ms p50 para página de 10 y ~750–900 ms para detalle de 71 bandejas (medido desde cliente remoto, incluye red y TLS); sin crecimiento lineal con la cantidad de targets. El conteo exacto de queries (≤6) requiere logs SQL del servidor.
+- **Regresión**: `GET /mesas/:id/aplicaciones` y `GET /bandejas/:id/aplicaciones` responden igual que antes (sin enriquecer, por diseño); login y auth sin cambios.

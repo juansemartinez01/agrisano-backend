@@ -66,4 +66,12 @@ export class CreateAplicacionDto {
   @ArrayMaxSize(200)
   @IsUUID('4', { each: true })
   mesa_ids?: string[];
+
+  // Correlaciona varias filas independientes creadas por el mismo trigger
+  // lógico del usuario (ej: un pedido de >200 targets trocado en varios POST
+  // secuenciales por el frontend). Si se omite, el backend genera uno nuevo
+  // — pero eso solo agrupa dentro de ESTA request, no entre chunks separados.
+  @IsOptional()
+  @IsUUID()
+  operation_group_id?: string;
 }

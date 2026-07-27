@@ -148,6 +148,7 @@ interface AplicacionRawRow {
   dosis_unidad: string | null;
   batch: string | null;
   withholding_period_dias: number | null;
+  operation_group_id: string | null;
   au_email: string | null;
   au_nombre: string | null;
   au_apellido: string | null;
@@ -175,6 +176,7 @@ interface AplicacionRow {
   dosis_unidad: string | null;
   batch: string | null;
   withholding_period_dias: number | null;
+  operation_group_id: string | null;
   lote_quimico: LoteQuimicoResumen | null;
   carencia_hasta_calculada: string | null;
   detalles: AplicacionDetalleEnriquecido[] | null;
@@ -281,6 +283,7 @@ export interface TrazabilidadMesaResult {
 const APLICACION_SELECT = `
   a.id, a.fecha_hora, a.observaciones, a.usuario_id, a.contexto, a.establecimiento_id,
   a.lote_quimico_id, a.dosis, a.dosis_unidad, a.batch, a.withholding_period_dias,
+  a.operation_group_id,
   au.email AS au_email, au.nombre AS au_nombre, au.apellido AS au_apellido,
   hlq.id AS hlq_id, hlq.numero_lote AS hlq_numero_lote,
   hq.id AS hq_id, hq.nombre AS hq_nombre,
@@ -358,6 +361,7 @@ function mapAplicacionRow(r: AplicacionRawRow): AplicacionRow {
     dosis_unidad: r.dosis_unidad,
     batch: r.batch,
     withholding_period_dias: r.withholding_period_dias,
+    operation_group_id: r.operation_group_id,
     lote_quimico: r.hlq_id
       ? {
           id: r.hlq_id,
