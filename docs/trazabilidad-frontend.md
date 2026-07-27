@@ -311,11 +311,8 @@ type AplicacionResumen = {
 type LoteQuimicoResumen = {
   id: string;
   numero_lote: string;
-  quimico: {
-    id: string;
-    nombre: string;
-    marca: { id: string; nombre: string } | null;
-  } | null;
+  quimico: { id: string; nombre: string } | null;
+  marca: { id: string; nombre: string } | null;      // hermano de `quimico`, NO anidado dentro
   proveedor: { id: string; nombre: string } | null;
 };
 
@@ -323,16 +320,18 @@ type AplicacionDetalle = {
   id: string;
   aplicacion_id: string;
   lote_quimico_id: string;
+  dosis: number | string | null;      // dosis real de ESTA línea, no la del químico principal
+  dosis_unidad: string | null;
   cantidad: number | string;
   unidad_medida: string;
   lote_quimico: LoteQuimicoResumen | null;
 };
 ```
 
-- `lote_quimico_id`, `dosis`, `dosis_unidad`, `batch`, `withholding_period_dias` son el snapshot tomado al momento de la aplicación (a nivel cabecera, puede haber más de un químico si la aplicación tiene varios `detalles`).
-- `lote_quimico` (a nivel cabecera) enriquece el `lote_quimico_id` principal con el nombre del químico, su marca y su proveedor.
-- Cada item de `detalles` trae su propio `lote_quimico` enriquecido de la misma forma (una aplicación puede mezclar varios productos).
-- `carencia_hasta_calculada` = `fecha_hora` + `withholding_period_dias` días. Es `null` si la aplicación no tiene período de carencia definido.
+- `lote_quimico_id`, `dosis`, `dosis_unidad`, `batch`, `withholding_period_dias` son el snapshot tomado al momento de la aplicación (a nivel cabecera, corresponden al químico **principal**; puede haber más de un químico si la aplicación tiene varios `detalles`).
+- `lote_quimico` (a nivel cabecera) enriquece el `lote_quimico_id` principal con el químico, su marca y su proveedor — mismo shape que el `lote_quimico` de cada `detalle`.
+- Cada item de `detalles` trae su propia `dosis`/`dosis_unidad` real (no se debe asumir que coincide con la del químico principal) y su propio `lote_quimico` enriquecido con la misma forma (una aplicación puede mezclar varios productos). `dosis`/`dosis_unidad` son `null` solo en detalles creados antes de que este campo existiera (dato histórico nunca capturado).
+- `carencia_hasta_calculada` = `fecha_hora` + `withholding_period_dias` días. Es `null` si la aplicación no tiene período de carencia definido. `withholding_period_dias` solo existe a nivel de cabecera (snapshot de la aplicación), no por detalle.
 
 ### Packing resumido
 
@@ -555,11 +554,8 @@ Respuesta `200`:
         "lote_quimico": {
           "id": "7aab9d6e-a454-4135-9d7e-09973f33f801",
           "numero_lote": "LQ-2026-014",
-          "quimico": {
-            "id": "c1a1e9b0-9b1a-4f3a-8b8a-2e6a7b9c1d2e",
-            "nombre": "Fungicida X",
-            "marca": { "id": "d2b2f0c1-0c2b-5a4b-9c9b-3f7b8c0d2e3f", "nombre": "AgroMarca" }
-          },
+          "quimico": { "id": "c1a1e9b0-9b1a-4f3a-8b8a-2e6a7b9c1d2e", "nombre": "Fungicida X" },
+          "marca": { "id": "d2b2f0c1-0c2b-5a4b-9c9b-3f7b8c0d2e3f", "nombre": "AgroMarca" },
           "proveedor": { "id": "e3c3a1d2-1d3c-6b5c-0d0c-4a8c9d1e3f4a", "nombre": "Distribuidora del Sur" }
         },
         "carencia_hasta_calculada": "2026-06-08T12:00:00.000Z",
@@ -568,16 +564,31 @@ Respuesta `200`:
             "id": "b0ebf981-5890-4130-9592-60c0e4b11c65",
             "aplicacion_id": "35f8083d-5a3f-4a8d-88f4-df36e7e2b32a",
             "lote_quimico_id": "7aab9d6e-a454-4135-9d7e-09973f33f801",
+            "dosis": "2.500",
+            "dosis_unidad": "l_ha",
             "cantidad": "2.000",
             "unidad_medida": "L",
             "lote_quimico": {
               "id": "7aab9d6e-a454-4135-9d7e-09973f33f801",
               "numero_lote": "LQ-2026-014",
-              "quimico": {
-                "id": "c1a1e9b0-9b1a-4f3a-8b8a-2e6a7b9c1d2e",
-                "nombre": "Fungicida X",
-                "marca": { "id": "d2b2f0c1-0c2b-5a4b-9c9b-3f7b8c0d2e3f", "nombre": "AgroMarca" }
-              },
+              "quimico": { "id": "c1a1e9b0-9b1a-4f3a-8b8a-2e6a7b9c1d2e", "nombre": "Fungicida X" },
+              "marca": { "id": "d2b2f0c1-0c2b-5a4b-9c9b-3f7b8c0d2e3f", "nombre": "AgroMarca" },
+              "proveedor": { "id": "e3c3a1d2-1d3c-6b5c-0d0c-4a8c9d1e3f4a", "nombre": "Distribuidora del Sur" }
+            }
+          },
+          {
+            "id": "c1fc0a92-6a01-5241-a6a3-71d1f5c22d76",
+            "aplicacion_id": "35f8083d-5a3f-4a8d-88f4-df36e7e2b32a",
+            "lote_quimico_id": "9bcd1e7f-b565-4246-ae8f-1a084d44e912",
+            "dosis": "0.100",
+            "dosis_unidad": "L/L",
+            "cantidad": "0.500",
+            "unidad_medida": "L",
+            "lote_quimico": {
+              "id": "9bcd1e7f-b565-4246-ae8f-1a084d44e912",
+              "numero_lote": "LQ-2026-020",
+              "quimico": { "id": "f4d5b2a1-2b3c-6d5e-af9b-4a1c2d3e4f5a", "nombre": "Coadyuvante Y" },
+              "marca": { "id": "05e6c3b2-3c4d-7e6f-b0ac-5b2d3e4f5a6b", "nombre": "Otra Marca" },
               "proveedor": { "id": "e3c3a1d2-1d3c-6b5c-0d0c-4a8c9d1e3f4a", "nombre": "Distribuidora del Sur" }
             }
           }

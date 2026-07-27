@@ -1,4 +1,5 @@
 import { Entity, Column, PrimaryGeneratedColumn } from 'typeorm';
+import { QuimicoRateUnidad } from 'src/modules/quimicos/entities/quimico.entity';
 
 @Entity('aplicaciones_quimicas_detalle')
 export class AplicacionQuimicaDetalle {
@@ -10,6 +11,17 @@ export class AplicacionQuimicaDetalle {
 
   @Column({ type: 'uuid' })
   lote_quimico_id!: string;
+
+  @Column({ type: 'decimal', precision: 10, scale: 3, nullable: true })
+  dosis!: number | null;
+
+  @Column({
+    type: 'enum',
+    enum: QuimicoRateUnidad,
+    enumName: 'quimico_rate_unidad',
+    nullable: true,
+  })
+  dosis_unidad!: QuimicoRateUnidad | null;
 
   @Column({ type: 'decimal', precision: 10, scale: 3 })
   cantidad!: number;

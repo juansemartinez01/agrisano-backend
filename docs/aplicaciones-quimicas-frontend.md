@@ -52,12 +52,16 @@ Estos son los valores actuales (con esta capitalización exacta). Si no se enví
   observaciones?: string;          // opcional, máx 2000 caracteres
   detalles?: Array<{               // opcional — lotes/químicos adicionales aplicados junto al primario
     lote_quimico_id: string;       // uuid, requerido
+    dosis: number;                 // requerido, > 0 — dosis real de ESTE lote (no se asume igual a la del primario)
+    dosis_unidad?: QuimicoRateUnidad; // opcional — default: rate_unidad del químico de ESTE lote
     cantidad: number;              // requerido, > 0
   }>;                              // si se envía, debe tener al menos 1 elemento
   bandeja_ids?: string[];          // uuid[] — requerido si contexto = nursery
   mesa_ids?: string[];             // uuid[] — requerido si contexto = greenhouse
 }
 ```
+
+> ⚠️ **Cambio breaking**: antes de esta versión, cada item de `detalles[]` solo aceptaba `lote_quimico_id`/`cantidad`. Ahora `dosis` es **obligatoria** por item — un request que omita `dosis` en algún elemento de `detalles[]` recibirá `400` (validación). Motivo: la base nunca guardaba la dosis de los químicos adicionales, así que no había forma de mostrarla después en trazabilidad ni en el detalle de la aplicación. Si el frontend no captura hoy una dosis por lote adicional, debe agregar ese campo al formulario antes de actualizar contra este endpoint.
 
 ### Reglas de negocio
 
@@ -98,6 +102,8 @@ Estos son los valores actuales (con esta capitalización exacta). Si no se enví
       id: string;
       aplicacion_id: string;
       lote_quimico_id: string;
+      dosis: number;                 // dosis real de esta línea (principal o adicional)
+      dosis_unidad: QuimicoRateUnidad | null;
       cantidad: number;
       unidad_medida: string;         // copiada del químico al momento de aplicar
     }>;                              // [0] es siempre el detalle del lote primario
@@ -176,9 +182,9 @@ type AplicacionListItem = AplicacionQuimica & {
     lot_name: string | null;
     quantity: number | null;     // cantidad total descontada de ese lote
     unit: string | null;
-    dose: number | null;                   // SOLO en la línea principal (snapshot)
-    dose_unit: string | null;              // SOLO en la línea principal
-    withholding_period_days: number | null; // SOLO en la línea principal
+    dose: number | null;                   // dosis real de ESTA línea (null solo en filas históricas, creadas antes de que dosis fuera obligatoria por detalle)
+    dose_unit: string | null;              // ídem
+    withholding_period_days: number | null; // SOLO en la línea principal (snapshot a nivel de aplicación, no existe por detalle)
     brand: { id: string; nombre: string } | null;
     supplier: { id: string; nombre: string } | null;
   }>;
@@ -188,7 +194,7 @@ type AplicacionListItem = AplicacionQuimica & {
 Notas:
 
 - El listado **no** devuelve `mesa_ids`/`bandeja_ids` ni el array completo de targets — para eso está el detalle (sección 6).
-- `dose`/`dose_unit`/`withholding_period_days` solo vienen en la línea del lote primario; las líneas adicionales los traen en `null` (la base no guarda dosis por detalle).
+- `dose`/`dose_unit` vienen en **todas** las líneas (principal y adicionales), cada una con su propio valor real — solo son `null` en detalles creados antes de que `dosis` fuera obligatoria por línea (dato histórico que nunca se capturó). `withholding_period_days` sigue siendo exclusivo de la línea principal, porque es un snapshot a nivel de aplicación, no por detalle.
 - Cualquier enriquecimiento cuyo recurso relacionado falte llega como `null`; nunca rompe la respuesta.
 
 Contrato completo con ejemplos: `specs/016-enrich-aplicaciones-quimicas/contracts/aplicaciones-quimicas-read.md`.
@@ -203,7 +209,22 @@ Contrato completo con ejemplos: `specs/016-enrich-aplicaciones-quimicas/contract
     aplicacion: AplicacionQuimica & {
       usuario: { id: string; nombre: string | null; apellido: string | null; email: string } | null;
     };
-    detalles: AplicacionQuimicaDetalle[];
+    detalles: Array<{          // una línea por lote realmente usado ([0] es siempre el primario)
+      id: string;
+      aplicacion_id: string;
+      lote_quimico_id: string;
+      dosis: number | null;              // null solo en detalles históricos (pre-existentes a esta dosis obligatoria)
+      dosis_unidad: QuimicoRateUnidad | null;
+      cantidad: number | null;
+      unidad_medida: string | null;
+      lote_quimico: {
+        id: string;
+        numero_lote: string;
+        quimico: { id: string; nombre: string } | null;
+        marca: { id: string; nombre: string } | null;    // hermano de `quimico`, no anidado dentro
+        proveedor: { id: string; nombre: string } | null;
+      } | null;               // null si el lote fue eliminado
+    }>;
     bandeja_ids?: string[];   // presente si contexto = nursery (sin cambios)
     mesa_ids?: string[];      // presente si contexto = greenhouse (sin cambios)
 

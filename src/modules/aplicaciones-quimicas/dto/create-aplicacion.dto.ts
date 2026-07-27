@@ -21,6 +21,14 @@ export class DetalleItemDto {
 
   @IsNumber()
   @IsPositive()
+  dosis!: number;
+
+  @IsOptional()
+  @IsEnum(QuimicoRateUnidad)
+  dosis_unidad?: QuimicoRateUnidad;
+
+  @IsNumber()
+  @IsPositive()
   cantidad!: number;
 }
 

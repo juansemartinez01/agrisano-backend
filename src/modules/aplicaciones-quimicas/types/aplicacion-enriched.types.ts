@@ -1,5 +1,4 @@
 import { AplicacionQuimica } from '../entities/aplicacion-quimica.entity';
-import { AplicacionQuimicaDetalle } from '../entities/aplicacion-quimica-detalle.entity';
 import { UsuarioResumen } from 'src/common/utils/usuario-resumen.util';
 
 export type { UsuarioResumen };
@@ -25,12 +24,35 @@ export interface ChemicalLine {
   lot_name: string | null;
   quantity: number | null;
   unit: string | null;
-  /** Solo la línea principal lleva dose/dose_unit/withholding (snapshot de la aplicación). */
   dose: number | null;
   dose_unit: string | null;
+  /** Solo la línea principal lleva withholding (snapshot de la aplicación, no existe por detalle). */
   withholding_period_days: number | null;
   brand: RefNombre | null;
   supplier: RefNombre | null;
+}
+
+// Contrato canónico de "lote químico enriquecido", compartido entre el
+// detalle de aplicaciones-quimicas y trazabilidad — una sola fuente de
+// verdad para evitar que ambos módulos diverjan en el shape (p. ej. dónde
+// cuelga `marca`).
+export interface LoteQuimicoEnriquecido {
+  id: string;
+  numero_lote: string;
+  quimico: RefNombre | null;
+  marca: RefNombre | null;
+  proveedor: RefNombre | null;
+}
+
+export interface AplicacionDetalleLine {
+  id: string;
+  aplicacion_id: string;
+  lote_quimico_id: string;
+  dosis: number | null;
+  dosis_unidad: string | null;
+  cantidad: number | null;
+  unidad_medida: string | null;
+  lote_quimico: LoteQuimicoEnriquecido | null;
 }
 
 export interface TunnelSummary {
@@ -106,7 +128,7 @@ export interface NurseryTargets {
 
 export interface AplicacionDetalleEnriquecida {
   aplicacion: AplicacionQuimica & { usuario: UsuarioResumen | null };
-  detalles: AplicacionQuimicaDetalle[];
+  detalles: AplicacionDetalleLine[];
   bandeja_ids?: string[];
   mesa_ids?: string[];
   targets: GreenhouseTargets | NurseryTargets;
@@ -117,8 +139,11 @@ export interface AplicacionDetalleEnriquecida {
 // ──────────────────────────────────────────────────────────────────────
 
 export interface ChemicalLineRaw {
+  id: string;
   aplicacion_id: string;
   lote_quimico_id: string;
+  dosis: string | number | null;
+  dosis_unidad: string | null;
   cantidad: string | number | null;
   unidad_medida: string | null;
   lote_numero: string | null;

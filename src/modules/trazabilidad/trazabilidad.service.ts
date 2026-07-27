@@ -4,6 +4,10 @@ import { TenancyService } from 'src/modules/tenancy/tenancy.service';
 import { CosechaService } from 'src/modules/cosecha/cosecha.service';
 import { MesasService, MesaWithTunel } from 'src/modules/mesas/mesas.service';
 import { Cosecha } from 'src/modules/cosecha/entities/cosecha.entity';
+import {
+  AplicacionDetalleLine,
+  LoteQuimicoEnriquecido,
+} from 'src/modules/aplicaciones-quimicas/types/aplicacion-enriched.types';
 
 // ---------------------------------------------------------------------------
 // Shared enrichment shapes
@@ -14,16 +18,6 @@ interface UsuarioResumen {
   email: string;
   nombre: string | null;
   apellido: string | null;
-}
-
-interface MarcaResumen {
-  id: string;
-  nombre: string;
-}
-
-interface ProveedorResumen {
-  id: string;
-  nombre: string;
 }
 
 interface ProductoResumen {
@@ -41,27 +35,11 @@ interface EstablecimientoResumen {
   nombre: string;
 }
 
-interface QuimicoResumen {
-  id: string;
-  nombre: string;
-  marca: MarcaResumen | null;
-}
-
-interface LoteQuimicoResumen {
-  id: string;
-  numero_lote: string;
-  quimico: QuimicoResumen | null;
-  proveedor: ProveedorResumen | null;
-}
-
-interface AplicacionDetalleEnriquecido {
-  id: string;
-  aplicacion_id: string;
-  lote_quimico_id: string;
-  cantidad: string;
-  unidad_medida: string;
-  lote_quimico: LoteQuimicoResumen | null;
-}
+// `LoteQuimicoEnriquecido`/`AplicacionDetalleLine` (importados arriba desde
+// aplicaciones-quimicas) son el contrato canónico de "lote químico
+// enriquecido" — reutilizado acá para que trazabilidad y el detalle de
+// aplicaciones-quimicas nunca diverjan en el shape (marca como hermano de
+// quimico bajo lote_quimico, dosis/dosis_unidad por línea).
 
 // ---------------------------------------------------------------------------
 // Raw query row interfaces
@@ -157,7 +135,7 @@ interface AplicacionRawRow {
   hm_nombre: string | null;
   hp_id: string | null;
   hp_nombre: string | null;
-  detalles: AplicacionDetalleEnriquecido[] | null;
+  detalles: AplicacionDetalleLine[] | null;
 }
 
 interface AplicacionRow {
@@ -174,9 +152,9 @@ interface AplicacionRow {
   batch: string | null;
   withholding_period_dias: number | null;
   operation_group_id: string | null;
-  lote_quimico: LoteQuimicoResumen | null;
+  lote_quimico: LoteQuimicoEnriquecido | null;
   carencia_hasta_calculada: string | null;
-  detalles: AplicacionDetalleEnriquecido[] | null;
+  detalles: AplicacionDetalleLine[] | null;
 }
 
 interface PackingRawRow {
@@ -302,15 +280,15 @@ const APLICACION_SELECT = `
       'id', aqd.id,
       'aplicacion_id', aqd.aplicacion_id,
       'lote_quimico_id', aqd.lote_quimico_id,
+      'dosis', aqd.dosis,
+      'dosis_unidad', aqd.dosis_unidad,
       'cantidad', aqd.cantidad,
       'unidad_medida', aqd.unidad_medida,
       'lote_quimico', CASE WHEN dlq.id IS NOT NULL THEN json_build_object(
         'id', dlq.id,
         'numero_lote', dlq.numero_lote,
-        'quimico', CASE WHEN dq.id IS NOT NULL THEN json_build_object(
-          'id', dq.id, 'nombre', dq.nombre,
-          'marca', CASE WHEN dm.id IS NOT NULL THEN json_build_object('id', dm.id, 'nombre', dm.nombre) ELSE NULL END
-        ) ELSE NULL END,
+        'quimico', CASE WHEN dq.id IS NOT NULL THEN json_build_object('id', dq.id, 'nombre', dq.nombre) ELSE NULL END,
+        'marca', CASE WHEN dm.id IS NOT NULL THEN json_build_object('id', dm.id, 'nombre', dm.nombre) ELSE NULL END,
         'proveedor', CASE WHEN dp.id IS NOT NULL THEN json_build_object('id', dp.id, 'nombre', dp.nombre) ELSE NULL END
       ) ELSE NULL END
     )
@@ -374,13 +352,8 @@ function mapAplicacionRow(r: AplicacionRawRow): AplicacionRow {
       ? {
           id: r.hlq_id,
           numero_lote: r.hlq_numero_lote!,
-          quimico: r.hq_id
-            ? {
-                id: r.hq_id,
-                nombre: r.hq_nombre!,
-                marca: r.hm_id ? { id: r.hm_id, nombre: r.hm_nombre! } : null,
-              }
-            : null,
+          quimico: r.hq_id ? { id: r.hq_id, nombre: r.hq_nombre! } : null,
+          marca: r.hm_id ? { id: r.hm_id, nombre: r.hm_nombre! } : null,
           proveedor: r.hp_id ? { id: r.hp_id, nombre: r.hp_nombre! } : null,
         }
       : null,

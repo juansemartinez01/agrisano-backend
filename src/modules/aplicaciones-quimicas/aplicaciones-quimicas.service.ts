@@ -37,6 +37,7 @@ import { CreateAplicacionDto } from './dto/create-aplicacion.dto';
 import { QueryAplicacionesDto } from './dto/query-aplicaciones.dto';
 import {
   AplicacionDetalleEnriquecida,
+  AplicacionDetalleLine,
   AplicacionListItem,
   ChemicalLine,
   ChemicalLineRaw,
@@ -280,6 +281,8 @@ export class AplicacionesQuimicasService {
       const primaryDetalle = qr.manager.create(AplicacionQuimicaDetalle, {
         aplicacion_id: savedAplicacion.id,
         lote_quimico_id: dto.lote_quimico_id,
+        dosis: savedAplicacion.dosis,
+        dosis_unidad: savedAplicacion.dosis_unidad,
         cantidad: primaryTotalDosis,
         unidad_medida: primaryQuimico.unidad_medida,
       });
@@ -294,6 +297,8 @@ export class AplicacionesQuimicasService {
         const detalle = qr.manager.create(AplicacionQuimicaDetalle, {
           aplicacion_id: savedAplicacion.id,
           lote_quimico_id: d.lote_quimico_id,
+          dosis: d.dosis,
+          dosis_unidad: d.dosis_unidad ?? quimico.rate_unidad ?? null,
           cantidad: d.cantidad,
           unidad_medida: quimico.unidad_medida,
         });
@@ -490,7 +495,7 @@ export class AplicacionesQuimicasService {
     }
 
     const [detalles, usuariosMap] = await Promise.all([
-      this.detalleRepo.find({ where: { aplicacion_id: id } }),
+      this.buildDetalleLines(id),
       buildUsuariosMap(this.dataSource, [aplicacion.usuario_id], tenantId),
     ]);
     const usuario = resolveUsuarioResumen(
@@ -597,16 +602,23 @@ export class AplicacionesQuimicasService {
     }));
   }
 
-  private async buildChemicalLinesMap(
-    aplicaciones: AplicacionQuimica[],
-  ): Promise<Map<string, ChemicalLine[]>> {
-    const map = new Map<string, ChemicalLine[]>();
-    if (!aplicaciones.length) return map;
-
-    const rows = await this.detalleRepo
+  /**
+   * Query base compartida por `buildChemicalLinesMap` (listado, shape plano)
+   * y `buildDetalleLines` (detalle, shape anidado con `lote_quimico`) — un
+   * solo lugar con los 5 joins (detalle → lote → quimico → marca/proveedor)
+   * para que ambos endpoints devuelvan siempre el mismo dato subyacente.
+   */
+  private async fetchDetalleRows(
+    aplicacionIds: string[],
+  ): Promise<ChemicalLineRaw[]> {
+    if (!aplicacionIds.length) return [];
+    return this.detalleRepo
       .createQueryBuilder('d')
-      .select('d.aplicacion_id', 'aplicacion_id')
+      .select('d.id', 'id')
+      .addSelect('d.aplicacion_id', 'aplicacion_id')
       .addSelect('d.lote_quimico_id', 'lote_quimico_id')
+      .addSelect('d.dosis', 'dosis')
+      .addSelect('d.dosis_unidad', 'dosis_unidad')
       .addSelect('d.cantidad', 'cantidad')
       .addSelect('d.unidad_medida', 'unidad_medida')
       .addSelect('lq.numero_lote', 'lote_numero')
@@ -620,12 +632,18 @@ export class AplicacionesQuimicasService {
       .leftJoin('quimicos', 'q', 'q.id = lq.quimico_id')
       .leftJoin('marcas', 'm', 'm.id = q.marca_id')
       .leftJoin('proveedores', 'p', 'p.id = lq.proveedor_id')
-      .where('d.aplicacion_id IN (:...ids)', {
-        ids: aplicaciones.map((a) => a.id),
-      })
+      .where('d.aplicacion_id IN (:...ids)', { ids: aplicacionIds })
       .orderBy('d.id', 'ASC')
       .getRawMany<ChemicalLineRaw>();
+  }
 
+  private async buildChemicalLinesMap(
+    aplicaciones: AplicacionQuimica[],
+  ): Promise<Map<string, ChemicalLine[]>> {
+    const map = new Map<string, ChemicalLine[]>();
+    if (!aplicaciones.length) return map;
+
+    const rows = await this.fetchDetalleRows(aplicaciones.map((a) => a.id));
     const aplicacionById = new Map(aplicaciones.map((a) => [a.id, a]));
     const primaryAssigned = new Set<string>();
 
@@ -645,8 +663,9 @@ export class AplicacionesQuimicasService {
         lot_name: r.lote_numero,
         quantity: this.toNumberOrNull(r.cantidad),
         unit: r.unidad_medida,
-        dose: isPrimary ? this.toNumberOrNull(a.dosis) : null,
-        dose_unit: isPrimary ? (a.dosis_unidad ?? null) : null,
+        dose: this.toNumberOrNull(r.dosis),
+        dose_unit: r.dosis_unidad,
+        // withholding es un snapshot a nivel de header, no existe por detalle.
         withholding_period_days: isPrimary
           ? (a.withholding_period_dias ?? null)
           : null,
@@ -659,6 +678,30 @@ export class AplicacionesQuimicasService {
       else map.set(r.aplicacion_id, [line]);
     }
     return map;
+  }
+
+  private async buildDetalleLines(
+    aplicacionId: string,
+  ): Promise<AplicacionDetalleLine[]> {
+    const rows = await this.fetchDetalleRows([aplicacionId]);
+    return rows.map((r) => ({
+      id: r.id,
+      aplicacion_id: r.aplicacion_id,
+      lote_quimico_id: r.lote_quimico_id,
+      dosis: this.toNumberOrNull(r.dosis),
+      dosis_unidad: r.dosis_unidad,
+      cantidad: this.toNumberOrNull(r.cantidad),
+      unidad_medida: r.unidad_medida,
+      lote_quimico: r.lote_numero
+        ? {
+            id: r.lote_quimico_id,
+            numero_lote: r.lote_numero,
+            quimico: this.refOrNull(r.quimico_id, r.quimico_nombre),
+            marca: this.refOrNull(r.marca_id, r.marca_nombre),
+            proveedor: this.refOrNull(r.proveedor_id, r.proveedor_nombre),
+          }
+        : null,
+    }));
   }
 
   private async buildGreenhouseSummaryMap(
