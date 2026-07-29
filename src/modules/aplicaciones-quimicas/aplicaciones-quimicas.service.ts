@@ -230,14 +230,8 @@ export class AplicacionesQuimicasService {
       }
     }
 
-    // 7. Cantidad total del lote primario: dosis × cantidad de targets (mesas o bandejas)
-    const targetCount =
-      dto.contexto === AplicacionContexto.GREENHOUSE
-        ? (dto.mesa_ids?.length ?? 0)
-        : (dto.bandeja_ids?.length ?? 0);
-    const primaryTotalDosis = dto.dosis * (targetCount > 0 ? targetCount : 1);
-
-    // 8. Transaction
+    // 7. Transaction — el lote primario descuenta la cantidad literal del
+    // request (dto.cantidad), igual que los adicionales; dosis es informativa.
     const qr = this.dataSource.createQueryRunner();
     await qr.connect();
     await qr.startTransaction();
@@ -275,7 +269,7 @@ export class AplicacionesQuimicasService {
       await this.decrementarLote(
         qr,
         dto.lote_quimico_id,
-        primaryTotalDosis,
+        dto.cantidad,
         tenantId,
       );
       const primaryDetalle = qr.manager.create(AplicacionQuimicaDetalle, {
@@ -283,7 +277,7 @@ export class AplicacionesQuimicasService {
         lote_quimico_id: dto.lote_quimico_id,
         dosis: savedAplicacion.dosis,
         dosis_unidad: savedAplicacion.dosis_unidad,
-        cantidad: primaryTotalDosis,
+        cantidad: dto.cantidad,
         unidad_medida: primaryQuimico.unidad_medida,
       });
       savedDetalles.push(
@@ -372,6 +366,7 @@ export class AplicacionesQuimicasService {
               aplicacion_id: savedAplicacion.id,
               lote_quimico_id: dto.lote_quimico_id,
               dosis: dto.dosis,
+              cantidad: dto.cantidad,
               batch: primaryLote.numero_lote ?? null,
               quimicos_adicionales: savedDetalles.slice(1).map((d) => ({
                 lote_quimico_id: d.lote_quimico_id,
@@ -580,7 +575,11 @@ export class AplicacionesQuimicasService {
           : seedings.reduce((sum, s) => sum + s.tray_count, 0);
       return {
         ...a,
-        usuario: resolveUsuarioResumen(a.usuario_id, a, usuarios.get(a.usuario_id)),
+        usuario: resolveUsuarioResumen(
+          a.usuario_id,
+          a,
+          usuarios.get(a.usuario_id),
+        ),
         target_count,
         target_summary: { tunnels, seedings },
         chemical_lines: chemicalLines.get(a.id) ?? [],
@@ -598,7 +597,11 @@ export class AplicacionesQuimicasService {
     const usuarios = await buildUsuariosMap(this.dataSource, userIds, tenantId);
     return aplicaciones.map((a) => ({
       ...a,
-      usuario: resolveUsuarioResumen(a.usuario_id, a, usuarios.get(a.usuario_id)),
+      usuario: resolveUsuarioResumen(
+        a.usuario_id,
+        a,
+        usuarios.get(a.usuario_id),
+      ),
     }));
   }
 

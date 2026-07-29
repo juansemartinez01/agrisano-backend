@@ -50,6 +50,12 @@ export class CreateAplicacionDto {
   @IsEnum(QuimicoRateUnidad)
   dosis_unidad?: QuimicoRateUnidad;
 
+  // Descuento literal del lote primario — el backend no calcula dosis ×
+  // targets ni valida coherencia; con operation_group_id el valor es por chunk.
+  @IsNumber()
+  @IsPositive()
+  cantidad!: number;
+
   @IsOptional()
   @IsString()
   @MaxLength(2000)
