@@ -102,7 +102,62 @@ Proyecto único NestJS: código en `src/`, docs en `docs/`, colecciones en `post
 - [X] T013 [P] Documentar el contrato nuevo en `docs/siembra-frontend.md`, sección del endpoint `POST /siembras/:id/ingresar-nursery`: body opcional `fecha_entrada`, semántica del valor persistido (sin fecha / hoy → instante real; pasada → `T12:00:00.000Z`), los dos límites de validación, la tabla de errores con `SIEMBRA_FECHA_ENTRADA_INVALIDA`, y la advertencia de no usar `toISOString()` en el front para derivar el día (ver `contracts/ingresar-nursery.md`)
 - [X] T014 [P] Actualizar el request `POST /siembras/:id/ingresar-nursery` en `postman/siembra.postman_collection.json` con un body de ejemplo `{ "fecha_entrada": "2026-07-20" }`, dejando claro en la descripción que el body es opcional
 - [X] T015 Ejecutar `npx tsc --noEmit` y `npx eslint "src/modules/siembra/**/*.ts"` y corregir lo que aparezca. **No** correr el lint del repo completo ni `eslint --fix` global: hay errores preexistentes en `src/common/*` ajenos a esta feature y el fix masivo reformatea archivos no relacionados
-- [ ] T016 Ejecutar la batería funcional completa de `quickstart.md` (13 pasos + 4 de regresión) contra el entorno de desarrollo y registrar la evidencia en una sección "Verificación en entorno de desarrollo" al final de este archivo, con la fecha y el `id` de las siembras usadas (mismo formato que `specs/017-cantidad-primario-explicita/tasks.md`)
+- [X] T016 Ejecutar la batería funcional completa de `quickstart.md` (13 pasos + 4 de regresión) contra el entorno de desarrollo y registrar la evidencia en una sección "Verificación en entorno de desarrollo" al final de este archivo, con la fecha y el `id` de las siembras usadas (mismo formato que `specs/017-cantidad-primario-explicita/tasks.md`)
+
+---
+
+## Verificación en entorno de desarrollo (2026-07-29)
+
+Entorno: `https://agrisano-backend-production.up.railway.app` (deploy con el cambio ya publicado).
+Auth: JWT de `admin@agrisano.com` + header `x-tenant-id: 00000000-0000-0000-0000-000000000001`.
+Hoy (UTC) al momento de la corrida: **2026-07-29**, ~14:44 UTC.
+
+Siembras creadas para la batería (todas con bandejas en `cooling_period`; cada escenario de éxito consume las suyas):
+
+| Tag | id | `fecha` | Bandejas | Uso |
+|---|---|---|---|---|
+| S1 | `4eb9e0d3-4925-4270-8068-5b2c6a9a5165` | 2026-07-01 | 2 | Paso 1 + regresión de trasplante |
+| S2 | `d5dbc0c3-2aa4-4f6d-91fb-ffa76bc3a8da` | 2026-07-01 | 2 | Paso 2 |
+| S3 | `4182b1f0-4d59-42cb-9375-bec0a00a7978` | 2026-07-01 | 2 | Paso 3 |
+| S4 | `3834c52d-f8e8-4145-bb84-e20db436cb2d` | 2026-07-01 | 3 | Pasos 4 y 11 |
+| S5 | `a5c54008-2536-4bcf-9025-8cc5dff243f4` | 2026-07-05 | 2 | Paso 5 |
+| SR | `3c0ecc97-8690-47fb-87f3-54cd8953b716` | 2026-07-15 | 2 | Pasos 6-10 (solo rechazos) |
+
+### Verificación funcional
+
+| # | Caso (quickstart) | Resultado | Estado |
+|---|---|---|---|
+| 1 | S1 sin body | `201`, 2 bandejas `en_nursery`, ambas `2026-07-29T14:44:45.950Z` (instante real, no mediodía) | ✅ |
+| 2 | S2 con `{}` | `201`, ambas `2026-07-29T14:44:46.440Z` | ✅ |
+| 3 | S3 con `fecha_entrada: "2026-07-29"` (hoy) | `201`, ambas `2026-07-29T14:44:46.878Z` — **instante real, no `T12:00:00.000Z`** | ✅ D2 |
+| 4 | S4 (`fecha` 2026-07-01) con `"2026-07-20"` | `201`, las **3** bandejas exactamente `2026-07-20T12:00:00.000Z`, sin corrimiento de día | ✅ caso principal |
+| 5 | S5 (`fecha` 2026-07-05) con `"2026-07-05"` | `201`, ambas `2026-07-05T12:00:00.000Z` (mismo día de la siembra aceptado) | ✅ |
+| 6 | SR con `"2026-07-30"` (mañana) | `422 SIEMBRA_FECHA_ENTRADA_INVALIDA` — "no puede ser posterior a hoy (2026-07-29)" | ✅ |
+| 7 | SR (`fecha` 2026-07-15) con `"2026-07-10"` | `422 SIEMBRA_FECHA_ENTRADA_INVALIDA` — "no puede ser anterior a la fecha de siembra (2026-07-15)" | ✅ |
+| 8 | SR con `"2026-02-31"` | `422 SIEMBRA_FECHA_ENTRADA_INVALIDA` — "no existe en el calendario"; **no** hizo roll-over al 3 de marzo | ✅ |
+| 8b | SR con `"2026-13-01"` (mes inválido, extra) | `422 SIEMBRA_FECHA_ENTRADA_INVALIDA`, sin `RangeError` — valida el guard `Number.isNaN` agregado en T008 | ✅ |
+| 9 | SR con `"20/07/2026"`, `"2026-7-1"`, `"2026-07-20T10:00:00Z"`, `123` | `400 BAD_REQUEST` en los cuatro, mensaje "fecha_entrada debe tener formato YYYY-MM-DD (solo día, sin hora)" | ✅ |
+| 10 | SR con `{ "fecha": "2026-07-20" }` | `400 BAD_REQUEST` — "property fecha should not exist" (`forbidNonWhitelisted`) | ✅ |
+| — | SR tras los pasos 6-10 | 2 bandejas siguen en `cooling_period` con `fecha_entrada_nursery: null` — ningún rechazo tocó la base | ✅ FR-014 |
+| 11 | S4 de nuevo con `"2026-07-21"` | `422 SIEMBRA_SIN_BANDEJAS_EN_COOLING`; releído S4: las 3 bandejas siguen en `2026-07-20T12:00:00.000Z` | ✅ US3 |
+| 12 | `POST` con uuid inexistente | `404 SIEMBRA_NOT_FOUND` con y sin `fecha_entrada` | ✅ |
+| 13 | Auditoría | 15 filas `siembra_ingreso_nursery`; las 5 de esta corrida con el `path` de cada siembra. **Parcial**: `payload.extra` llega `null` en la fila persistida | ⚠️ ver nota |
+
+### Regresión
+
+| Ítem | Resultado | Estado |
+|---|---|---|
+| Shape de lectura | `GET /siembras/:id` → mismas claves de siembra y de bandeja (`…, estado, fecha_entrada_nursery, fecha_trasplante, mesa_id, codigo, …`); `GET /siembras` → envelope `ok/data/meta` sin cambios. Ningún campo agregado, renombrado ni eliminado | ✅ FR-013 |
+| `GET /bandejas?sortBy=fecha_entrada_nursery` | Funciona con `sortOrder=DESC` y `ASC`, mezclando correctamente retroactivas y automáticas: ASC arranca en `2026-07-05T12:00Z` → `2026-07-20T12:00Z`; DESC arranca en `2026-07-29T14:44Z` | ✅ |
+| Conteo de bandejas movidas | S4 tenía 3 en `cooling_period` y las 3 se movieron, con un único valor de fecha (`2026-07-20T12:00:00.000Z` ×3): los filtros nuevos `tenant_id` y `deleted_at IS NULL` no excluyen filas legítimas | ✅ FR-015 |
+| Trasplante sin fecha informada | `POST /trasplante` con `fecha_trasplante` en el body → `400` "property fecha_trasplante should not exist". El trasplante válido de una bandeja de S1 guardó `fecha_trasplante: 2026-07-29T14:47:55.473Z` (instante real de la llamada) y conservó su `fecha_entrada_nursery` | ✅ |
+
+### Observaciones (ajenas a esta feature, no corregidas)
+
+1. **El endpoint responde `201`, no `200`.** `ingresarNursery` no tiene `@HttpCode`, así que Nest usa el default de `POST`. Es el comportamiento previo a esta feature, no un cambio introducido acá; el `quickstart.md` decía `200` por asunción. Se corrigió `docs/siembra-frontend.md`, que afirmaba `200`. Nota adicional: el `status_code` de la fila de auditoría está hardcodeado en `200` en el controller, así que difiere del status real.
+2. **`payload.extra` siempre queda `null` en `audit_logs`.** `auditLogPayload` (`src/common/audit/audit.util.ts:31`) hace *spread* de `extra` al nivel raíz, mientras que `redactPayload` (`src/modules/audit/audit.redact.ts:60`) lee `safe?.extra`. El campo se pierde para **todas** las acciones admin del proyecto, no solo esta: filas `siembra_created` del 2026-07-01 (previas a la feature) también tienen `extra: null`. `fechaEntrada` sí viaja en el log estructurado de pino (`this.logger.info(payload, 'admin_audit')`), que no es consultable por HTTP. Por eso el paso 13 queda como verificación parcial.
+
+Conclusión: el caso central funciona exactamente como se diseñó — una fecha pasada se persiste en `T12:00:00.000Z` sin corrimiento de día, la fecha de hoy y la ausencia de fecha siguen guardando el instante real, las tres validaciones rechazan con `422` sin tocar la base, el body desconocido y los formatos inválidos dan `400`, y ni la lectura ni el ordenamiento ni el trasplante cambiaron.
 
 ---
 

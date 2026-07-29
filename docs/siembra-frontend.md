@@ -917,7 +917,7 @@ Content-Type: application/json
 }
 ```
 
-Respuesta `200`:
+Respuesta `201` (es un `POST` sin `@HttpCode`, asi que Nest responde `201`, no `200`; verificado contra dev):
 
 ```json
 {
@@ -958,7 +958,7 @@ Notas:
 - Bandejas ya en `en_nursery` o `trasplantada` no se ven afectadas por una segunda llamada. **No hay forma de re-fechar una bandeja ya movida.**
 - Todas las bandejas movidas en una misma llamada reciben exactamente el mismo `fecha_entrada_nursery`.
 - Devuelve la siembra completa con sus bandejas actualizadas (mismo shape que `GET /siembras/:id`). Ningun campo de lectura cambia.
-- Se registra auditoria con accion `siembra_ingreso_nursery`, incluyendo la fecha informada.
+- Se registra auditoria con accion `siembra_ingreso_nursery`. La fecha informada viaja en el log estructurado (`admin_audit`); en la fila de `audit_logs` el campo `extra` queda `null` por una limitacion preexistente del redactor de auditoria, comun a todas las acciones admin del proyecto.
 
 Valor que queda en `fecha_entrada_nursery`:
 
@@ -1174,8 +1174,8 @@ Errores comunes:
 
 1. Mostrar la siembra con sus bandejas en `cooling_period` (via `GET /siembras/:id` o `GET /bandejas?siembra_id=...&estado=cooling_period`).
 2. El usuario confirma el ingreso a nursery para toda la siembra.
-3. Enviar `POST /siembras/:id/ingresar-nursery` (sin body).
-4. Si responde `200`, refrescar la siembra: todas las bandejas que estaban en `cooling_period` ahora estan `en_nursery` con `fecha_entrada_nursery` seteada.
+3. Enviar `POST /siembras/:id/ingresar-nursery` (sin body, o con `{ "fecha_entrada": "YYYY-MM-DD" }` si el ingreso ocurrio dias atras).
+4. Si responde `201`, refrescar la siembra: todas las bandejas que estaban en `cooling_period` ahora estan `en_nursery` con `fecha_entrada_nursery` seteada.
 5. Si responde `422 SIEMBRA_SIN_BANDEJAS_EN_COOLING`, informar que no hay bandejas pendientes de ingresar (ya se hizo antes).
 
 ### Flujo de listado de siembras
