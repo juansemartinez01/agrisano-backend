@@ -287,7 +287,7 @@ type Bandeja = {
 Notas sobre el ciclo de vida de `estado`:
 
 - `cooling_period`: estado inicial, seteado automaticamente al crear la siembra. `fecha_entrada_nursery` es `null`.
-- `en_nursery`: se llega via `POST /siembras/:id/ingresar-nursery` (accion manual, en bloque por siembra). `fecha_entrada_nursery` queda seteada con la fecha/hora de la transicion.
+- `en_nursery`: se llega via `POST /siembras/:id/ingresar-nursery` (accion manual, en bloque por siembra). `fecha_entrada_nursery` queda seteada con la fecha/hora de la transicion, o con la fecha pasada que se haya informado en el body (ver 10.6).
 - `trasplantada`: se llega via el modulo de trasplante. Solo bandejas `en_nursery` pueden trasplantarse.
 
 `codigo` es un identificador unico generado automaticamente por el backend (UUID) al crear la bandeja. Nunca es `null` y no se puede editar desde frontend.
@@ -886,12 +886,35 @@ Path params:
 | --- | --- | --- | --- |
 | `id` | uuid | Si | ID de la siembra |
 
-Body: no requiere body.
+Body: **opcional**.
 
-Ejemplo:
+```ts
+type IngresarNurseryDto = {
+  fecha_entrada?: string; // "YYYY-MM-DD" (dia calendario, sin hora)
+};
+```
+
+| Campo | Tipo | Requerido | Descripcion |
+| --- | --- | --- | --- |
+| `fecha_entrada` | string `YYYY-MM-DD` | No | Dia real en que las bandejas entraron a nursery. Si se omite, se usa el momento de la llamada |
+
+Formas validas de request: sin body, `{}`, o `{ "fecha_entrada": "2026-07-20" }`.
+
+Ejemplo sin fecha (comportamiento historico):
 
 ```http
 POST /siembras/b6a87174-056c-4d2a-b1fd-46a93d7a9763/ingresar-nursery
+```
+
+Ejemplo con fecha retroactiva:
+
+```http
+POST /siembras/b6a87174-056c-4d2a-b1fd-46a93d7a9763/ingresar-nursery
+Content-Type: application/json
+
+{
+  "fecha_entrada": "2026-07-20"
+}
 ```
 
 Respuesta `200`:
@@ -932,16 +955,58 @@ Respuesta `200`:
 Notas:
 
 - Transiciona **todas** las bandejas de la siembra que esten en `cooling_period` a `en_nursery` en una sola operacion (accion en bloque, no bandeja por bandeja).
-- Bandejas ya en `en_nursery` o `trasplantada` no se ven afectadas por una segunda llamada.
-- `fecha_entrada_nursery` se completa con la fecha/hora del servidor en el momento de la transicion.
-- Devuelve la siembra completa con sus bandejas actualizadas (mismo shape que `GET /siembras/:id`).
-- Se registra auditoria con accion `siembra_ingreso_nursery`.
+- Bandejas ya en `en_nursery` o `trasplantada` no se ven afectadas por una segunda llamada. **No hay forma de re-fechar una bandeja ya movida.**
+- Todas las bandejas movidas en una misma llamada reciben exactamente el mismo `fecha_entrada_nursery`.
+- Devuelve la siembra completa con sus bandejas actualizadas (mismo shape que `GET /siembras/:id`). Ningun campo de lectura cambia.
+- Se registra auditoria con accion `siembra_ingreso_nursery`, incluyendo la fecha informada.
+
+Valor que queda en `fecha_entrada_nursery`:
+
+| Caso | Valor persistido |
+| --- | --- |
+| Sin `fecha_entrada` | Instante real de la llamada (comportamiento historico, sin cambios) |
+| `fecha_entrada` igual a hoy | Instante real de la llamada |
+| `fecha_entrada` anterior a hoy | `<fecha_entrada>T12:00:00.000Z` |
+
+El anclaje al mediodia UTC existe para que el dia calendario se lea igual en cualquier huso de America. El frontend **no** debe reinterpretar el valor: para mostrar el dia alcanza con formatear el timestamp recibido.
+
+Validaciones de `fecha_entrada`:
+
+- Formato exacto `YYYY-MM-DD`. Un timestamp completo (`"2026-07-20T10:00:00Z"`) o cualquier otro formato responde `400`.
+- El body se valida con whitelist estricta: un campo desconocido (por ejemplo `fecha` en lugar de `fecha_entrada`) responde `400`.
+- No puede ser posterior a hoy.
+- No puede ser anterior a la `fecha` de la siembra. Igual a la fecha de siembra **si** es valido.
+- Debe existir en el calendario (`2026-02-31` se rechaza).
+
+Recomendaciones para el frontend:
+
+- Limitar el selector de fecha al rango `[siembra.fecha, hoy]`; fuera de ese rango el backend responde `422`.
+- Si se deriva el dia desde un `Date` del navegador, usar `getFullYear`/`getMonth`/`getDate` (locales). `toISOString()` convierte a UTC y puede devolver el dia anterior en husos negativos.
+- Si el usuario no toca el selector, lo mas simple es **omitir** el campo en lugar de mandar la fecha de hoy; el resultado es equivalente.
 
 Errores comunes:
 
+- `400`: `fecha_entrada` con formato invalido, o campo desconocido en el body.
 - `404 SIEMBRA_NOT_FOUND`: siembra inexistente o fuera del tenant.
+- `422 SIEMBRA_FECHA_ENTRADA_INVALIDA`: fecha futura, anterior a la siembra, o inexistente en el calendario. Ninguna bandeja se modifica.
 - `422 SIEMBRA_SIN_BANDEJAS_EN_COOLING`: no hay bandejas en `cooling_period` para transicionar (ya se ingreso antes, o la siembra ya esta en `en_nursery`/`trasplantada`).
 - `403 AUTH_FORBIDDEN`: rol insuficiente.
+
+Ejemplo `422 SIEMBRA_FECHA_ENTRADA_INVALIDA`:
+
+```json
+{
+  "ok": false,
+  "requestId": "uuid",
+  "statusCode": 422,
+  "error": {
+    "code": "SIEMBRA_FECHA_ENTRADA_INVALIDA",
+    "message": "La fecha de entrada no puede ser posterior a hoy (2026-07-29)"
+  },
+  "timestamp": "2026-07-29T10:00:00.000Z",
+  "path": "/siembras/b6a87174-056c-4d2a-b1fd-46a93d7a9763/ingresar-nursery"
+}
+```
 
 Ejemplo `422 SIEMBRA_SIN_BANDEJAS_EN_COOLING`:
 
