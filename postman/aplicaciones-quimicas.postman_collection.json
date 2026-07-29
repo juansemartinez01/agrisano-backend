@@ -306,7 +306,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"establecimiento_id\": \"{{establecimientoId}}\",\n  \"contexto\": \"nursery\",\n  \"receta_id\": \"{{recetaId}}\",\n  \"observaciones\": \"{{observaciones}}\",\n  \"detalles\": [\n    {\n      \"quimico_id\": \"{{quimicoId}}\",\n      \"cantidad\": {{cantidad}}\n    }\n  ],\n  \"bandeja_ids\": [\n    \"{{bandejaId}}\"\n  ]\n}"
+              "raw": "{\n  \"establecimiento_id\": \"{{establecimientoId}}\",\n  \"contexto\": \"nursery\",\n  \"lote_quimico_id\": \"{{loteQuimicoId}}\",\n  \"dosis\": {{dosis}},\n  \"cantidad\": {{cantidad}},\n  \"observaciones\": \"{{observaciones}}\",\n  \"detalles\": [\n    {\n      \"lote_quimico_id\": \"{{loteQuimicoAdicionalId}}\",\n      \"dosis\": {{dosisAdicional}},\n      \"cantidad\": {{cantidadAdicional}}\n    }\n  ],\n  \"bandeja_ids\": [\n    \"{{bandejaId}}\"\n  ]\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/aplicaciones-quimicas",
@@ -317,7 +317,7 @@
                 "aplicaciones-quimicas"
               ]
             },
-            "description": "Crea una aplicacion de contexto nursery. Requiere al menos una bandeja en estado en_nursery. Puede incluir receta_id."
+            "description": "Crea una aplicacion de contexto nursery. Requiere al menos una bandeja en estado en_nursery. `cantidad` (raiz) es lo que se descuenta del lote primario; `dosis` es informativa."
           }
         },
         {
@@ -362,7 +362,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"establecimiento_id\": \"{{establecimientoId}}\",\n  \"contexto\": \"invernadero\",\n  \"observaciones\": \"{{observaciones}}\",\n  \"detalles\": [\n    {\n      \"quimico_id\": \"{{quimicoId}}\",\n      \"cantidad\": {{cantidad}}\n    }\n  ],\n  \"mesa_ids\": [\n    \"{{mesaId}}\"\n  ]\n}"
+              "raw": "{\n  \"establecimiento_id\": \"{{establecimientoId}}\",\n  \"contexto\": \"greenhouse\",\n  \"lote_quimico_id\": \"{{loteQuimicoId}}\",\n  \"dosis\": {{dosis}},\n  \"cantidad\": {{cantidad}},\n  \"observaciones\": \"{{observaciones}}\",\n  \"detalles\": [\n    {\n      \"lote_quimico_id\": \"{{loteQuimicoAdicionalId}}\",\n      \"dosis\": {{dosisAdicional}},\n      \"cantidad\": {{cantidadAdicional}}\n    }\n  ],\n  \"mesa_ids\": [\n    \"{{mesaId}}\"\n  ]\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/aplicaciones-quimicas",

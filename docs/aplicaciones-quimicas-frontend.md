@@ -47,8 +47,12 @@ Estos son los valores actuales (con esta capitalización exacta). Si no se enví
   establecimiento_id: string;      // uuid, requerido
   contexto: AplicacionContexto;    // requerido
   lote_quimico_id: string;         // uuid, requerido — lote químico primario
-  dosis: number;                   // requerido, > 0
+  dosis: number;                   // requerido, > 0 — INFORMATIVA (por target); no afecta el stock
   dosis_unidad?: QuimicoRateUnidad; // opcional — default: rate_unidad del químico del lote primario
+  cantidad: number;                // ⭐ NUEVO — requerido, > 0. Es EXACTAMENTE lo que se
+                                   // descuenta del lote primario; el backend ya no calcula
+                                   // dosis × targets ni valida coherencia. Con requests
+                                   // troceados (operation_group_id), la cantidad es POR CHUNK.
   observaciones?: string;          // opcional, máx 2000 caracteres
   detalles?: Array<{               // opcional — lotes/químicos adicionales aplicados junto al primario
     lote_quimico_id: string;       // uuid, requerido
@@ -63,6 +67,8 @@ Estos son los valores actuales (con esta capitalización exacta). Si no se enví
 
 > ⚠️ **Cambio breaking**: antes de esta versión, cada item de `detalles[]` solo aceptaba `lote_quimico_id`/`cantidad`. Ahora `dosis` es **obligatoria** por item — un request que omita `dosis` en algún elemento de `detalles[]` recibirá `400` (validación). Motivo: la base nunca guardaba la dosis de los químicos adicionales, así que no había forma de mostrarla después en trazabilidad ni en el detalle de la aplicación. Si el frontend no captura hoy una dosis por lote adicional, debe agregar ese campo al formulario antes de actualizar contra este endpoint.
 
+> ⚠️ **Cambio breaking (cantidad del lote primario)**: `cantidad` es ahora **obligatoria en la raíz del body** y es exactamente lo que se descuenta del lote primario. El backend **ya no calcula** `dosis × cantidad_de_targets` ni valida coherencia entre `cantidad` y la dosis — el cálculo del total es 100% responsabilidad del frontend, igual que siempre lo fue para `detalles[]`. Un request sin `cantidad` (o con valor ≤ 0) recibe `400`. Con pedidos troceados en varios POST (`operation_group_id`), la `cantidad` se manda **por chunk**. Contrato completo: `specs/017-cantidad-primario-explicita/contracts/create-aplicacion.md`.
+
 ### Reglas de negocio
 
 1. El `establecimiento_id` debe existir y pertenecer al tenant actual.
@@ -71,7 +77,7 @@ Estos son los valores actuales (con esta capitalización exacta). Si no se enví
    - `nursery` → `bandeja_ids` es obligatorio (al menos 1). Cada bandeja debe estar en estado `en_nursery` y pertenecer al mismo establecimiento.
    - `greenhouse` → `mesa_ids` es obligatorio (al menos 1). Cada mesa debe estar en estado `activa` o `en_cosecha` y pertenecer al mismo establecimiento.
 4. Cada lote referenciado en `detalles[]` se valida igual que el lote primario (debe existir y pertenecer al mismo establecimiento).
-5. **Cálculo de stock del lote primario**: se descuenta `dosis × cantidad_de_targets` (cantidad de mesas o bandejas, según contexto; si no hay targets, se usa 1). Los lotes de `detalles[]` descuentan exactamente la `cantidad` indicada en cada item (no se multiplica).
+5. **Descuento de stock**: el lote primario descuenta exactamente la `cantidad` de la raíz del body; los lotes de `detalles[]` descuentan exactamente la `cantidad` indicada en cada item. En ningún caso el backend multiplica por targets ni ajusta el valor — `dosis` es un dato informativo (por mesa/bandeja) que se guarda como snapshot pero no interviene en el stock.
 6. Si el stock de cualquier lote (primario o de `detalles[]`) es insuficiente para el descuento, la operación completa se revierte (transacción) y se responde `LOTE_QUIMICO_STOCK_INSUFICIENTE` (422).
 7. **Snapshot**: al crear la aplicación, se copian `batch` (número de lote) y `withholding_period_dias` (período de carencia) desde el lote/químico primario al momento de la aplicación. Estos campos quedan fijos en el registro de la aplicación aunque el químico o el lote cambien después.
 8. **Carencia (solo `greenhouse`)**: si el químico primario tiene `withholding_period_dias > 0`, cada mesa afectada recibe `carencia_hasta = fecha_aplicación + withholding_period_dias` (columna `mesas.carencia_hasta`), y se registra un evento de historial `en_carencia` además del evento `aplicacion_quimica`.
@@ -286,6 +292,6 @@ Análogo al anterior, pero para bandejas y aplicaciones `nursery`. Valida que la
 
 ## 9. Notas para el frontend
 
-- El campo `dosis` es la dosis **por target** (por mesa o por bandeja); el backend calcula el descuento total del lote primario multiplicando por la cantidad de targets. El frontend no necesita hacer ese cálculo, pero sí debe mostrarlo si quiere anticipar el stock consumido.
+- El campo `dosis` es la dosis **por target** (por mesa o por bandeja) y es puramente informativo. El descuento del lote primario es la `cantidad` de la raíz del body: **el frontend calcula el total** (típicamente `dosis × targets`, pero puede diferir si el consumo real fue otro) y el backend descuenta ese valor tal cual, sin validarlo contra la dosis.
 - `batch` y `withholding_period_dias` en la respuesta son *snapshots*: reflejan el estado del lote/químico al momento de la aplicación, no su estado actual. Para ver el estado actual del químico/lote hay que consultar `GET /lotes-quimicos/:id` o `GET /quimicos/:id`.
 - No existe ningún mecanismo de "warnings" en la respuesta de creación: cualquier condición inválida (stock insuficiente, target en mal estado, establecimiento no coincide) corta la operación completa con un error, no se aplica parcialmente.
