@@ -27,6 +27,7 @@ import { SiembraService, AUDIT } from './siembra.service';
 import { CreateSiembraDto } from './dto/create-siembra.dto';
 import { UpdateSiembraDto } from './dto/update-siembra.dto';
 import { QuerySiembrasDto } from './dto/query-siembras.dto';
+import { IngresarNurseryDto } from './dto/ingresar-nursery.dto';
 
 type AuthRequest = Request & {
   user: JwtPayload;
@@ -92,8 +93,12 @@ export class SiembraController {
 
   @Roles('operario', 'supervisor', 'admin_global')
   @Post(':id/ingresar-nursery')
-  async ingresarNursery(@Param('id') id: string, @Req() req: AuthRequest) {
-    const result = await this.svc.ingresarNursery(id);
+  async ingresarNursery(
+    @Param('id') id: string,
+    @Body() dto: IngresarNurseryDto,
+    @Req() req: AuthRequest,
+  ) {
+    const result = await this.svc.ingresarNursery(id, dto);
 
     const payload = auditLogPayload({
       requestId: req.id,
@@ -101,7 +106,7 @@ export class SiembraController {
       actorEmail: req.user?.email,
       action: AUDIT.INGRESO_NURSERY,
       entity: 'siembra',
-      extra: { siembraId: id },
+      extra: { siembraId: id, fechaEntrada: dto.fecha_entrada ?? null },
     });
     this.logger.info(payload, 'admin_audit');
     await this.audit.write('admin', {

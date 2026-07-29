@@ -20,6 +20,7 @@ import { Bandeja, BandejaEstado } from './entities/bandeja.entity';
 import { CreateSiembraDto } from './dto/create-siembra.dto';
 import { UpdateSiembraDto } from './dto/update-siembra.dto';
 import { QuerySiembrasDto } from './dto/query-siembras.dto';
+import { IngresarNurseryDto } from './dto/ingresar-nursery.dto';
 
 export const AUDIT = {
   CREATED: 'siembra_created',
@@ -238,7 +239,74 @@ export class SiembraService {
     }
   }
 
-  async ingresarNursery(id: string): Promise<SiembraWithBandejas> {
+  /** Día actual en formato 'YYYY-MM-DD' (UTC). */
+  private hoyISO(): string {
+    return new Date().toISOString().split('T')[0];
+  }
+
+  /**
+   * Valida la fecha de entrada a nursery informada por el usuario.
+   *
+   * Las comparaciones son entre strings 'YYYY-MM-DD': en ISO 8601 el orden
+   * lexicográfico coincide con el cronológico, así que se compara día calendario
+   * contra día calendario sin construir objetos Date ni arriesgar corrimientos.
+   */
+  private assertFechaEntradaValida(fecha: string, fechaSiembra: string): void {
+    // El formato ya lo validó el DTO; acá se descarta la fecha inexistente.
+    // Ojo: JS hace roll-over silencioso ('2026-02-31' -> '2026-03-03'), así que
+    // no alcanza con isNaN: hay que comparar el round-trip.
+    const parsed = new Date(`${fecha}T12:00:00.000Z`);
+    if (
+      Number.isNaN(parsed.getTime()) ||
+      parsed.toISOString().split('T')[0] !== fecha
+    ) {
+      throw new AppError({
+        code: ErrorCodes.SIEMBRA_FECHA_ENTRADA_INVALIDA,
+        message: `La fecha de entrada ${fecha} no existe en el calendario`,
+        status: 422,
+      });
+    }
+
+    const hoy = this.hoyISO();
+    if (fecha > hoy) {
+      throw new AppError({
+        code: ErrorCodes.SIEMBRA_FECHA_ENTRADA_INVALIDA,
+        message: `La fecha de entrada no puede ser posterior a hoy (${hoy})`,
+        status: 422,
+      });
+    }
+
+    if (fecha < fechaSiembra) {
+      throw new AppError({
+        code: ErrorCodes.SIEMBRA_FECHA_ENTRADA_INVALIDA,
+        message: `La fecha de entrada no puede ser anterior a la fecha de siembra (${fechaSiembra})`,
+        status: 422,
+      });
+    }
+  }
+
+  /**
+   * Resuelve el valor a persistir en bandejas.fecha_entrada_nursery.
+   *
+   * - Sin fecha informada o fecha == hoy: now() de la base (comportamiento histórico).
+   *   Usar el ancla de mediodía para "hoy" guardaría un instante futuro si el registro
+   *   ocurre antes de las 12:00 UTC.
+   * - Fecha pasada: mediodía UTC de ese día, que preserva el día calendario en cualquier
+   *   huso entre UTC-11 y UTC+11 (el proyecto no maneja zonas horarias).
+   */
+  private resolveFechaEntradaNursery(
+    fecha: string | undefined,
+  ): Date | (() => string) {
+    if (!fecha || fecha === this.hoyISO()) {
+      return () => 'now()';
+    }
+    return new Date(`${fecha}T12:00:00.000Z`);
+  }
+
+  async ingresarNursery(
+    id: string,
+    dto?: IngresarNurseryDto,
+  ): Promise<SiembraWithBandejas> {
     const tenantId = this.tenancy.requireTenantId();
 
     const siembra = await this.siembraRepo.findOne({
@@ -252,6 +320,13 @@ export class SiembraService {
       });
     }
 
+    // Antes de abrir la transacción: un rechazo no debe tocar la base.
+    if (dto?.fecha_entrada) {
+      this.assertFechaEntradaValida(dto.fecha_entrada, siembra.fecha);
+    }
+
+    const fechaEntrada = this.resolveFechaEntradaNursery(dto?.fecha_entrada);
+
     const qr = this.dataSource.createQueryRunner();
     await qr.connect();
     await qr.startTransaction();
@@ -259,9 +334,14 @@ export class SiembraService {
       const result = await qr.manager
         .createQueryBuilder()
         .update(Bandeja)
-        .set({ estado: BandejaEstado.EN_NURSERY, fecha_entrada_nursery: () => 'now()' })
+        .set({
+          estado: BandejaEstado.EN_NURSERY,
+          fecha_entrada_nursery: fechaEntrada,
+        })
         .where('siembra_id = :id', { id })
         .andWhere('estado = :estado', { estado: BandejaEstado.COOLING_PERIOD })
+        .andWhere('tenant_id = :tenantId', { tenantId })
+        .andWhere('deleted_at IS NULL')
         .execute();
 
       if (!result.affected) {

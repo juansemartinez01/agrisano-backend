@@ -367,6 +367,76 @@
           }
         },
         {
+          "name": "Ingresar bandejas a nursery (fecha automatica)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/siembras/{{siembraId}}/ingresar-nursery",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "siembras",
+                "{{siembraId}}",
+                "ingresar-nursery"
+              ]
+            },
+            "description": "Requiere rol operario, supervisor o admin_global. Pasa todas las bandejas en cooling_period de la siembra a en_nursery. Sin body, fecha_entrada_nursery queda con el instante de la llamada (comportamiento historico)."
+          }
+        },
+        {
+          "name": "Ingresar bandejas a nursery (fecha retroactiva)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fecha_entrada\": \"{{fechaEntradaNursery}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/siembras/{{siembraId}}/ingresar-nursery",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "siembras",
+                "{{siembraId}}",
+                "ingresar-nursery"
+              ]
+            },
+            "description": "El body es OPCIONAL. fecha_entrada es un dia calendario 'YYYY-MM-DD'. Una fecha pasada se persiste como <fecha>T12:00:00.000Z; si es la de hoy se usa el instante real. Debe estar entre la fecha de la siembra y hoy, si no responde 422 SIEMBRA_FECHA_ENTRADA_INVALIDA."
+          }
+        },
+        {
           "name": "Actualizar observaciones de siembra",
           "request": {
             "method": "PATCH",
@@ -749,6 +819,10 @@
     {
       "key": "bandejaSortBy",
       "value": "created_at"
+    },
+    {
+      "key": "fechaEntradaNursery",
+      "value": "2026-07-20"
     }
   ]
 }
