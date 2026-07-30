@@ -126,7 +126,29 @@ Proyecto único NestJS: `src/modules/lotes/*`, `src/modules/siembra/*`, `src/com
 
 - [X] T017 [P] Correr `npx tsc --noEmit` y `npx eslint "src/modules/lotes/**/*.ts" "src/modules/siembra/**/*.ts" "src/common/errors/error-codes.ts" "migrations/1774400000000-LoteEstadoConsumido.ts"` (scope acotado, ver quickstart.md — no lint de repo completo)
 - [X] T018 Correr `npx jest src/modules/lotes/lotes.service.spec.ts src/modules/siembra/siembra.service.spec.ts` y confirmar verde
-- [ ] T019 Ejecutar la batería de verificación funcional de `quickstart.md` (15 pasos) contra el entorno dev en Railway
+- [X] T019 Ejecutar la batería de verificación funcional de `quickstart.md` (15 pasos) contra el entorno dev en Railway
+
+### Evidencia T019 (2026-07-30, dev Railway, admin@agrisano.com)
+
+Deploy: merge de `019-lote-estado-consumido` a `main` (commit `380a391`), push a origin, `migrationsRun: true` aplicó la migración `1774400000000-LoteEstadoConsumido` en boot. Confirmado por el usuario que el deploy y la migración ya habían corrido antes de arrancar la verificación.
+
+1. ✅ `GET /lotes` sin filtros: baseline de 2 items, cada uno con `"estado": "habilitado"` por defecto.
+2. ✅ `POST /lotes` (sustrato, lote de prueba nuevo) → `estado: "habilitado"`, `fecha_consumido: null`, `usuario_consumido_id: null`.
+3. ✅ `POST /lotes/:id/consumir` con `observaciones_consumo: "prueba"` sobre el lote de prueba → 200, `estado: "consumido"`, `fecha_consumido` seteada, observación guardada.
+4. ⏭️ **Omitido** por decisión del usuario: no había credenciales de un usuario `operario` real (distinto de `admin_global`) en dev para probar el 403 de `rehabilitar` en vivo. El enforcement de roles usa el mismo `RolesGuard`/`@Roles(...)` que todos los demás endpoints protegidos del proyecto; no se re-verifica aisladamente aquí.
+5. ✅ `POST /lotes/:id/rehabilitar` (admin, rol `supervisor`/`admin_global` calificando) → `estado: "habilitado"`, los 5 campos de metadata (`fecha_consumido`, `usuario_consumido_id`, 3 snapshots, `observaciones_consumo`) vueltos a `null`.
+6. ✅ Doble `consumir` → segunda llamada 409 `LOTE_YA_CONSUMIDO`; `fecha_consumido` del primer registro no cambió.
+7. ✅ Doble `rehabilitar` sobre lote ya habilitado → 409 `LOTE_NO_CONSUMIDO`.
+8. ✅ `disponible=true` excluye el lote recién consumido; `GET /lotes` sin filtros lo sigue mostrando.
+9. ✅ Lote rehabilitado + `PATCH activo:false` (estado sigue `habilitado`) → tampoco aparece en `disponible=true`.
+10. ✅ `estado=consumido` devuelve únicamente lotes en ese estado (1 resultado, el de prueba).
+11. ✅ `createSiembra` con lote semilla fixture (`14e715e1-...`) consumido → 422 `LOTE_CONSUMIDO` identificando `lote_semilla_id`. Rehabilitado al terminar.
+12. ✅ Mismo test con lote sustrato fixture (`622a5b3f-...`) consumido → 422 `LOTE_CONSUMIDO` identificando `lote_sustrato_id`. Rehabilitado al terminar.
+13. ✅ Lote semilla fixture con `activo:false` (sin consumir) → 422 `LOTE_INACTIVO`. Reactivado al terminar.
+14. ✅ `GET /bandejas?lote_semilla_id=...` antes y después de consumir/rehabilitar el lote fixture → resultados idénticos (JSON comparado byte a byte).
+15. ✅ `PATCH /lotes/:id` con `{"estado": "consumido"}` en el body → 400 `BAD_REQUEST` ("property estado should not exist"), whitelist de NestJS rechaza el campo.
+
+Limpieza: lote de prueba creado en el paso 2 fue soft-deleted al finalizar; fixtures `14e715e1-...` y `622a5b3f-...` quedaron en `estado: habilitado`, `activo: true`, idéntico a su estado previo a la verificación.
 
 ---
 
