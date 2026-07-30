@@ -8,15 +8,19 @@ import { ProveedoresService } from 'src/modules/proveedores/proveedores.service'
 import { ProductosService } from 'src/modules/productos/productos.service';
 import { VariedadesService } from 'src/modules/productos/variedades.service';
 import { MarcasService } from 'src/modules/marcas/marcas.service';
-import { Lote, LoteTipo } from './entities/lote.entity';
+import { fetchUsuarioSnapshot } from 'src/common/utils/usuario-resumen.util';
+import { Lote, LoteEstado, LoteTipo } from './entities/lote.entity';
 import { CreateLoteDto } from './dto/create-lote.dto';
 import { UpdateLoteDto } from './dto/update-lote.dto';
 import { QueryLotesDto } from './dto/query-lotes.dto';
+import { ConsumirLoteDto } from './dto/consumir-lote.dto';
 
 export const AUDIT = {
   CREATED: 'lote_created',
   UPDATED: 'lote_updated',
   DELETED: 'lote_deleted',
+  CONSUMIDO: 'lote_consumido',
+  REHABILITADO: 'lote_rehabilitado',
 } as const;
 
 @Injectable()
@@ -55,21 +59,27 @@ export class LotesService extends BaseCrudTenantService<Lote> {
     const filters: Record<string, unknown> = {};
     if (q.tipo !== undefined) filters['tipo'] = q.tipo;
     if (q.activo !== undefined) filters['activo'] = q.activo;
+    if (q.estado !== undefined) filters['estado'] = q.estado;
 
     return this.list(
       { ...q, filters },
       {
-        filterAllowed: ['tipo', 'activo'],
+        filterAllowed: ['tipo', 'activo', 'estado'],
         sortAllowed: ['numero_lote', 'created_at'],
         sortFallback: { by: 'created_at', order: 'DESC' },
         strictTenant: true,
-        customizeQb: q.q
-          ? (qb, alias) => {
-              qb.andWhere(`${alias}.numero_lote ILIKE :search`, {
-                search: `%${q.q}%`,
-              });
-            }
-          : undefined,
+        customizeQb: (qb, alias) => {
+          if (q.q) {
+            qb.andWhere(`${alias}.numero_lote ILIKE :search`, {
+              search: `%${q.q}%`,
+            });
+          }
+          if (q.disponible === true) {
+            qb.andWhere(`${alias}.estado = :estadoDisponible AND ${alias}.activo = true`, {
+              estadoDisponible: LoteEstado.HABILITADO,
+            });
+          }
+        },
       },
     );
   }
@@ -221,5 +231,78 @@ export class LotesService extends BaseCrudTenantService<Lote> {
     }
 
     await this.softDelete(id, { strictTenant: true });
+  }
+
+  async consumirLote(
+    id: string,
+    userId: string,
+    dto: ConsumirLoteDto,
+  ): Promise<Lote> {
+    const tenantId = this.getTenantId({ strictTenant: true }) as string;
+    await this.mustFindById(id, { strictTenant: true });
+
+    const snapshot = await fetchUsuarioSnapshot(
+      this.loteRepo.manager,
+      userId,
+      tenantId,
+    );
+
+    const result = await this.loteRepo
+      .createQueryBuilder()
+      .update(Lote)
+      .set({
+        estado: LoteEstado.CONSUMIDO,
+        fecha_consumido: () => 'now()',
+        usuario_consumido_id: userId,
+        usuario_consumido_email_snapshot: snapshot.usuario_email_snapshot,
+        usuario_consumido_nombre_snapshot: snapshot.usuario_nombre_snapshot,
+        usuario_consumido_apellido_snapshot:
+          snapshot.usuario_apellido_snapshot,
+        observaciones_consumo: dto.observaciones_consumo ?? null,
+      })
+      .where('id = :id', { id })
+      .andWhere('tenant_id = :tenantId', { tenantId })
+      .andWhere('estado = :habilitado', { habilitado: LoteEstado.HABILITADO })
+      .execute();
+
+    if (!result.affected) {
+      throw new AppError({
+        code: ErrorCodes.LOTE_YA_CONSUMIDO,
+        message: 'El lote ya está consumido',
+        status: 409,
+      });
+    }
+    return this.mustFindById(id, { strictTenant: true });
+  }
+
+  async rehabilitarLote(id: string): Promise<Lote> {
+    const tenantId = this.getTenantId({ strictTenant: true }) as string;
+    await this.mustFindById(id, { strictTenant: true });
+
+    const result = await this.loteRepo
+      .createQueryBuilder()
+      .update(Lote)
+      .set({
+        estado: LoteEstado.HABILITADO,
+        fecha_consumido: null,
+        usuario_consumido_id: null,
+        usuario_consumido_email_snapshot: null,
+        usuario_consumido_nombre_snapshot: null,
+        usuario_consumido_apellido_snapshot: null,
+        observaciones_consumo: null,
+      })
+      .where('id = :id', { id })
+      .andWhere('tenant_id = :tenantId', { tenantId })
+      .andWhere('estado = :consumido', { consumido: LoteEstado.CONSUMIDO })
+      .execute();
+
+    if (!result.affected) {
+      throw new AppError({
+        code: ErrorCodes.LOTE_NO_CONSUMIDO,
+        message: 'El lote no está consumido',
+        status: 409,
+      });
+    }
+    return this.mustFindById(id, { strictTenant: true });
   }
 }

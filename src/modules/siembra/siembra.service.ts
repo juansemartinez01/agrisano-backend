@@ -13,7 +13,7 @@ import {
 } from 'src/common/utils/usuario-resumen.util';
 import { TenancyService } from 'src/modules/tenancy/tenancy.service';
 import { LotesService } from 'src/modules/lotes/lotes.service';
-import { LoteTipo } from 'src/modules/lotes/entities/lote.entity';
+import { LoteEstado, LoteTipo } from 'src/modules/lotes/entities/lote.entity';
 import { EstablecimientosService } from 'src/modules/establecimientos/establecimientos.service';
 import { Siembra } from './entities/siembra.entity';
 import { Bandeja, BandejaEstado } from './entities/bandeja.entity';
@@ -175,6 +175,20 @@ export class SiembraService {
           status: 422,
         });
       }
+      if (semilla.estado === LoteEstado.CONSUMIDO) {
+        throw new AppError({
+          code: ErrorCodes.LOTE_CONSUMIDO,
+          message: `lote_semilla_id '${group.lote_semilla_id}' está consumido y no puede usarse en una siembra`,
+          status: 422,
+        });
+      }
+      if (!semilla.activo) {
+        throw new AppError({
+          code: ErrorCodes.LOTE_INACTIVO,
+          message: `lote_semilla_id '${group.lote_semilla_id}' está dado de baja y no puede usarse en una siembra`,
+          status: 422,
+        });
+      }
       const sustrato = await this.lotesService.mustFindById(
         group.lote_sustrato_id,
         { strictTenant: true },
@@ -193,6 +207,20 @@ export class SiembraService {
         throw new AppError({
           code: ErrorCodes.LOTE_ESTABLECIMIENTO_MISMATCH,
           message: `lote_sustrato_id '${group.lote_sustrato_id}' no pertenece al establecimiento de la siembra`,
+          status: 422,
+        });
+      }
+      if (sustrato.estado === LoteEstado.CONSUMIDO) {
+        throw new AppError({
+          code: ErrorCodes.LOTE_CONSUMIDO,
+          message: `lote_sustrato_id '${group.lote_sustrato_id}' está consumido y no puede usarse en una siembra`,
+          status: 422,
+        });
+      }
+      if (!sustrato.activo) {
+        throw new AppError({
+          code: ErrorCodes.LOTE_INACTIVO,
+          message: `lote_sustrato_id '${group.lote_sustrato_id}' está dado de baja y no puede usarse en una siembra`,
           status: 422,
         });
       }

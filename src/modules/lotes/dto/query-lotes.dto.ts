@@ -1,7 +1,7 @@
 import { IsBoolean, IsEnum, IsIn, IsOptional, IsString } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { PageQueryDto } from 'src/common/query/page-query.dto';
-import { LoteTipo } from '../entities/lote.entity';
+import { LoteEstado, LoteTipo } from '../entities/lote.entity';
 
 export class QueryLotesDto extends PageQueryDto {
   @IsOptional()
@@ -20,6 +20,19 @@ export class QueryLotesDto extends PageQueryDto {
   })
   @IsBoolean()
   activo?: boolean;
+
+  @IsOptional()
+  @IsEnum(LoteEstado)
+  estado?: LoteEstado;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === 'true' || value === true) return true;
+    if (value === 'false' || value === false) return false;
+    return value;
+  })
+  @IsBoolean()
+  disponible?: boolean;
 
   @IsOptional()
   @IsString()
