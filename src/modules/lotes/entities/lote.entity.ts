@@ -6,6 +6,11 @@ export enum LoteTipo {
   SUSTRATO = 'sustrato',
 }
 
+export enum LoteEstado {
+  HABILITADO = 'habilitado',
+  CONSUMIDO = 'consumido',
+}
+
 @Entity('lotes')
 export class Lote extends BaseEntity {
   @Column({ type: 'enum', enum: LoteTipo })
@@ -28,6 +33,28 @@ export class Lote extends BaseEntity {
 
   @Column({ type: 'boolean', default: true })
   activo!: boolean;
+
+  // Estado de consumo — independiente de `activo` (baja administrativa)
+  @Column({ type: 'enum', enum: LoteEstado, default: LoteEstado.HABILITADO })
+  estado!: LoteEstado;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  fecha_consumido!: Date | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  usuario_consumido_id!: string | null;
+
+  @Column({ type: 'varchar', length: 150, nullable: true })
+  usuario_consumido_email_snapshot!: string | null;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  usuario_consumido_nombre_snapshot!: string | null;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  usuario_consumido_apellido_snapshot!: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  observaciones_consumo!: string | null;
 
   // Semilla-only fields (nullable — sustrato rows leave these null)
   @Column({ type: 'uuid', nullable: true })

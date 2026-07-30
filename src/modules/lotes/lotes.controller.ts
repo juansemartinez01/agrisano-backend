@@ -26,6 +26,7 @@ import { LotesService, AUDIT } from './lotes.service';
 import { CreateLoteDto } from './dto/create-lote.dto';
 import { UpdateLoteDto } from './dto/update-lote.dto';
 import { QueryLotesDto } from './dto/query-lotes.dto';
+import { ConsumirLoteDto } from './dto/consumir-lote.dto';
 import type { JwtPayload } from 'src/modules/auth/types/jwt-payload.type';
 
 type AuthRequest = Request & {
@@ -162,5 +163,69 @@ export class LotesController {
     });
 
     return ok({ deleted: true });
+  }
+
+  @Roles('operario', 'supervisor', 'admin_global')
+  @Post(':id/consumir')
+  async consumir(
+    @Param('id') id: string,
+    @Body() dto: ConsumirLoteDto,
+    @Req() req: AuthRequest,
+  ) {
+    const lote = await this.svc.consumirLote(id, req.user.sub, dto);
+
+    const payload = auditLogPayload({
+      requestId: req.id,
+      actorUserId: req.user?.sub,
+      actorEmail: req.user?.email,
+      action: AUDIT.CONSUMIDO,
+      entity: 'lote',
+      extra: { loteId: id, observaciones_consumo: dto.observaciones_consumo ?? null },
+    });
+    this.logger.info(payload, 'admin_audit');
+    await this.audit.write('admin', {
+      request_id: req.id,
+      method: req.method,
+      path: req.url,
+      status_code: 200,
+      actor_user_id: req.user?.sub ?? null,
+      actor_email: req.user?.email ?? null,
+      action: AUDIT.CONSUMIDO,
+      entity: 'lote',
+      tenant_id: req.tenantId ?? null,
+      payload,
+    });
+
+    return ok(lote);
+  }
+
+  @Roles('supervisor', 'admin_global')
+  @Post(':id/rehabilitar')
+  async rehabilitar(@Param('id') id: string, @Req() req: AuthRequest) {
+    const lote = await this.svc.rehabilitarLote(id);
+
+    const payload = auditLogPayload({
+      requestId: req.id,
+      actorUserId: req.user?.sub,
+      actorEmail: req.user?.email,
+      action: AUDIT.REHABILITADO,
+      entity: 'lote',
+      extra: { loteId: id },
+    });
+    this.logger.info(payload, 'admin_audit');
+    await this.audit.write('admin', {
+      request_id: req.id,
+      method: req.method,
+      path: req.url,
+      status_code: 200,
+      actor_user_id: req.user?.sub ?? null,
+      actor_email: req.user?.email ?? null,
+      action: AUDIT.REHABILITADO,
+      entity: 'lote',
+      tenant_id: req.tenantId ?? null,
+      payload,
+    });
+
+    return ok(lote);
   }
 }
