@@ -18,6 +18,11 @@ export class Bandeja extends BaseEntity {
   @Column({ type: 'uuid' })
   lote_sustrato_id!: string;
 
+  // Nullable a diferencia de los otros dos lotes: la vermiculita es opcional al
+  // sembrar y las bandejas anteriores a esta feature no la llevaron.
+  @Column({ type: 'uuid', nullable: true })
+  lote_vermiculita_id!: string | null;
+
   @Column({ type: 'enum', enum: BandejaEstado, default: BandejaEstado.COOLING_PERIOD })
   estado!: BandejaEstado;
 
