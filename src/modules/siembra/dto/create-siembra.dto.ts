@@ -20,6 +20,11 @@ export class BandejaGroupDto {
   @IsUUID()
   lote_sustrato_id!: string;
 
+  // Opcional a diferencia de los otros dos: no toda siembra lleva vermiculita
+  @IsOptional()
+  @IsUUID()
+  lote_vermiculita_id?: string;
+
   @IsInt()
   @Min(1)
   cantidad!: number;

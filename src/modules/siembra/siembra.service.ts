@@ -35,9 +35,16 @@ interface LoteRef {
   tipo: string;
 }
 
+// El grado solo existe en los lotes de vermiculita, así que no se sube a
+// LoteRef: semilla y sustrato lo tienen siempre en null.
+interface LoteVermiculitaRef extends LoteRef {
+  grado: number;
+}
+
 type BandejaWithRefs = Bandeja & {
   lote_semilla?: LoteRef;
   lote_sustrato?: LoteRef;
+  lote_vermiculita?: LoteVermiculitaRef;
 };
 
 export interface SiembraWithBandejas extends Siembra {
@@ -117,6 +124,12 @@ export class SiembraService {
       .createQueryBuilder('b')
       .leftJoinAndMapOne('b.lote_semilla', 'lotes', 'ls', 'ls.id = b.lote_semilla_id')
       .leftJoinAndMapOne('b.lote_sustrato', 'lotes', 'lsu', 'lsu.id = b.lote_sustrato_id')
+      .leftJoinAndMapOne(
+        'b.lote_vermiculita',
+        'lotes',
+        'lv',
+        'lv.id = b.lote_vermiculita_id',
+      )
       .where('b.siembra_id = :id', { id })
       .andWhere('b.tenant_id = :tenantId', { tenantId })
       .select([
@@ -124,6 +137,7 @@ export class SiembraService {
         'b.siembra_id',
         'b.lote_semilla_id',
         'b.lote_sustrato_id',
+        'b.lote_vermiculita_id',
         'b.estado',
         'b.fecha_entrada_nursery',
         'b.fecha_trasplante',
@@ -139,6 +153,10 @@ export class SiembraService {
         'lsu.id',
         'lsu.numero_lote',
         'lsu.tipo',
+        'lv.id',
+        'lv.numero_lote',
+        'lv.tipo',
+        'lv.grado',
       ])
       .getMany() as BandejaWithRefs[];
 
@@ -224,6 +242,46 @@ export class SiembraService {
           status: 422,
         });
       }
+
+      // Opcional: se valida al final del grupo para no cambiar qué error se
+      // reporta primero en las siembras que ya existían antes de la feature.
+      if (group.lote_vermiculita_id) {
+        const vermiculita = await this.lotesService.mustFindById(
+          group.lote_vermiculita_id,
+          { strictTenant: true },
+        );
+        if (vermiculita.tipo !== LoteTipo.VERMICULITA) {
+          throw new AppError({
+            code: ErrorCodes.LOTE_TIPO_INCORRECTO,
+            message: `lote_vermiculita_id '${group.lote_vermiculita_id}' debe ser tipo vermiculita`,
+            status: 422,
+          });
+        }
+        if (
+          vermiculita.establecimiento_id !== null &&
+          vermiculita.establecimiento_id !== dto.establecimiento_id
+        ) {
+          throw new AppError({
+            code: ErrorCodes.LOTE_ESTABLECIMIENTO_MISMATCH,
+            message: `lote_vermiculita_id '${group.lote_vermiculita_id}' no pertenece al establecimiento de la siembra`,
+            status: 422,
+          });
+        }
+        if (vermiculita.estado === LoteEstado.CONSUMIDO) {
+          throw new AppError({
+            code: ErrorCodes.LOTE_CONSUMIDO,
+            message: `lote_vermiculita_id '${group.lote_vermiculita_id}' está consumido y no puede usarse en una siembra`,
+            status: 422,
+          });
+        }
+        if (!vermiculita.activo) {
+          throw new AppError({
+            code: ErrorCodes.LOTE_INACTIVO,
+            message: `lote_vermiculita_id '${group.lote_vermiculita_id}' está dado de baja y no puede usarse en una siembra`,
+            status: 422,
+          });
+        }
+      }
     }
 
     const qr = this.dataSource.createQueryRunner();
@@ -248,6 +306,7 @@ export class SiembraService {
             siembra_id: savedSiembra.id,
             lote_semilla_id: group.lote_semilla_id,
             lote_sustrato_id: group.lote_sustrato_id,
+            lote_vermiculita_id: group.lote_vermiculita_id ?? null,
             estado: BandejaEstado.COOLING_PERIOD,
             fecha_entrada_nursery: null,
             establecimiento_id: dto.establecimiento_id,

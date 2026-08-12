@@ -1,5 +1,7 @@
 import {
   IsEnum,
+  IsIn,
+  IsInt,
   IsString,
   IsNotEmpty,
   IsUUID,
@@ -54,4 +56,11 @@ export class CreateLoteDto {
   @IsString()
   @MaxLength(100)
   batch?: string;
+
+  // Vermiculita-only field — validated only when tipo === 'vermiculita'
+  @ValidateIf((o: CreateLoteDto) => o.tipo === LoteTipo.VERMICULITA)
+  @IsNotEmpty()
+  @IsInt()
+  @IsIn([1, 2, 3])
+  grado?: number;
 }
