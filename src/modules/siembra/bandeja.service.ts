@@ -24,11 +24,19 @@ export class BandejaService extends BaseCrudTenantService<Bandeja> {
     if (q.establecimiento_id) filters['establecimiento_id'] = q.establecimiento_id;
     if (q.siembra_id) filters['siembra_id'] = q.siembra_id;
     if (q.lote_semilla_id) filters['lote_semilla_id'] = q.lote_semilla_id;
+    if (q.lote_vermiculita_id)
+      filters['lote_vermiculita_id'] = q.lote_vermiculita_id;
 
     return this.list(
       { ...q, filters },
       {
-        filterAllowed: ['estado', 'establecimiento_id', 'siembra_id', 'lote_semilla_id'],
+        filterAllowed: [
+          'estado',
+          'establecimiento_id',
+          'siembra_id',
+          'lote_semilla_id',
+          'lote_vermiculita_id',
+        ],
         sortAllowed: ['fecha_entrada_nursery', 'created_at'],
         sortFallback: { by: 'created_at', order: 'DESC' },
         strictTenant: true,

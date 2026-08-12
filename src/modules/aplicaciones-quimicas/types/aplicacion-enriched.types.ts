@@ -17,6 +17,12 @@ export interface LoteRef {
   numero_lote: string;
 }
 
+/** El grado solo existe en los lotes de vermiculita; semilla y sustrato lo
+ *  tienen siempre en NULL, así que no sube a LoteRef. */
+export interface LoteVermiculitaRef extends LoteRef {
+  grado: number;
+}
+
 export interface ChemicalLine {
   lote_quimico_id: string;
   chemical_id: string | null;
@@ -117,6 +123,7 @@ export interface NurserySeedingGroup {
   variety: RefNombre | null;
   seed_lot: LoteRef | null;
   substrate_lot: LoteRef | null;
+  vermiculite_lot: LoteVermiculitaRef | null;
   trays: NurseryTray[];
 }
 
@@ -192,6 +199,9 @@ export interface NurseryTargetRaw {
   lote_semilla_numero: string | null;
   lote_sustrato_id: string | null;
   lote_sustrato_numero: string | null;
+  lote_vermiculita_id: string | null;
+  lote_vermiculita_numero: string | null;
+  lote_vermiculita_grado: number | null;
   producto_id: string | null;
   producto_nombre: string | null;
   variedad_id: string | null;

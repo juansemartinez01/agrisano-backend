@@ -16,6 +16,10 @@ export class QueryBandejasDto extends PageQueryDto {
   lote_semilla_id?: string;
 
   @IsOptional()
+  @IsUUID()
+  lote_vermiculita_id?: string;
+
+  @IsOptional()
   @IsEnum(BandejaEstado)
   estado?: BandejaEstado;
 

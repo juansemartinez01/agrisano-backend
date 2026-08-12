@@ -75,6 +75,7 @@ interface BandejaCicloRaw {
   siembra_id: string;
   lote_semilla_id: string;
   lote_sustrato_id: string;
+  lote_vermiculita_id: string | null;
   estado: string;
   carencia_hasta: string | null;
   s_id: string | null;
@@ -88,6 +89,9 @@ interface BandejaCicloRaw {
   lote_semilla_tipo: string | null;
   lote_sustrato_numero: string | null;
   lote_sustrato_tipo: string | null;
+  lote_vermiculita_numero: string | null;
+  lote_vermiculita_tipo: string | null;
+  lote_vermiculita_grado: number | null;
 }
 
 interface SiembraInfo {
@@ -98,6 +102,14 @@ interface SiembraInfo {
   usuario: UsuarioResumen | null;
   lote_semilla: { id: string; numero_lote: string; tipo: string };
   lote_sustrato: { id: string; numero_lote: string; tipo: string };
+  // Nullable a diferencia de los otros dos: la vermiculita es opcional en la
+  // siembra y las bandejas anteriores a la feature la tienen en NULL.
+  lote_vermiculita: {
+    id: string;
+    numero_lote: string;
+    tipo: string;
+    grado: number;
+  } | null;
 }
 
 interface BandejaCicloRow {
@@ -106,6 +118,7 @@ interface BandejaCicloRow {
   siembra_id: string;
   lote_semilla_id: string;
   lote_sustrato_id: string;
+  lote_vermiculita_id: string | null;
   estado: string;
   carencia_hasta: string | null;
   siembra: SiembraInfo | null;
@@ -333,6 +346,21 @@ function toUsuarioResumen(
   return email ? { id, email, nombre, apellido } : null;
 }
 
+/** Sin lote de vermiculita el LEFT JOIN no trae fila y las columnas quedan en
+ *  NULL, así que no se puede asumir no-null como con semilla y sustrato. */
+function toLoteVermiculita(
+  r: BandejaCicloRaw,
+): SiembraInfo['lote_vermiculita'] {
+  return r.lote_vermiculita_id
+    ? {
+        id: r.lote_vermiculita_id,
+        numero_lote: r.lote_vermiculita_numero!,
+        tipo: r.lote_vermiculita_tipo!,
+        grado: r.lote_vermiculita_grado!,
+      }
+    : null;
+}
+
 function mapAplicacionRow(r: AplicacionRawRow): AplicacionRow {
   return {
     id: r.id,
@@ -478,19 +506,23 @@ export class TrazabilidadService {
       const [mbRows, invernaderoRaw] = await Promise.all([
         this.dataSource.query<BandejaCicloRaw[]>(
           `SELECT mb.bandeja_id, mb.fecha_trasplante,
-                  b.siembra_id, b.lote_semilla_id, b.lote_sustrato_id, b.estado, b.carencia_hasta,
+                  b.siembra_id, b.lote_semilla_id, b.lote_sustrato_id, b.lote_vermiculita_id,
+                  b.estado, b.carencia_hasta,
                   s.id AS s_id, s.fecha AS s_fecha, s.observaciones AS s_obs, s.usuario_id AS s_usuario_id,
                   COALESCE(s.usuario_email_snapshot, su.email) AS su_email,
                   COALESCE(s.usuario_nombre_snapshot, su.nombre) AS su_nombre,
                   COALESCE(s.usuario_apellido_snapshot, su.apellido) AS su_apellido,
                   ls.numero_lote AS lote_semilla_numero, ls.tipo AS lote_semilla_tipo,
-                  lsu.numero_lote AS lote_sustrato_numero, lsu.tipo AS lote_sustrato_tipo
+                  lsu.numero_lote AS lote_sustrato_numero, lsu.tipo AS lote_sustrato_tipo,
+                  lv.numero_lote AS lote_vermiculita_numero, lv.tipo AS lote_vermiculita_tipo,
+                  lv.grado AS lote_vermiculita_grado
            FROM mesa_bandeja mb
            JOIN bandejas b ON b.id = mb.bandeja_id
            LEFT JOIN siembras s ON s.id = b.siembra_id
            LEFT JOIN users su ON su.id = s.usuario_id
            LEFT JOIN lotes ls ON ls.id = b.lote_semilla_id
            LEFT JOIN lotes lsu ON lsu.id = b.lote_sustrato_id
+           LEFT JOIN lotes lv ON lv.id = b.lote_vermiculita_id
            WHERE mb.mesa_id = $1 AND mb.fecha_trasplante = $2 AND b.tenant_id = $3`,
           [cosecha.mesa_id, cycleDate, tenantId],
         ),
@@ -516,6 +548,7 @@ export class TrazabilidadService {
         siembra_id: r.siembra_id,
         lote_semilla_id: r.lote_semilla_id,
         lote_sustrato_id: r.lote_sustrato_id,
+        lote_vermiculita_id: r.lote_vermiculita_id,
         estado: r.estado,
         carencia_hasta: r.carencia_hasta,
         siembra: r.s_id
@@ -535,6 +568,7 @@ export class TrazabilidadService {
                 numero_lote: r.lote_sustrato_numero!,
                 tipo: r.lote_sustrato_tipo!,
               },
+              lote_vermiculita: toLoteVermiculita(r),
             }
           : null,
       }));
