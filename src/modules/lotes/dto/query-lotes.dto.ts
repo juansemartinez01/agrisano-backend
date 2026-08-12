@@ -1,4 +1,11 @@
-import { IsBoolean, IsEnum, IsIn, IsOptional, IsString } from 'class-validator';
+import {
+  IsBoolean,
+  IsEnum,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+} from 'class-validator';
 import { Transform } from 'class-transformer';
 import { PageQueryDto } from 'src/common/query/page-query.dto';
 import { LoteEstado, LoteTipo } from '../entities/lote.entity';
@@ -24,6 +31,13 @@ export class QueryLotesDto extends PageQueryDto {
   @IsOptional()
   @IsEnum(LoteEstado)
   estado?: LoteEstado;
+
+  // Solo tiene sentido combinado con tipo=vermiculita; el resto de los tipos
+  // tienen grado NULL y el filtro simplemente no devuelve nada.
+  @IsOptional()
+  @IsInt()
+  @IsIn([1, 2, 3])
+  grado?: number;
 
   @IsOptional()
   @Transform(({ value }) => {

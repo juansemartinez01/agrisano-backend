@@ -1,4 +1,13 @@
-import { IsBoolean, IsNotEmpty, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+import {
+  IsBoolean,
+  IsIn,
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+} from 'class-validator';
 
 // tipo is intentionally absent — immutability enforced by omission.
 // The PATCH controller checks req.body for a 'tipo' key and rejects it explicitly.
@@ -47,4 +56,10 @@ export class UpdateLoteDto {
   @IsString()
   @MaxLength(100)
   batch?: string;
+
+  // Vermiculita-only field — el rechazo por tipo lo hace updateLote (tipo es inmutable)
+  @IsOptional()
+  @IsInt()
+  @IsIn([1, 2, 3])
+  grado?: number;
 }

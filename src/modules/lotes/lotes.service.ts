@@ -60,11 +60,12 @@ export class LotesService extends BaseCrudTenantService<Lote> {
     if (q.tipo !== undefined) filters['tipo'] = q.tipo;
     if (q.activo !== undefined) filters['activo'] = q.activo;
     if (q.estado !== undefined) filters['estado'] = q.estado;
+    if (q.grado !== undefined) filters['grado'] = q.grado;
 
     return this.list(
       { ...q, filters },
       {
-        filterAllowed: ['tipo', 'activo', 'estado'],
+        filterAllowed: ['tipo', 'activo', 'estado', 'grado'],
         sortAllowed: ['numero_lote', 'created_at'],
         sortFallback: { by: 'created_at', order: 'DESC' },
         strictTenant: true,
@@ -96,7 +97,7 @@ export class LotesService extends BaseCrudTenantService<Lote> {
     }
 
     if (
-      dto.tipo === LoteTipo.SUSTRATO &&
+      dto.tipo !== LoteTipo.SEMILLA &&
       (dto.proveedor_semilla_id || dto.producto_id || dto.variedad_id)
     ) {
       if (dto.proveedor_semilla_id) {
@@ -112,6 +113,15 @@ export class LotesService extends BaseCrudTenantService<Lote> {
         status: 422,
       });
     }
+
+    if (dto.tipo !== LoteTipo.VERMICULITA && dto.grado !== undefined) {
+      throw new AppError({
+        code: ErrorCodes.LOTE_GRADO_NO_PERMITIDO,
+        message: 'grado solo aplica a lotes de tipo vermiculita',
+        status: 422,
+      });
+    }
+
     if (dto.tipo === LoteTipo.SEMILLA) {
       await this.proveedoresService.mustFindById(dto.proveedor_semilla_id!, {
         strictTenant: true,
@@ -152,12 +162,13 @@ export class LotesService extends BaseCrudTenantService<Lote> {
       dto.proveedor_semilla_id !== undefined ||
       dto.producto_id !== undefined ||
       dto.variedad_id !== undefined ||
+      dto.grado !== undefined ||
       dto.numero_lote
     ) {
       const current = await this.mustFindById(id, { strictTenant: true });
 
       if (dto.proveedor_semilla_id !== undefined) {
-        if (current.tipo === LoteTipo.SUSTRATO) {
+        if (current.tipo !== LoteTipo.SEMILLA) {
           throw new AppError({
             code: ErrorCodes.LOTE_PROVEEDOR_SEMILLA_NO_PERMITIDO,
             message: 'proveedor_semilla_id solo aplica a lotes de tipo semilla',
@@ -170,7 +181,7 @@ export class LotesService extends BaseCrudTenantService<Lote> {
       }
 
       if (dto.producto_id !== undefined || dto.variedad_id !== undefined) {
-        if (current.tipo === LoteTipo.SUSTRATO) {
+        if (current.tipo !== LoteTipo.SEMILLA) {
           throw new AppError({
             code: ErrorCodes.LOTE_PRODUCTO_NO_PERMITIDO,
             message: 'producto_id/variedad_id solo aplica a lotes de tipo semilla',
@@ -180,6 +191,14 @@ export class LotesService extends BaseCrudTenantService<Lote> {
         const productoId = dto.producto_id ?? current.producto_id!;
         const variedadId = dto.variedad_id ?? current.variedad_id!;
         await this.validateProductoVariedad(productoId, variedadId);
+      }
+
+      if (dto.grado !== undefined && current.tipo !== LoteTipo.VERMICULITA) {
+        throw new AppError({
+          code: ErrorCodes.LOTE_GRADO_NO_PERMITIDO,
+          message: 'grado solo aplica a lotes de tipo vermiculita',
+          status: 422,
+        });
       }
 
       if (dto.numero_lote) {
@@ -213,7 +232,7 @@ export class LotesService extends BaseCrudTenantService<Lote> {
 
     try {
       const result = (await this.loteRepo.manager.query(
-        `SELECT COUNT(*)::int AS cnt FROM bandejas WHERE lote_semilla_id = $1 OR lote_sustrato_id = $1`,
+        `SELECT COUNT(*)::int AS cnt FROM bandejas WHERE lote_semilla_id = $1 OR lote_sustrato_id = $1 OR lote_vermiculita_id = $1`,
         [id],
       )) as [{ cnt: number }];
 
