@@ -46,6 +46,7 @@ import {
   GreenhouseTargets,
   GreenhouseTunnelGroup,
   LoteRef,
+  LoteVermiculitaRef,
   NurserySeedingGroup,
   NurserySummaryRaw,
   NurseryTargetRaw,
@@ -545,6 +546,16 @@ export class AplicacionesQuimicasService {
     return id !== null && numero_lote !== null ? { id, numero_lote } : null;
   }
 
+  private loteVermiculitaRefOrNull(
+    id: string | null,
+    numero_lote: string | null,
+    grado: number | null,
+  ): LoteVermiculitaRef | null {
+    return id !== null && numero_lote !== null && grado !== null
+      ? { id, numero_lote, grado }
+      : null;
+  }
+
   private async enrichAplicaciones(
     aplicaciones: AplicacionQuimica[],
     tenantId: string,
@@ -870,6 +881,9 @@ export class AplicacionesQuimicasService {
       .addSelect('ls.numero_lote', 'lote_semilla_numero')
       .addSelect('lsu.id', 'lote_sustrato_id')
       .addSelect('lsu.numero_lote', 'lote_sustrato_numero')
+      .addSelect('lv.id', 'lote_vermiculita_id')
+      .addSelect('lv.numero_lote', 'lote_vermiculita_numero')
+      .addSelect('lv.grado', 'lote_vermiculita_grado')
       .addSelect('pr.id', 'producto_id')
       .addSelect('pr.nombre', 'producto_nombre')
       .addSelect('v.id', 'variedad_id')
@@ -878,6 +892,7 @@ export class AplicacionesQuimicasService {
       .leftJoin('siembras', 's', 's.id = b.siembra_id')
       .leftJoin('lotes', 'ls', 'ls.id = b.lote_semilla_id')
       .leftJoin('lotes', 'lsu', 'lsu.id = b.lote_sustrato_id')
+      .leftJoin('lotes', 'lv', 'lv.id = b.lote_vermiculita_id')
       .leftJoin('productos', 'pr', 'pr.id = ls.producto_id')
       .leftJoin('variedades', 'v', 'v.id = ls.variedad_id')
       .where('aqb.aplicacion_id = :id', { id: aplicacionId })
@@ -914,6 +929,15 @@ export class AplicacionesQuimicasService {
               this.loteRefOrNull(r.lote_sustrato_id, r.lote_sustrato_numero),
             ),
           ),
+          vermiculite_lot: this.homogeneousLote(
+            group.map((r) =>
+              this.loteVermiculitaRefOrNull(
+                r.lote_vermiculita_id,
+                r.lote_vermiculita_numero,
+                r.lote_vermiculita_grado,
+              ),
+            ),
+          ),
           trays: group.map((r) => ({
             id: r.bandeja_id,
             codigo: r.bandeja_codigo,
@@ -937,7 +961,11 @@ export class AplicacionesQuimicasService {
     return values.every((v) => v !== null && v.id === first.id) ? first : null;
   }
 
-  private homogeneousLote(values: (LoteRef | null)[]): LoteRef | null {
+  // Genérico: si devolviera LoteRef, el grado de la vermiculita se perdería en
+  // silencio (LoteVermiculitaRef es asignable a LoteRef, no hay error de tipos).
+  private homogeneousLote<T extends { id: string }>(
+    values: (T | null)[],
+  ): T | null {
     const first = values[0] ?? null;
     if (first === null) return null;
     return values.every((v) => v !== null && v.id === first.id) ? first : null;

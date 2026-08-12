@@ -103,13 +103,13 @@ Proyecto único NestJS: `src/modules/lotes/*`, `src/modules/siembra/*`, `src/mod
 
 ### Tests for User Story 3 ⚠️
 
-- [ ] T020 [US3] Crear `src/modules/trazabilidad/trazabilidad.service.spec.ts` mockeando `dataSource.query` para devolver filas crudas: una fila **con** vermiculita → `lote_vermiculita` mapeado con `grado`; una fila **sin** vermiculita (`lote_vermiculita_id: null`, resto de columnas `null`) → `lote_vermiculita: null`, **sin** que la bandeja se omita ni el mapeo produzca `numero_lote: undefined` (SC-007, el riesgo de copiar la aserción `!` de las líneas vecinas). Debe fallar antes de T021
+- [X] T020 [US3] Crear `src/modules/trazabilidad/trazabilidad.service.spec.ts` mockeando `dataSource.query` para devolver filas crudas: una fila **con** vermiculita → `lote_vermiculita` mapeado con `grado`; una fila **sin** vermiculita (`lote_vermiculita_id: null`, resto de columnas `null`) → `lote_vermiculita: null`, **sin** que la bandeja se omita ni el mapeo produzca `numero_lote: undefined` (SC-007, el riesgo de copiar la aserción `!` de las líneas vecinas). Debe fallar antes de T021
 
 ### Implementation for User Story 3
 
-- [ ] T021 [US3] [P] En `src/modules/trazabilidad/trazabilidad.service.ts`: agregar `LEFT JOIN lotes lv ON lv.id = b.lote_vermiculita_id` y las columnas `lv.numero_lote`/`lv.tipo`/`lv.grado` a la SQL cruda (línea ~480), los campos correspondientes a las tres interfaces (`BandejaCicloRaw`, `SiembraInfo` con `lote_vermiculita` **nullable**, `BandejaCicloRow`) y el mapeo **condicional** (`r.lote_vermiculita_id ? {...} : null`) — sin aserción de no-nulo sobre el id. Depende de T003, T005
-- [ ] T022 [US3] [P] En `src/modules/aplicaciones-quimicas/types/aplicacion-enriched.types.ts`: agregar `LoteVermiculitaRef` (`LoteRef & { grado: number }`), el campo `vermiculite_lot: LoteVermiculitaRef | null` en `NurserySeedingGroup` (junto a `seed_lot`/`substrate_lot`, respetando la convención en inglés del archivo) y las columnas crudas `lote_vermiculita_id`/`lote_vermiculita_numero`/`lote_vermiculita_grado`
-- [ ] T023 [US3] En `src/modules/aplicaciones-quimicas/aplicaciones-quimicas.service.ts`: agregar el `LEFT JOIN` y los `addSelect` de las tres columnas, un helper `loteVermiculitaRefOrNull(id, numero_lote, grado)` análogo a `loteRefOrNull`, y **volver genérico `homogeneousLote`** (`<T extends { id: string }>(values: (T | null)[]): T | null`) — si no, devuelve `LoteRef` y descarta `grado` sin error de compilación. Depende de T022
+- [X] T021 [US3] [P] En `src/modules/trazabilidad/trazabilidad.service.ts`: agregar `LEFT JOIN lotes lv ON lv.id = b.lote_vermiculita_id` y las columnas `lv.numero_lote`/`lv.tipo`/`lv.grado` a la SQL cruda (línea ~480), los campos correspondientes a las tres interfaces (`BandejaCicloRaw`, `SiembraInfo` con `lote_vermiculita` **nullable**, `BandejaCicloRow`) y el mapeo **condicional** (`r.lote_vermiculita_id ? {...} : null`) — sin aserción de no-nulo sobre el id. Depende de T003, T005
+- [X] T022 [US3] [P] En `src/modules/aplicaciones-quimicas/types/aplicacion-enriched.types.ts`: agregar `LoteVermiculitaRef` (`LoteRef & { grado: number }`), el campo `vermiculite_lot: LoteVermiculitaRef | null` en `NurserySeedingGroup` (junto a `seed_lot`/`substrate_lot`, respetando la convención en inglés del archivo) y las columnas crudas `lote_vermiculita_id`/`lote_vermiculita_numero`/`lote_vermiculita_grado`
+- [X] T023 [US3] En `src/modules/aplicaciones-quimicas/aplicaciones-quimicas.service.ts`: agregar el `LEFT JOIN` y los `addSelect` de las tres columnas, un helper `loteVermiculitaRefOrNull(id, numero_lote, grado)` análogo a `loteRefOrNull`, y **volver genérico `homogeneousLote`** (`<T extends { id: string }>(values: (T | null)[]): T | null`) — si no, devuelve `LoteRef` y descarta `grado` sin error de compilación. Depende de T022
 
 **Checkpoint**: Las tres superficies de lectura informan la vermiculita; los ciclos anteriores al cambio se responden sin errores indicando la ausencia.
 
@@ -121,7 +121,7 @@ Proyecto único NestJS: `src/modules/lotes/*`, `src/modules/siembra/*`, `src/mod
 
 **Independent Test**: Registrar dos siembras con lotes de vermiculita distintos, filtrar el listado de bandejas por uno de ellos y verificar que devuelve únicamente las bandejas de la siembra correspondiente; filtrar por un lote nunca usado devuelve vacío sin error.
 
-- [ ] T024 [US4] Agregar `'lote_vermiculita_id'` a `filterAllowed` en `src/modules/siembra/bandeja.service.ts` (línea 31). Agregar en el mismo movimiento `'lote_sustrato_id'`, que falta hoy — **adición no cubierta por ningún FR**, ver research.md D9; si se prefiere alcance estricto, omitirla. Depende de T005
+- [X] T024 [US4] Agregar `'lote_vermiculita_id'` a `filterAllowed` en `src/modules/siembra/bandeja.service.ts` (línea 31). Agregar en el mismo movimiento `'lote_sustrato_id'`, que falta hoy — **adición no cubierta por ningún FR**, ver research.md D9; si se prefiere alcance estricto, omitirla. Depende de T005
 
 **Checkpoint**: Las cuatro historias funcionan de forma independiente y en conjunto.
 
@@ -129,8 +129,8 @@ Proyecto único NestJS: `src/modules/lotes/*`, `src/modules/siembra/*`, `src/mod
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T025 [P] Correr `npx tsc --noEmit` y `npx eslint` con scope acotado a los archivos tocados (módulos `lotes`, `siembra`, `trazabilidad`, `aplicaciones-quimicas`, `error-codes.ts` y las dos migraciones) — no lint de repo completo
-- [ ] T026 Correr `npx jest src/modules/lotes/lotes.service.spec.ts src/modules/siembra/siembra.service.spec.ts src/modules/trazabilidad/trazabilidad.service.spec.ts` y confirmar verde
+- [X] T025 [P] Correr `npx tsc --noEmit` y `npx eslint` con scope acotado a los archivos tocados (módulos `lotes`, `siembra`, `trazabilidad`, `aplicaciones-quimicas`, `error-codes.ts` y las dos migraciones) — no lint de repo completo
+- [X] T026 Correr `npx jest src/modules/lotes/lotes.service.spec.ts src/modules/siembra/siembra.service.spec.ts src/modules/trazabilidad/trazabilidad.service.spec.ts` y confirmar verde
 - [ ] T027 Ejecutar la batería de verificación funcional de `quickstart.md` contra el entorno dev en Railway, y registrar la evidencia paso a paso en este archivo (formato de la sección "Evidencia" de `specs/019-lote-estado-consumido/tasks.md`) — requiere escribir `quickstart.md` primero
 - [ ] T028 [P] Escribir `docs/handoff-frontend-lote-vermiculita.md`: el tercer valor de `tipo` en `GET /lotes` (**y la advertencia de que cualquier ternario de dos ramas etiquetará mal la vermiculita**), `grado` en alta/edición/filtro, `lote_vermiculita_id` opcional en `POST /siembras`, los nuevos campos nullable en las tres superficies de lectura, y el código `LOTE_GRADO_NO_PERMITIDO`
 
