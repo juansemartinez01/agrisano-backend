@@ -131,8 +131,75 @@ Proyecto único NestJS: `src/modules/lotes/*`, `src/modules/siembra/*`, `src/mod
 
 - [X] T025 [P] Correr `npx tsc --noEmit` y `npx eslint` con scope acotado a los archivos tocados (módulos `lotes`, `siembra`, `trazabilidad`, `aplicaciones-quimicas`, `error-codes.ts` y las dos migraciones) — no lint de repo completo
 - [X] T026 Correr `npx jest src/modules/lotes/lotes.service.spec.ts src/modules/siembra/siembra.service.spec.ts src/modules/trazabilidad/trazabilidad.service.spec.ts` y confirmar verde
-- [ ] T027 Ejecutar la batería de verificación funcional de `quickstart.md` contra el entorno dev en Railway, y registrar la evidencia paso a paso en este archivo (formato de la sección "Evidencia" de `specs/019-lote-estado-consumido/tasks.md`) — requiere escribir `quickstart.md` primero
+- [X] T027 Ejecutar la batería de verificación funcional de `quickstart.md` contra el entorno dev en Railway, y registrar la evidencia paso a paso en este archivo (formato de la sección "Evidencia" de `specs/019-lote-estado-consumido/tasks.md`) — requiere escribir `quickstart.md` primero
 - [X] T028 [P] Escribir `docs/handoff-frontend-lote-vermiculita.md`: el tercer valor de `tipo` en `GET /lotes` (**y la advertencia de que cualquier ternario de dos ramas etiquetará mal la vermiculita**), `grado` en alta/edición/filtro, `lote_vermiculita_id` opcional en `POST /siembras`, los nuevos campos nullable en las tres superficies de lectura, y el código `LOTE_GRADO_NO_PERMITIDO`
+
+### Evidencia T027 (2026-08-12, dev Railway, admin@agrisano.com)
+
+Deploy: merge `ec5a030` de `020-lote-vermiculita` a `main`, push a origin, `migrationsRun: true` aplicó las migraciones en boot.
+
+**Versión desplegada confirmada antes de arrancar**: no hay endpoint de versión, así que se usó el `forbidNonWhitelisted` del `ValidationPipe` global como detector — `GET /bandejas?lote_vermiculita_id=<uuid>` devolvió 200; si el código de US4 no estuviera desplegado, el parámetro desconocido daría 400. US3 y US4 están vivos en el entorno.
+
+Resultado global: **181 verificaciones en verde, ningún fallo atribuible al backend.** Trece aserciones fallaron en la primera pasada por defectos del propio script de verificación (ver "Fallos del harness" abajo); corregidas, pasaron todas.
+
+**US1 — alta y validación del grado (pasos 1–10): 40/40.**
+
+1. ✅ `POST /lotes` vermiculita con `grado: 2` → 201 con `tipo`, `grado`, `estado: habilitado`, `activo: true`.
+2. ✅ Sin `grado` → 400.
+3. ✅ `grado` 4, 0, -1 y 1.5 → 400 los cuatro. `"2"` (string) → 201 con `grado: 2` numérico, por `enableImplicitConversion`.
+4. ✅ `grado` sobre sustrato y sobre semilla → 422 `LOTE_GRADO_NO_PERMITIDO` en ambos.
+5. ✅ Mismo `numero_lote` en sustrato y en vermiculita → los dos 201 (namespace por tipo). Duplicado dentro de vermiculita → 409 `LOTE_NUMERO_DUPLICADO`.
+6. ✅ `PATCH {grado: 3}` sobre la vermiculita → 200 y persiste.
+7. ✅ **El caso crítico**: `PATCH {grado: 3}` sobre un lote de **sustrato** → 422 `LOTE_GRADO_NO_PERMITIDO`, **no 500**; ídem sobre semilla. El sustrato quedó con `grado: null`, sin escritura parcial.
+8. ✅ `PATCH {tipo: 'sustrato'}` sobre la vermiculita → 400, `tipo` sigue inmutable.
+9. ✅ `tipo=vermiculita` devuelve solo vermiculita y todas con `grado` no nulo; `tipo=vermiculita&grado=3` filtra bien; `grado=1` sin `tipo` devuelve solo vermiculita (semilla y sustrato tienen `grado` NULL); `grado=4` → 400.
+10. ✅ `consumir` → `estado: consumido` con el `grado` intacto; `disponible=true` lo excluye; `rehabilitar` → `habilitado` y `grado` sigue intacto.
+
+**US2 — uso en la siembra (pasos 11–17): 27/27.**
+
+11. ✅ Siembra con `lote_vermiculita_id` → 201; el detalle trae por bandeja `lote_vermiculita_id` y el objeto `{"id":"eae46706-…","tipo":"vermiculita","numero_lote":"V-628517","grado":3}`, con `lote_semilla` y `lote_sustrato` intactos.
+12. ✅ Siembra omitiendo `lote_vermiculita_id` → 201; las bandejas traen `lote_vermiculita_id: null` y `lote_vermiculita: null` — clave presente con valor null, no ausente, y la bandeja no desaparece.
+13. ✅ Sustrato o semilla pasados como `lote_vermiculita_id` → 422 `LOTE_TIPO_INCORRECTO`.
+14. ✅ Vermiculita consumida → 422 `LOTE_CONSUMIDO`. Rehabilitada al terminar.
+15. ✅ Vermiculita con `activo: false` → 422 `LOTE_INACTIVO`. Reactivada al terminar.
+16. ✅ Vermiculita atada a otro establecimiento → 422 `LOTE_ESTABLECIMIENTO_MISMATCH`.
+17. ✅ Semilla inválida **y** vermiculita inválida en la misma bandeja → gana el error de la semilla; el orden que ve el frontend no cambió.
+
+**US3 — trazabilidad y aplicaciones químicas (pasos 18–22): 44/44.**
+
+18. ✅ Cadena completa siembra → `ingresar-nursery` → `POST /trasplante` → `POST /cosecha`, y `GET /trazabilidad/cosecha/:id` → 200. Cada `bandejas_ciclo[]` trae `lote_vermiculita_id`, y `siembra.lote_vermiculita` = `{id, numero_lote: "V-628517", tipo: "vermiculita", grado: 3}` en todas las bandejas del ciclo. Es la primera vez que el SQL crudo nuevo (`LEFT JOIN lotes lv`, `lv.grado AS lote_vermiculita_grado`) corre contra Postgres real.
+19. ✅ **El punto que más importaba** (SC-007): `GET /trazabilidad/cosecha/940706e0-…`, una cosecha del ciclo anterior a la feature → 200, las bandejas siguen apareciendo enteras, `lote_vermiculita_id: null`, `siembra.lote_vermiculita: null` (null explícito, no `undefined`), y `lote_semilla`/`lote_sustrato` con su `numero_lote` completo — ninguna aserción de no-nulo se coló desde las líneas vecinas. Barrido adicional sobre **11 cosechas viejas**: todas 200, ninguna bandeja con lotes degradados.
+20. ✅ Aplicación química nursery sobre las bandejas con vermiculita → `GET /aplicaciones-quimicas/:id` devuelve `targets.seedings[].vermiculite_lot` = `{"id":"eae46706-…","numero_lote":"V-628517","grado":3}`. El `grado` **llega**: es lo que confirma que hacer genérico `homogeneousLote<T>` evitó que `LoteVermiculitaRef` se degradara a `LoteRef` en silencio.
+21. ✅ Siembra con dos grupos de vermiculita distinta, aplicación sobre todas sus bandejas → un solo grupo en `seedings` con `vermiculite_lot: null`, mientras `seed_lot` y `substrate_lot` siguen poblados por ser homogéneos. Ídem con un grupo con vermiculita y otro sin.
+22. ✅ Aplicación sobre bandejas sin vermiculita → `vermiculite_lot: null` con `seed_lot`/`substrate_lot` intactos. Regresión sobre una aplicación **preexistente** (`b82303b4-…`): 200, `vermiculite_lot: null`, lotes de semilla y sustrato completos. Listado `GET /aplicaciones-quimicas` y `GET /bandejas/:id/aplicaciones` siguen en 200.
+
+**US4 — rastreo por partida (pasos 23–24): 39/39.**
+
+23. ✅ `GET /bandejas?lote_vermiculita_id=<uuid>&estado=trasplantada` devuelve exactamente las bandejas de esa partida; combinado con `siembra_id` acota bien; `estado` y `lote_vermiculita_id` se respetan a la vez. Recorriendo los tres estados, el lote suma sus 4 bandejas.
+24. ✅ Partida recién creada sin uso → `data: []`, `meta.total: 0`, sin error. UUID inválido → 400; UUID inexistente → 200 vacío.
+
+**Regresión.**
+
+- ✅ `DELETE /lotes/:id` sobre una vermiculita **en uso** → 409 `LOTE_REFERENCED_BY_BANDEJA`, y el lote sigue vivo con su `grado`. Sobre una vermiculita sin uso → se borra y después da 404.
+- ✅ Semilla y sustrato sin cambios: alta sin `grado` → 201 con `grado: null`; `PATCH` que no toca `grado` → 200 y sigue null; `consumir` y `DELETE` funcionan; los listados por tipo devuelven `grado: null` en todos. En el listado mezclado conviven los tres tipos y **solo** la vermiculita trae `grado`.
+- ✅ `GET /trazabilidad/mesa/:mesa_id` → 200 tanto en la mesa nueva como en una preexistente.
+- ✅ Filtro viejo `lote_semilla_id` y listado `GET /bandejas` sin filtros: sin cambios; las bandejas anteriores a la feature exponen `lote_vermiculita_id: null`.
+
+**Transversales: 16/16.** Sin token, con token inválido y sin `x-tenant-id` → rechazo. El lote de vermiculita no se lee desde otro tenant y el filtro de bandejas no filtra datos cruzados. Envelope confirmado como `{ok, data, meta:{page,limit,total}}` para listados y `{ok, data}` para detalle; errores como `{ok:false, requestId, error:{code,message}, path}`. Parámetros desconocidos → 400.
+
+**Compilación y tests locales**: `npx tsc --noEmit` sin errores; `npx jest` sobre las tres suites → 43/43 en verde.
+
+**Fallos del harness (ninguno del backend).** Las 13 aserciones que fallaron en la primera pasada fueron:
+
+- 11 por armado del escenario: una mesa recién creada nace `activa` **con** posición asignada, y `POST /trasplante` exige `en_cosecha` o `activa` sin posición. La cosecha de la mesa vacía la liberó a `en_cosecha` y la cadena completa corrió en verde.
+- 2 por una expectativa mal escrita sobre `GET /bandejas`: el listado filtra `estado=en_nursery` cuando no se manda `estado`, así que las bandejas ya trasplantadas no aparecían. Verificado con `git log -S` que ese default viene del commit `b10f487`, muy anterior a esta feature, y que `lote_semilla_id` se comporta igual. No es un defecto introducido acá, pero **sí** era una promesa falsa de la documentación y se corrigió.
+
+**Dos defectos de documentación encontrados y corregidos** (ninguno de código):
+
+1. `docs/handoff-frontend-lote-vermiculita.md` §10 usaba `{ items }` en los ejemplos de TypeScript; la API devuelve `{ok, data, meta}`. Se agregó el tipo `Envelope<T>` y se corrigieron los dos snippets.
+2. `docs/handoff-frontend-lote-vermiculita.md` §8 y `quickstart.md` paso 23 prometían "todas las bandejas de la partida", cuando el default `estado=en_nursery` deja afuera a las trasplantadas sin dar error. Se documentó la advertencia en ambos lados.
+
+Limpieza: de los lotes de prueba creados, se borraron `V-est628517`, `V-s628517`, `V-libre628517`, `DUP-628517` (sustrato) y `S-reg628517`. Quedaron `V-628517` y `DUP-628517` (vermiculita) porque están referenciados por bandejas — el 409 que los protege es, en sí mismo, parte de la evidencia. Los fixtures preexistentes `14e715e1-…` (semilla) y `622a5b3f-…` (sustrato) quedaron en `estado: habilitado`, `activo: true`, `grado: null`, idénticos a como estaban. Quedan en dev las siembras, bandejas, mesa y cosechas de prueba, que no tienen endpoint de borrado.
 
 ---
 

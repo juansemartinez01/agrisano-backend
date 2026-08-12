@@ -239,12 +239,19 @@ Igual que `seed_lot` y `substrate_lot`, **degrada a `null` si el grupo es hetero
 
 ## 8. `GET /bandejas?lote_vermiculita_id=...`
 
-Rastreo por partida: devuelve todas las bandejas sembradas con ese lote de vermiculita, en todos los establecimientos del tenant.
+Rastreo por partida: devuelve las bandejas sembradas con ese lote de vermiculita, en todos los establecimientos del tenant.
 
 ```
-GET /bandejas?lote_vermiculita_id=<uuid>
 GET /bandejas?lote_vermiculita_id=<uuid>&estado=en_nursery
+GET /bandejas?lote_vermiculita_id=<uuid>&estado=trasplantada
 ```
+
+> ⚠️ **`GET /bandejas` filtra `estado=en_nursery` cuando no se manda `estado`.** No es
+> de esta feature — es el default histórico del endpoint y le pasa igual a
+> `lote_semilla_id` — pero rompe la lectura ingenua de "todas las bandejas de la
+> partida": las ya trasplantadas no aparecen y el conteo sale corto sin ningún
+> error. Para el alcance completo de una partida hay que recorrer los estados
+> (`cooling_period`, `en_nursery`, `trasplantada`) y sumar los `meta.total`.
 
 Sirve, por ejemplo, para acotar el alcance de un problema atribuido a una partida. El filtro combina con los que ya existían (`estado`, `establecimiento_id`, `siembra_id`, `lote_semilla_id`).
 
@@ -269,6 +276,13 @@ Sirve, por ejemplo, para acotar el alcance de un problema atribuido a una partid
 ## 10. Ejemplos de llamada (TS)
 
 ```ts
+// Todas las respuestas vienen envueltas; los listados suman meta.
+interface Envelope<T> {
+  ok: boolean;
+  data: T;
+  meta?: { page: number; limit: number; total: number };
+}
+
 type LoteTipo = 'semilla' | 'sustrato' | 'vermiculita';
 
 interface Lote {
@@ -289,11 +303,12 @@ await api.post<Lote>('/lotes', {
   grado: 2,
 });
 
-// Opciones para el selector de la siembra
-const { items } = await api.get<{ items: Lote[] }>('/lotes', {
+// Opciones para el selector de la siembra.
+// Ojo con el envelope: la API devuelve { ok, data, meta }, no { items }.
+const { data: lotes } = await api.get<Envelope<Lote[]>>('/lotes', {
   params: { tipo: 'vermiculita', disponible: true },
 });
-const opciones = items.map((l) => ({
+const opciones = lotes.map((l) => ({
   value: l.id,
   label: `${l.numero_lote} — grado ${l.grado}`,
 }));
@@ -315,9 +330,10 @@ await api.post('/siembras', {
 const v = bandeja.lote_vermiculita ?? null;
 const textoVermiculita = v ? `${v.numero_lote} (grado ${v.grado})` : 'Sin vermiculita';
 
-// Rastreo por partida
-const { items: bandejas } = await api.get('/bandejas', {
-  params: { lote_vermiculita_id: vermiculitaId },
+// Rastreo por partida. Sin `estado` el backend solo devuelve las bandejas
+// en_nursery: para ver la partida entera hay que pedir cada estado.
+const { data: bandejas } = await api.get<Envelope<Bandeja[]>>('/bandejas', {
+  params: { lote_vermiculita_id: vermiculitaId, estado: 'trasplantada' },
 });
 ```
 
@@ -352,4 +368,8 @@ const { items: bandejas } = await api.get('/bandejas', {
 
 ## 13. Verificación en dev
 
-Pendiente. La batería completa está en `specs/020-lote-vermiculita/quickstart.md`; el punto más importante es el **19**: una cosecha anterior a la feature tiene que seguir devolviendo sus bandejas enteras, con `lote_vermiculita: null` y sin datos faltantes en semilla ni sustrato.
+Hecha el 2026-08-12 contra `https://agrisano-backend-production.up.railway.app`: la batería completa de `specs/020-lote-vermiculita/quickstart.md` (pasos 1 a 24 más la regresión, más auth, tenancy y forma del contrato) cerró en **181 verificaciones en verde y ningún fallo atribuible al backend**. Trece aserciones fallaron en la primera pasada por errores del propio script de prueba —una mesa que no estaba en estado válido para trasplante y el default de `estado` del listado de bandejas—; corregidas, pasaron todas.
+
+El punto que más importaba, el **19**, quedó confirmado contra Postgres real: las cosechas anteriores a la feature siguen devolviendo sus bandejas enteras, con `lote_vermiculita: null` y `lote_semilla`/`lote_sustrato` completos. Se barrieron 11 cosechas viejas, todas 200 y sin lotes degradados.
+
+Los dos únicos hallazgos fueron de documentación, no de código, y ya están corregidos acá: el envelope de las respuestas (sección 10) y el default `estado=en_nursery` del filtro de bandejas (sección 8).

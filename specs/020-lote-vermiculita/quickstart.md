@@ -133,10 +133,17 @@ Roles: `POST /lotes` y `PATCH /lotes/:id` piden `supervisor` o `admin_global`;
 ### Rastreo por partida (US4)
 
 23. **Filtro por lote de vermiculita**: `GET /bandejas?lote_vermiculita_id=<uuid>`
-    → devuelve exactamente las bandejas sembradas con esa partida, en todos los
-    establecimientos del tenant (FR-019).
+    → devuelve las bandejas sembradas con esa partida, en todos los
+    establecimientos del tenant (FR-019). **Cuidado al verificar**: el endpoint
+    filtra `estado=en_nursery` si no se manda `estado`, así que una bandeja ya
+    trasplantada no aparece. Es el default histórico del listado (`b10f487`),
+    no algo que traiga esta feature, y le pasa igual a `lote_semilla_id`; para
+    el alcance completo de la partida hay que recorrer los estados.
 24. **Filtro con partida sin uso**: mismo GET con un lote recién creado
-    → `items: []`, `total: 0`, sin error.
+    → `data: []`, `meta.total: 0`, sin error.
+
+> El envelope de respuesta es `{ok, data, meta:{page,limit,total}}`, no
+> `{items, total}`. Vale para todos los pasos de arriba.
 
 ## Regresión
 
