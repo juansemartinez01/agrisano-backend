@@ -4,6 +4,7 @@ import { BaseEntity } from 'src/common/database/base.entity';
 export enum LoteTipo {
   SEMILLA = 'semilla',
   SUSTRATO = 'sustrato',
+  VERMICULITA = 'vermiculita',
 }
 
 export enum LoteEstado {
@@ -68,4 +69,9 @@ export class Lote extends BaseEntity {
 
   @Column({ type: 'uuid', nullable: true })
   proveedor_semilla_id!: string | null;
+
+  // Vermiculita-only field (nullable — semilla y sustrato lo dejan en null).
+  // La coherencia tipo <-> grado la garantiza el CHECK "CHK_lotes_grado".
+  @Column({ type: 'smallint', nullable: true })
+  grado!: number | null;
 }
