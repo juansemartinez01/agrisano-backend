@@ -132,7 +132,7 @@ Proyecto único NestJS: `src/modules/lotes/*`, `src/modules/siembra/*`, `src/mod
 - [X] T025 [P] Correr `npx tsc --noEmit` y `npx eslint` con scope acotado a los archivos tocados (módulos `lotes`, `siembra`, `trazabilidad`, `aplicaciones-quimicas`, `error-codes.ts` y las dos migraciones) — no lint de repo completo
 - [X] T026 Correr `npx jest src/modules/lotes/lotes.service.spec.ts src/modules/siembra/siembra.service.spec.ts src/modules/trazabilidad/trazabilidad.service.spec.ts` y confirmar verde
 - [ ] T027 Ejecutar la batería de verificación funcional de `quickstart.md` contra el entorno dev en Railway, y registrar la evidencia paso a paso en este archivo (formato de la sección "Evidencia" de `specs/019-lote-estado-consumido/tasks.md`) — requiere escribir `quickstart.md` primero
-- [ ] T028 [P] Escribir `docs/handoff-frontend-lote-vermiculita.md`: el tercer valor de `tipo` en `GET /lotes` (**y la advertencia de que cualquier ternario de dos ramas etiquetará mal la vermiculita**), `grado` en alta/edición/filtro, `lote_vermiculita_id` opcional en `POST /siembras`, los nuevos campos nullable en las tres superficies de lectura, y el código `LOTE_GRADO_NO_PERMITIDO`
+- [X] T028 [P] Escribir `docs/handoff-frontend-lote-vermiculita.md`: el tercer valor de `tipo` en `GET /lotes` (**y la advertencia de que cualquier ternario de dos ramas etiquetará mal la vermiculita**), `grado` en alta/edición/filtro, `lote_vermiculita_id` opcional en `POST /siembras`, los nuevos campos nullable en las tres superficies de lectura, y el código `LOTE_GRADO_NO_PERMITIDO`
 
 ---
 
