@@ -7,11 +7,18 @@ export enum QuimicoUnidadMedida {
   L = 'l',
 }
 
+// Dos familias: concentración (X por litro de caldo) y superficie (X por
+// hectárea). La dosis es informativa — el backend no convierte entre unidades
+// ni valida coherencia contra unidad_medida.
 export enum QuimicoRateUnidad {
   KG_L = 'kg/L',
   G_L = 'g/L',
   ML_L = 'mL/L',
   L_L = 'L/L',
+  ML_HA = 'mL/Ha',
+  L_HA = 'L/Ha',
+  G_HA = 'g/Ha',
+  KG_HA = 'kg/Ha',
 }
 
 @Entity('quimicos')

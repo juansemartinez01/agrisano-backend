@@ -29,14 +29,22 @@ enum AplicacionContexto {
 
 ```ts
 enum QuimicoRateUnidad {
+  // concentración (X por litro de caldo)
   KG_L = 'kg/L',
   G_L = 'g/L',
   ML_L = 'mL/L',
   L_L = 'L/L',
+  // superficie (X por hectárea) — agregadas el 2026-08-14
+  ML_HA = 'mL/Ha',
+  L_HA = 'L/Ha',
+  G_HA = 'g/Ha',
+  KG_HA = 'kg/Ha',
 }
 ```
 
 Estos son los valores actuales (con esta capitalización exacta). Si no se envía `dosis_unidad` en el request, se toma por defecto el `rate_unidad` del químico del lote primario.
+
+⚠️ Las unidades `/Ha` cambian cómo debe calcularse `cantidad` en el frontend: el multiplicador deja de ser la cantidad de bandejas o mesas. Ver [handoff-frontend-dosis-unidad-hectarea.md](handoff-frontend-dosis-unidad-hectarea.md).
 
 ## 4. Crear aplicación — `POST /aplicaciones-quimicas`
 
