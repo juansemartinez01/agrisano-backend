@@ -27,16 +27,18 @@ entero), `bandeja.service.ts` 2 → 1, resto de archivos tocados en 0.
 ## Preparación (verificación funcional en dev)
 
 Entorno: `https://agrisano-backend-production.up.railway.app`
-Credenciales dev: `{"email": "admin@innoview.local", "password": "admin123"}`
-Header obligatorio en **todas** las requests, incluido `/auth/login`:
-`x-tenant-id: <uuid del tenant>` (confirmar el valor vigente en dev antes de arrancar).
+Credenciales dev: `{"email": "admin@agrisano.com", "password": "Admin1234!"}` con
+`x-tenant-id: 00000000-0000-0000-0000-000000000001` (confirmado el 2026-08-14).
+Las que figuraban acá antes, `admin@innoview.local` / `admin123`, devuelven `401`
+contra ese tenant.
+Header obligatorio en **todas** las requests, incluido `/auth/login`.
 
 ```powershell
 $base = "https://agrisano-backend-production.up.railway.app"
 $tenant = "00000000-0000-0000-0000-000000000001"
 $login = Invoke-RestMethod -Uri "$base/auth/login" -Method Post `
   -Headers @{ "x-tenant-id" = $tenant } -ContentType "application/json" `
-  -Body '{"email":"admin@innoview.local","password":"admin123"}'
+  -Body '{"email":"admin@agrisano.com","password":"Admin1234!"}'
 $headers = @{ Authorization = "Bearer $($login.access_token)"; "x-tenant-id" = $tenant }
 ```
 

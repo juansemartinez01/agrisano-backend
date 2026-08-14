@@ -81,10 +81,19 @@ Confirmado contra el código:
 
 ---
 
-## 6. Deploy
+## 6. Deploy — ya aplicado en dev
 
-Requiere el deploy del backend con la migración `1774600000000-RateUnidadHectarea`, que corre sola en el boot. **Hasta que esté aplicada, mandar cualquier valor `/Ha` devuelve `400`.**
+✅ **Verificado en dev el 2026-08-14.** La migración `1774600000000-RateUnidadHectarea` ya corrió: los cuatro valores existen en el tipo de Postgres y se pueden usar. **El front puede empezar a mandarlos.**
 
-La migración es aditiva sobre el tipo de Postgres y no toca ninguna fila. No hay ventana de incompatibilidad: el front viejo sigue funcionando contra el backend nuevo sin cambios.
+La migración es aditiva sobre el tipo y no toca ninguna fila. No hay ventana de incompatibilidad: el front viejo sigue funcionando contra el backend nuevo sin cambios. En cualquier entorno donde todavía no haya corrido, mandar un valor `/Ha` devuelve `400`.
 
-Para probar, el seed de QA (`scripts/sql/qa-seed-mesas-tuneles-quimicos-lotes.sql`) ahora incluye **`QA Quimico 11`** con `rate_unidad: "L/Ha"`, stockeado en `l`, con sus dos lotes (`QA-QUI-11-A`, `QA-QUI-11-B`).
+Lo que quedó confirmado contra el Postgres de dev, no solo contra el DTO:
+
+- Los 4 valores nuevos se guardan y se releen en las **tres** columnas: `quimicos.rate_unidad`, `aplicaciones_quimicas.dosis_unidad` y `aplicaciones_quimicas_detalle.dosis_unidad`.
+- El default funciona: omitir `dosis_unidad` en una aplicación de un químico con `rate_unidad: "L/Ha"` deja la aplicación en `"L/Ha"`.
+- Las 4 unidades de concentración siguen válidas y los químicos y aplicaciones anteriores quedaron intactos.
+- Las grafías `l_ha`, `L/HA`, `l/ha`, `kg/ha`, `ml/ha` siguen devolviendo `400`.
+- `cantidad` y `dosis` siguen siendo obligatorias y `> 0` también con unidades `/Ha`, y el descuento de stock sigue siendo literal.
+- Una unidad `/Ha` llega entera hasta `GET /trazabilidad/cosecha/:id`, en la raíz y en `detalles[]`, con su `unidad_medida` (`kg` / `l`) por línea.
+
+Ojo con el seed de QA: `scripts/sql/qa-seed-mesas-tuneles-quimicos-lotes.sql` incluye **`QA Quimico 11`** con `rate_unidad: "L/Ha"` (stock en `l`, lotes `QA-QUI-11-A` / `QA-QUI-11-B`), pero es un script que se corre a mano — **hoy no está cargado en dev**. Para probar contra dev hay que correr el seed, o crear un químico `/Ha` desde el propio `POST /quimicos`.
