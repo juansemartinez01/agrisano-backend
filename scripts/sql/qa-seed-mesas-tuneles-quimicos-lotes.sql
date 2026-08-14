@@ -144,8 +144,10 @@ WHERE t.tenant_id = '00000000-0000-0000-0000-000000000001'
   AND NOT EXISTS (SELECT 1 FROM mesas m WHERE m.tunel_id = t.id);
 
 -- ---------------------------------------------------------------------------
--- 5. Quimicos (10) — mitad stockeados en kg (rate g/L o kg/L), mitad en L
---    (rate mL/L o L/L). Mezcla de withholding_period_dias (incluye NULL/0).
+-- 5. Quimicos (11) — mitad stockeados en kg (rate g/L o kg/L), mitad en L
+--    (rate mL/L o L/L), mas uno con rate por superficie (L/Ha) para probar la
+--    rama de frontend que no sugiere cantidad automaticamente.
+--    Mezcla de withholding_period_dias (incluye NULL/0).
 -- ---------------------------------------------------------------------------
 INSERT INTO quimicos (
   id, tenant_id, establecimiento_id, nombre, unidad_medida, rate_unidad,
@@ -164,7 +166,8 @@ FROM (VALUES
   ('QA Quimico 07', 'l',  'L/L',  NULL, NULL),
   ('QA Quimico 08', 'l',  'mL/L', 10,   'QA Marca Alfa'),
   ('QA Quimico 09', 'l',  'mL/L', 2,    NULL),
-  ('QA Quimico 10', 'l',  'L/L',  4,    'QA Marca Beta')
+  ('QA Quimico 10', 'l',  'L/L',  4,    'QA Marca Beta'),
+  ('QA Quimico 11', 'l',  'L/Ha', 6,    'QA Marca Alfa')
 ) AS d(nombre, unidad_medida, rate_unidad, withholding, marca_nombre)
 CROSS JOIN (
   SELECT id FROM establecimientos
@@ -180,7 +183,7 @@ WHERE NOT EXISTS (
 );
 
 -- ---------------------------------------------------------------------------
--- 6. Lotes de quimico (2 por quimico QA = 20) — stock inicial completo
+-- 6. Lotes de quimico (2 por quimico QA = 22) — stock inicial completo
 -- ---------------------------------------------------------------------------
 INSERT INTO lotes_quimicos (
   id, tenant_id, quimico_id, establecimiento_id, proveedor_id,

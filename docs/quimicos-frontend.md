@@ -308,14 +308,22 @@ enum QuimicoUnidadMedida {
 
 ```ts
 enum QuimicoRateUnidad {
+  // concentracion (X por litro de caldo)
   KG_L = 'kg/L',
   G_L = 'g/L',
   ML_L = 'mL/L',
   L_L = 'L/L',
+  // superficie (X por hectarea)
+  ML_HA = 'mL/Ha',
+  L_HA = 'L/Ha',
+  G_HA = 'g/Ha',
+  KG_HA = 'kg/Ha',
 }
 ```
 
-Estos son los valores actuales, con esta capitalizacion exacta (antes del 2026-07-08 se aceptaban en minusculas; ver nota al final de la seccion 9). Este mismo enum es usado por `AplicacionQuimica.dosis_unidad` — ver [aplicaciones-quimicas-frontend.md](aplicaciones-quimicas-frontend.md).
+Estos son los valores actuales, con esta capitalizacion exacta (antes del 2026-07-08 se aceptaban en minusculas; ver nota al final de la seccion 9). Las cuatro unidades por hectarea se agregaron el 2026-08-14; son validas tanto aca como en `dosis_unidad` — ver [aplicaciones-quimicas-frontend.md](aplicaciones-quimicas-frontend.md) y [handoff-frontend-dosis-unidad-hectarea.md](handoff-frontend-dosis-unidad-hectarea.md).
+
+Las dos familias no son intercambiables y el backend **no convierte entre ellas ni valida coherencia** contra `unidad_medida`: la dosis es un dato informativo. Es responsabilidad del cliente elegir la unidad correcta para cada quimico.
 
 ### Quimico
 
