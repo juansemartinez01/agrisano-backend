@@ -144,7 +144,11 @@ export class MesasService {
       qb.andWhere('(m.codigo_qr ILIKE :search OR m.nombre ILIKE :search)', { search });
     }
 
-    qb.orderBy(`m.${sortBy}`, sortOrder).skip(skip).take(limit);
+    // Desempate por id: ninguna de las columnas ordenables es unica en toda la
+    // tabla (posicion_actual se repite una vez por tunel, estado y created_at
+    // tambien), asi que sin este criterio el ORDER BY es ambiguo y el OFFSET de
+    // la paginacion puede devolver la misma fila en dos paginas y saltear otra.
+    qb.orderBy(`m.${sortBy}`, sortOrder).addOrderBy('m.id', 'ASC').skip(skip).take(limit);
 
     const [items, total] = await qb.getManyAndCount();
     return { items, total };
