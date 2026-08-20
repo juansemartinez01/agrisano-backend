@@ -14,6 +14,7 @@ const USER_ID = '22222222-2222-2222-2222-222222222222';
 const PROVEEDOR_ID = '33333333-3333-3333-3333-333333333333';
 const PRODUCTO_ID = '44444444-4444-4444-4444-444444444444';
 const VARIEDAD_ID = '55555555-5555-5555-5555-555555555555';
+const PROVEEDOR_SEMILLA_INEXISTENTE_ID = '66666666-6666-6666-6666-666666666666';
 
 function withTenant<T>(fn: () => Promise<T>): Promise<T> {
   return tenantContext.run({ tenantId: TENANT_ID, tenantKey: null }, fn);
@@ -341,6 +342,58 @@ describe('LotesService', () => {
         }),
       );
       expect(result).toMatchObject({ tipo: LoteTipo.VERMICULITA, grado: 2 });
+    });
+
+    it('crea un lote de semilla sin proveedor_semilla_id', async () => {
+      repo.findOne.mockResolvedValueOnce(null); // sin conflicto de numero_lote
+
+      const result = await withTenant(() =>
+        svc.createLote(
+          baseCreateDto({
+            tipo: LoteTipo.SEMILLA,
+            numero_lote: 'S-001',
+            producto_id: PRODUCTO_ID,
+            variedad_id: VARIEDAD_ID,
+          }),
+        ),
+      );
+
+      // Solo se valida el proveedor del lote, no el de la semilla
+      expect(proveedoresService.mustFindById).toHaveBeenCalledTimes(1);
+      expect(proveedoresService.mustFindById).toHaveBeenCalledWith(
+        PROVEEDOR_ID,
+        { strictTenant: true },
+      );
+      expect(result).toMatchObject({ tipo: LoteTipo.SEMILLA });
+    });
+
+    it('sigue validando el proveedor de semilla cuando si se manda', async () => {
+      repo.findOne.mockResolvedValueOnce(null); // sin conflicto de numero_lote
+      proveedoresService.mustFindById
+        .mockResolvedValueOnce({ id: PROVEEDOR_ID })
+        .mockRejectedValueOnce(
+          new AppError({
+            code: ErrorCodes.PROVEEDOR_NOT_FOUND,
+            message: 'Proveedor no encontrado',
+            status: 404,
+          }),
+        );
+
+      await expect(
+        withTenant(() =>
+          svc.createLote(
+            baseCreateDto({
+              tipo: LoteTipo.SEMILLA,
+              numero_lote: 'S-002',
+              producto_id: PRODUCTO_ID,
+              variedad_id: VARIEDAD_ID,
+              proveedor_semilla_id: PROVEEDOR_SEMILLA_INEXISTENTE_ID,
+            }),
+          ),
+        ),
+      ).rejects.toMatchObject({ code: ErrorCodes.PROVEEDOR_NOT_FOUND });
+
+      expect(repo.create).not.toHaveBeenCalled();
     });
 
     it('rechaza 422 LOTE_GRADO_NO_PERMITIDO si se manda grado en un lote de sustrato', async () => {

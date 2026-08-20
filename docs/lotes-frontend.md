@@ -325,7 +325,8 @@ Validaciones:
 - `proveedor_id`: **obligatorio** (uuid), sin importar el `tipo`. No es opcional pese a que la columna en base permite `null`.
 - `marca_id`: opcional, uuid.
 - `observaciones`: opcional, string, maximo 2000 caracteres.
-- `producto_id`, `variedad_id`, `proveedor_semilla_id`: obligatorios (uuid) unicamente cuando `tipo === "semilla"`. Si se envian con `tipo === "sustrato"`, el backend los **rechaza** con `422` (no los ignora silenciosamente).
+- `producto_id`, `variedad_id`: obligatorios (uuid) unicamente cuando `tipo === "semilla"`. Si se envian con `tipo === "sustrato"`, el backend los **rechaza** con `422` (no los ignora silenciosamente).
+- `proveedor_semilla_id`: **opcional siempre**, incluso en `tipo === "semilla"` (no siempre se conoce el semillero). Si se envia con `tipo === "sustrato"` o `"vermiculita"`, el backend lo **rechaza** con `422`.
 - `batch`: opcional, string, maximo 100 caracteres (aplica a cualquier `tipo`, aunque en la practica solo tiene sentido para semilla).
 - Cruce de validacion: `variedad_id` debe pertenecer a `producto_id` (mismo `producto_id` en la fila de `variedades`), sino `422 VARIEDAD_PRODUCTO_MISMATCH`.
 
@@ -607,7 +608,7 @@ Campos:
 | `observaciones` | string | No | Maximo 2000 caracteres |
 | `producto_id` | uuid | Si, solo si `tipo=semilla` | Rechazado (422) si `tipo=sustrato` |
 | `variedad_id` | uuid | Si, solo si `tipo=semilla` | Debe pertenecer a `producto_id`; rechazado (422) si `tipo=sustrato` |
-| `proveedor_semilla_id` | uuid | Si, solo si `tipo=semilla` | Rechazado (422) si `tipo=sustrato` |
+| `proveedor_semilla_id` | uuid | No | Opcional incluso en `tipo=semilla`; rechazado (422) si `tipo=sustrato` |
 | `batch` | string | No | Maximo 100 caracteres |
 
 Respuesta `201`:

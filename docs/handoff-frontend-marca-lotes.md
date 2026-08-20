@@ -121,7 +121,7 @@ Confirmado contra el código, para que nadie espere un deploy que no va a llegar
 | `tipo` | ✅ | `"semilla"` | fijo | Inmutable después de crear |
 | `numero_lote` | ✅ | string ≤100 | input | Único por `(tenant, tipo)` |
 | `proveedor_id` | ✅ | uuid | `GET /proveedores?establecimiento_id=X` | El distribuidor |
-| `proveedor_semilla_id` | ✅ | uuid | `GET /proveedores?establecimiento_id=X` | **El semillero — esta es "la marca"** |
+| `proveedor_semilla_id` | ❌ | uuid | `GET /proveedores?establecimiento_id=X` | **El semillero — esta es "la marca"**. Opcional desde 2026-08-20 |
 | `producto_id` | ✅ | uuid | `GET /productos` | |
 | `variedad_id` | ✅ | uuid | `GET /variedades?producto_id=X` | Debe pertenecer al producto |
 | `establecimiento_id` | ❌ | uuid | selector | Ver ⚠️ en §10 |

@@ -47,7 +47,9 @@ const OBS = `${PREFIJO} - carga de arranque para posicionar las mesas en el mapa
 
 let token = null;
 
-async function api(method, path, body) {
+const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function api(method, path, body, intento = 0) {
   const headers = {
     'content-type': 'application/json',
     'x-tenant-id': TENANT_ID,
@@ -60,6 +62,22 @@ async function api(method, path, body) {
     body: body === undefined ? undefined : JSON.stringify(body),
     signal: AbortSignal.timeout(120_000),
   });
+
+  // El backend limita a 300 requests por minuto y esta corrida hace ~740.
+  if (res.status === 429 && intento < 6) {
+    const espera = Number(res.headers.get('retry-after')) * 1000 || 2000 * 2 ** intento;
+    console.log(`    429, esperando ${Math.round(espera / 1000)}s...`);
+    await dormir(espera);
+    return api(method, path, body, intento + 1);
+  }
+
+  // El access token dura 15 minutos y la corrida completa puede pasarse de ahi.
+  if (res.status === 401 && token && path !== '/auth/login' && intento < 2) {
+    console.log('    token vencido, reautenticando...');
+    await login();
+    return api(method, path, body, intento + 1);
+  }
+
   const text = await res.text();
   let json = null;
   try {
@@ -93,8 +111,9 @@ async function login() {
  */
 async function upsert(db, tabla, columna, valor, crear) {
   const { rows } = await db.query(
-    `SELECT id FROM ${tabla} WHERE ${columna} = $1 AND deleted_at IS NULL LIMIT 1`,
-    [valor],
+    `SELECT id FROM ${tabla}
+      WHERE ${columna} = $1 AND tenant_id = $2 AND deleted_at IS NULL LIMIT 1`,
+    [valor, TENANT_ID],
   );
   if (rows.length) {
     console.log(`  = ${tabla}: "${valor}" ya existe`);
@@ -132,10 +151,14 @@ async function main() {
     console.log(`Autenticado como ${ADMIN_EMAIL}\n`);
 
     const { rows: ests } = await db.query(
-      `SELECT id, nombre FROM establecimientos WHERE deleted_at IS NULL ORDER BY nombre`,
+      `SELECT id, nombre FROM establecimientos
+        WHERE tenant_id = $1 AND deleted_at IS NULL ORDER BY nombre`,
+      [TENANT_ID],
     );
     if (ests.length !== 1) {
-      throw new Error(`Se esperaba 1 establecimiento, hay ${ests.length}. Abortado.`);
+      throw new Error(
+        `Se esperaba 1 establecimiento en el tenant ${TENANT_ID}, hay ${ests.length}. Abortado.`,
+      );
     }
     const establecimiento_id = ests[0].id;
     console.log(`Establecimiento: ${ests[0].nombre} (${establecimiento_id})\n`);
@@ -187,7 +210,9 @@ async function main() {
 
     // ── 3. Tuneles ──────────────────────────────────────────────────────────
     const { rows: tuneles } = await db.query(
-      `SELECT id, nombre FROM tuneles WHERE deleted_at IS NULL ORDER BY nombre`,
+      `SELECT id, nombre FROM tuneles
+        WHERE tenant_id = $1 AND deleted_at IS NULL ORDER BY nombre`,
+      [TENANT_ID],
     );
     console.log(`\n3) Trasplantes (${tuneles.length} tuneles)`);
 
@@ -198,10 +223,10 @@ async function main() {
       // numero del nombre, y el backend asigna MAX(posicion) + 1.
       const { rows: mesas } = await db.query(
         `SELECT id, nombre FROM mesas
-          WHERE tunel_id = $1 AND deleted_at IS NULL AND activo = TRUE
+          WHERE tunel_id = $1 AND tenant_id = $2 AND deleted_at IS NULL AND activo = TRUE
             AND posicion_actual IS NULL AND estado = 'activa'
           ORDER BY created_at, codigo_qr`,
-        [tunel.id],
+        [tunel.id, TENANT_ID],
       );
 
       if (!mesas.length) {
@@ -219,10 +244,10 @@ async function main() {
       // corrida cortada sin volver a sembrar).
       const libres = async () => (await db.query(
         `SELECT id FROM bandejas
-          WHERE lote_semilla_id = $1 AND estado = 'en_nursery'
+          WHERE lote_semilla_id = $1 AND tenant_id = $2 AND estado = 'en_nursery'
             AND mesa_id IS NULL AND deleted_at IS NULL
           ORDER BY created_at`,
-        [lote_semilla_id],
+        [lote_semilla_id, TENANT_ID],
       )).rows;
 
       let bandejas = await libres();
@@ -287,8 +312,8 @@ async function main() {
              )                                                                AS desalineadas
         FROM tuneles t
         JOIN mesas m ON m.tunel_id = t.id AND m.deleted_at IS NULL
-       WHERE t.deleted_at IS NULL
-       GROUP BY t.nombre ORDER BY t.nombre`);
+       WHERE t.deleted_at IS NULL AND t.tenant_id = $1
+       GROUP BY t.nombre ORDER BY t.nombre`, [TENANT_ID]);
     console.table(check);
 
     const desalineadas = check.reduce((a, r) => a + Number(r.desalineadas), 0);

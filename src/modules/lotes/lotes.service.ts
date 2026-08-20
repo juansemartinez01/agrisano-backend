@@ -123,9 +123,11 @@ export class LotesService extends BaseCrudTenantService<Lote> {
     }
 
     if (dto.tipo === LoteTipo.SEMILLA) {
-      await this.proveedoresService.mustFindById(dto.proveedor_semilla_id!, {
-        strictTenant: true,
-      });
+      if (dto.proveedor_semilla_id) {
+        await this.proveedoresService.mustFindById(dto.proveedor_semilla_id, {
+          strictTenant: true,
+        });
+      }
       await this.validateProductoVariedad(dto.producto_id!, dto.variedad_id!);
     }
 

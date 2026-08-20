@@ -47,8 +47,8 @@ export class CreateLoteDto {
   @IsUUID()
   variedad_id?: string;
 
-  @ValidateIf((o: CreateLoteDto) => o.tipo === LoteTipo.SEMILLA)
-  @IsNotEmpty()
+  // Opcional incluso en semilla — no siempre se conoce el proveedor de la semilla.
+  @IsOptional()
   @IsUUID()
   proveedor_semilla_id?: string;
 
