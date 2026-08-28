@@ -1,0 +1,1475 @@
+{
+  "info": {
+    "_postman_id": "26409e7c-82da-4576-b86a-3ebfcd64a334",
+    "name": "Agrisano Backend - Tareas",
+    "description": "Coleccion para probar el modulo de tareas. Importar en Postman, configurar email, password y tenantId, correr Auth / Login y Setup, y ejecutar las carpetas en orden: Tareas, Estados, Reordenamiento, Borrado. El tablero es la combinacion establecimiento + ambito.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "pm.request.headers.upsert({ key: 'Accept', value: 'application/json' });",
+          "if (!pm.request.headers.has('Content-Type') && ['POST', 'PATCH', 'PUT'].includes(pm.request.method)) {",
+          "  pm.request.headers.upsert({ key: 'Content-Type', value: 'application/json' });",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Login exitoso', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.access_token) pm.collectionVariables.set('token', json.access_token);",
+                  "if (json.refresh_token) pm.collectionVariables.set('refreshToken', json.refresh_token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}",
+                "description": "Obligatorio si TENANCY_REQUIRED=true, incluido en el login."
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Obtiene access_token y refresh_token. El test los guarda en las variables token y refreshToken. Los roles quedan dentro del JWT: si cambian en base, hay que volver a loguearse."
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Refresh exitoso', function () {",
+                  "  pm.response.to.be.success;",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.access_token) pm.collectionVariables.set('token', json.access_token);",
+                  "if (json.refresh_token) pm.collectionVariables.set('refreshToken', json.refresh_token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refreshToken}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/refresh",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "refresh"
+              ]
+            },
+            "description": "Renueva tokens y actualiza variables."
+          }
+        },
+        {
+          "name": "Me",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "me"
+              ]
+            },
+            "description": "Prueba rapida del bearer token."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Setup",
+      "item": [
+        {
+          "name": "Obtener establecimiento",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Hay establecimientos', function () {",
+                  "  pm.response.to.be.success;",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.data).to.be.an('array').that.is.not.empty;",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data[0] && json.data[0].id) {",
+                  "  pm.collectionVariables.set('establecimientoId', json.data[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/establecimientos?limit=1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "establecimientos"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "1"
+                }
+              ]
+            },
+            "description": "Guarda el primer establecimiento del tenant en establecimientoId. Correr antes de crear tareas: el tablero es establecimiento + ambito."
+          }
+        },
+        {
+          "name": "Obtener usuario para asignar",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Hay usuarios', function () {",
+                  "  pm.response.to.be.success;",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data[0] && json.data[0].id) {",
+                  "  pm.collectionVariables.set('usuarioId', json.data[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users?limit=1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "1"
+                }
+              ]
+            },
+            "description": "Guarda el primer usuario del tenant en usuarioId, para las pruebas de asignacion."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Tareas",
+      "item": [
+        {
+          "name": "Listar ambitos",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Devuelve los ambitos', function () {",
+                  "  pm.response.to.be.success;",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.data).to.be.an('array').that.is.not.empty;",
+                  "  pm.expect(json.data[0]).to.have.property('value');",
+                  "  pm.expect(json.data[0]).to.have.property('label');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tareas/ambitos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tareas",
+                "ambitos"
+              ]
+            },
+            "description": "Los ambitos disponibles, para que el frontend no los hardcodee. Esta ruta esta declarada antes de /tareas/:id, asi que ambitos nunca se interpreta como un id."
+          }
+        },
+        {
+          "name": "Crear tarea",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Creada en pendiente', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.data.estado).to.eql('pendiente');",
+                  "  pm.expect(json.data.orden).to.be.a('number');",
+                  "  pm.expect(json.data.completada_at).to.eql(null);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.id) {",
+                  "  pm.collectionVariables.set('tareaId', json.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tareas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tareas"
+              ]
+            },
+            "description": "Requiere rol supervisor o admin_global. Nace en pendiente, con orden = MAX(orden) + 1 del tablero (establecimiento + ambito) y creada_por tomado del token.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"establecimiento_id\": \"{{establecimientoId}}\",\n  \"ambito\": \"{{ambito}}\",\n  \"titulo\": \"{{tituloTarea}}\",\n  \"descripcion\": \"{{descripcionTarea}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Crear tarea con estado en el body (debe fallar)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Rechaza campos no permitidos', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tareas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tareas"
+              ]
+            },
+            "description": "Caso negativo: estado y orden los maneja el backend. El ValidationPipe global rechaza cualquier campo no declarado en el DTO.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"establecimiento_id\": \"{{establecimientoId}}\",\n  \"ambito\": \"{{ambito}}\",\n  \"titulo\": \"No deberia crearse\",\n  \"estado\": \"completada\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Crear tarea con asignado invalido (debe fallar)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Asignado invalido', function () {",
+                  "  pm.response.to.have.status(422);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.error.code).to.eql('TAREA_ASIGNADO_INVALIDO');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tareas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tareas"
+              ]
+            },
+            "description": "Caso negativo: el asignado tiene que ser un usuario del tenant. Falla antes de abrir la transaccion, asi que no se crea nada.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"establecimiento_id\": \"{{establecimientoId}}\",\n  \"ambito\": \"{{ambito}}\",\n  \"titulo\": \"No deberia crearse\",\n  \"asignado_a_usuario_id\": \"99999999-9999-4999-8999-999999999999\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Listar tareas",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Respuesta paginada', function () {",
+                  "  pm.response.to.be.success;",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json).to.have.property('ok', true);",
+                  "  pm.expect(json.data).to.be.an('array');",
+                  "  pm.expect(json.meta).to.have.property('total');",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "const activas = (json.data || []).filter(function (t) {",
+                  "  return t.estado === 'pendiente' || t.estado === 'en_progreso';",
+                  "});",
+                  "const ids = activas.map(function (t) { return t.id; });",
+                  "pm.collectionVariables.set('tareaIdsJson', JSON.stringify(ids));",
+                  "pm.collectionVariables.set('tareaIdsInvertidasJson', JSON.stringify(ids.slice().reverse()));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tareas?page={{page}}&limit={{limit}}&establecimiento_id={{establecimientoId}}&ambito={{ambito}}&sortBy={{sortBy}}&sortOrder={{sortOrder}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tareas"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "{{page}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "{{limit}}"
+                },
+                {
+                  "key": "establecimiento_id",
+                  "value": "{{establecimientoId}}"
+                },
+                {
+                  "key": "ambito",
+                  "value": "{{ambito}}",
+                  "description": "nursery o greenhouse."
+                },
+                {
+                  "key": "estado",
+                  "value": "{{tareaEstado}}",
+                  "description": "pendiente, en_progreso, completada o cancelada. Vacio no es valido: dejar deshabilitado si no se filtra.",
+                  "disabled": true
+                },
+                {
+                  "key": "asignado_a",
+                  "value": "me",
+                  "description": "UUID de usuario, o el literal me para el usuario del token.",
+                  "disabled": true
+                },
+                {
+                  "key": "q",
+                  "value": "{{search}}",
+                  "description": "Busca en titulo y descripcion.",
+                  "disabled": true
+                },
+                {
+                  "key": "sortBy",
+                  "value": "{{sortBy}}",
+                  "description": "Permitidos: orden, created_at, titulo, estado. Cualquier otro cae a orden."
+                },
+                {
+                  "key": "sortOrder",
+                  "value": "{{sortOrder}}",
+                  "description": "ASC o DESC."
+                }
+              ]
+            },
+            "description": "Lista las tareas no borradas del tenant. El orden por defecto es orden ASC con desempate por id, asi que la paginacion es estable. Para el flujo de reordenamiento conviene subir limit a 200 para que el tablero venga completo."
+          }
+        },
+        {
+          "name": "Obtener tarea por ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Devuelve la tarea', function () {",
+                  "  pm.response.to.be.success;",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.data.id).to.eql(pm.collectionVariables.get('tareaId'));",
+                  "  pm.expect(json.data).to.have.property('creada_por');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tareas/{{tareaId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tareas",
+                "{{tareaId}}"
+              ]
+            },
+            "description": "Detalle de una tarea. Los tres campos de usuario vienen resueltos como objetos, no como ids."
+          }
+        },
+        {
+          "name": "Actualizar tarea",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Actualizada', function () {",
+                  "  pm.response.to.be.success;",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.data.titulo).to.eql(pm.collectionVariables.get('tituloTareaActualizado'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tareas/{{tareaId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tareas",
+                "{{tareaId}}"
+              ]
+            },
+            "description": "Requiere rol supervisor o admin_global. Solo se pueden editar titulo, descripcion y asignado_a_usuario_id.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"titulo\": \"{{tituloTareaActualizado}}\",\n  \"descripcion\": \"Editada desde Postman\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Asignar tarea a usuario",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Asignada', function () {",
+                  "  pm.response.to.be.success;",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.data.asignado_a).to.not.eql(null);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tareas/{{tareaId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tareas",
+                "{{tareaId}}"
+              ]
+            },
+            "description": "Requiere haber corrido Setup / Obtener usuario para asignar.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"asignado_a_usuario_id\": \"{{usuarioId}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Desasignar tarea",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Desasignada', function () {",
+                  "  pm.response.to.be.success;",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.data.asignado_a).to.eql(null);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tareas/{{tareaId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tareas",
+                "{{tareaId}}"
+              ]
+            },
+            "description": "null explicito limpia el campo; omitirlo lo deja como estaba.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"asignado_a_usuario_id\": null\n}"
+            }
+          }
+        },
+        {
+          "name": "Intentar modificar campo inmutable (debe fallar)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Campo inmutable', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.error.code).to.eql('TAREA_FIELD_IMMUTABLE');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tareas/{{tareaId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tareas",
+                "{{tareaId}}"
+              ]
+            },
+            "description": "Caso negativo: ambito, establecimiento_id, estado y orden no se editan por PATCH. Para el estado existe POST /tareas/:id/estado y para el orden POST /tareas/reordenar.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ambito\": \"greenhouse\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Estados",
+      "item": [
+        {
+          "name": "Cambiar estado a en_progreso",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('En progreso', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.data.estado).to.eql('en_progreso');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tareas/{{tareaId}}/estado",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tareas",
+                "{{tareaId}}",
+                "estado"
+              ]
+            },
+            "description": "Requiere rol operario, supervisor o admin_global.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"estado\": \"en_progreso\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Cambiar estado a completada",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Completada con sello', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.data.estado).to.eql('completada');",
+                  "  pm.expect(json.data.completada_at).to.not.eql(null);",
+                  "  pm.expect(json.data.completada_por).to.not.eql(null);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tareas/{{tareaId}}/estado",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tareas",
+                "{{tareaId}}",
+                "estado"
+              ]
+            },
+            "description": "Al completar, el backend sella completada_at y completada_por con el usuario del token.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"estado\": \"completada\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Repetir estado completada (debe fallar)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Transicion invalida', function () {",
+                  "  pm.response.to.have.status(422);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.error.code).to.eql('TAREA_TRANSICION_INVALIDA');",
+                  "  pm.expect(json.error.details.from).to.eql('completada');",
+                  "  pm.expect(json.error.details.to).to.eql('completada');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tareas/{{tareaId}}/estado",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tareas",
+                "{{tareaId}}",
+                "estado"
+              ]
+            },
+            "description": "Caso negativo: pedir el estado que la tarea ya tiene es un error, no un no-op. Casi siempre viene de un doble click o un reintento.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"estado\": \"completada\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Completada a en_progreso (debe fallar)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Transicion invalida', function () {",
+                  "  pm.response.to.have.status(422);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.error.code).to.eql('TAREA_TRANSICION_INVALIDA');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tareas/{{tareaId}}/estado",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tareas",
+                "{{tareaId}}",
+                "estado"
+              ]
+            },
+            "description": "Caso negativo: desde completada la unica salida es pendiente.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"estado\": \"en_progreso\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Reabrir tarea a pendiente",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Reabierta y limpia', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.data.estado).to.eql('pendiente');",
+                  "  pm.expect(json.data.completada_at).to.eql(null);",
+                  "  pm.expect(json.data.completada_por).to.eql(null);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tareas/{{tareaId}}/estado",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tareas",
+                "{{tareaId}}",
+                "estado"
+              ]
+            },
+            "description": "Reabrir requiere supervisor o admin_global, aunque el endpoint admita operario: la regla depende del estado de origen. Con token de operario esto responde 403 AUTH_FORBIDDEN. Al reabrir desde completada, completada_at y completada_por vuelven a null.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"estado\": \"pendiente\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reordenamiento",
+      "item": [
+        {
+          "name": "Refrescar tablero antes de reordenar",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Tablero cargado', function () {",
+                  "  pm.response.to.be.success;",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "const activas = (json.data || []).filter(function (t) {",
+                  "  return t.estado === 'pendiente' || t.estado === 'en_progreso';",
+                  "});",
+                  "const ids = activas.map(function (t) { return t.id; });",
+                  "pm.collectionVariables.set('tareaIdsJson', JSON.stringify(ids));",
+                  "pm.collectionVariables.set('tareaIdsInvertidasJson', JSON.stringify(ids.slice().reverse()));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tareas?establecimiento_id={{establecimientoId}}&ambito={{ambito}}&limit=200",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tareas"
+              ],
+              "query": [
+                {
+                  "key": "establecimiento_id",
+                  "value": "{{establecimientoId}}"
+                },
+                {
+                  "key": "ambito",
+                  "value": "{{ambito}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "200"
+                }
+              ]
+            },
+            "description": "Captura los ids de las tareas activas del tablero en tareaIdsJson y su inverso en tareaIdsInvertidasJson. Correr siempre antes de reordenar."
+          }
+        },
+        {
+          "name": "Reordenar tablero",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Reordenado 1..N', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.data).to.be.an('array');",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "const enviados = JSON.parse(pm.collectionVariables.get('tareaIdsInvertidasJson') || '[]');",
+                  "if (enviados.length) {",
+                  "  pm.test('El primero enviado quedo con orden 1', function () {",
+                  "    const primera = (json.data || []).find(function (t) { return t.id === enviados[0]; });",
+                  "    pm.expect(primera).to.not.eql(undefined);",
+                  "    pm.expect(primera.orden).to.eql(1);",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tareas/reordenar",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tareas",
+                "reordenar"
+              ]
+            },
+            "description": "Requiere rol supervisor o admin_global. tarea_ids tiene que traer exactamente las tareas activas del tablero (pendiente y en_progreso), ni de mas, ni de menos, ni repetidas. Devuelve el tablero completo con orden reasignado 1..N.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"establecimiento_id\": \"{{establecimientoId}}\",\n  \"ambito\": \"{{ambito}}\",\n  \"tarea_ids\": {{tareaIdsInvertidasJson}}\n}"
+            }
+          }
+        },
+        {
+          "name": "Reordenar con ids repetidos (debe fallar)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Conjunto invalido', function () {",
+                  "  pm.response.to.have.status(422);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.error.code).to.eql('TAREA_REORDEN_INVALIDO');",
+                  "  pm.expect(json.error.details).to.have.property('esperadas');",
+                  "  pm.expect(json.error.details).to.have.property('recibidas');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tareas/reordenar",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tareas",
+                "reordenar"
+              ]
+            },
+            "description": "Caso negativo: el conjunto enviado no coincide con las activas del tablero. La respuesta trae details.esperadas y details.recibidas, y el orden anterior queda intacto: la operacion es atomica.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"establecimiento_id\": \"{{establecimientoId}}\",\n  \"ambito\": \"{{ambito}}\",\n  \"tarea_ids\": [\"{{tareaId}}\", \"{{tareaId}}\"]\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Borrado",
+      "item": [
+        {
+          "name": "Eliminar tarea",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Eliminada', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.data.deleted).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tareas/{{tareaId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tareas",
+                "{{tareaId}}"
+              ]
+            },
+            "description": "Requiere rol supervisor o admin_global. Es borrado logico: la fila queda con deleted_at pero desaparece del listado y del detalle. No recompacta el orden del resto del tablero."
+          }
+        },
+        {
+          "name": "Obtener tarea eliminada (debe fallar)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('No encontrada', function () {",
+                  "  pm.response.to.have.status(404);",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.error.code).to.eql('TAREA_NOT_FOUND');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tareas/{{tareaId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tareas",
+                "{{tareaId}}"
+              ]
+            },
+            "description": "Caso negativo: mismo 404 para no existe, esta borrada y es de otro tenant. El backend no revela la existencia de tareas ajenas."
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "refreshToken",
+      "value": ""
+    },
+    {
+      "key": "email",
+      "value": "admin@example.com"
+    },
+    {
+      "key": "password",
+      "value": "password123"
+    },
+    {
+      "key": "tenantId",
+      "value": ""
+    },
+    {
+      "key": "tenantKey",
+      "value": ""
+    },
+    {
+      "key": "page",
+      "value": "1"
+    },
+    {
+      "key": "limit",
+      "value": "20"
+    },
+    {
+      "key": "search",
+      "value": ""
+    },
+    {
+      "key": "establecimientoId",
+      "value": ""
+    },
+    {
+      "key": "usuarioId",
+      "value": ""
+    },
+    {
+      "key": "tareaId",
+      "value": ""
+    },
+    {
+      "key": "tareaIdsJson",
+      "value": "[]"
+    },
+    {
+      "key": "tareaIdsInvertidasJson",
+      "value": "[]"
+    },
+    {
+      "key": "ambito",
+      "value": "nursery"
+    },
+    {
+      "key": "tareaEstado",
+      "value": "pendiente"
+    },
+    {
+      "key": "tituloTarea",
+      "value": "Tarea de prueba Postman"
+    },
+    {
+      "key": "tituloTareaActualizado",
+      "value": "Tarea de prueba Postman (editada)"
+    },
+    {
+      "key": "descripcionTarea",
+      "value": "Creada desde la coleccion de Postman"
+    },
+    {
+      "key": "sortBy",
+      "value": "orden"
+    },
+    {
+      "key": "sortOrder",
+      "value": "ASC"
+    }
+  ]
+}
