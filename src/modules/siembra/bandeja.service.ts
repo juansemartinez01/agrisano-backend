@@ -74,6 +74,7 @@ export class BandejaService extends BaseCrudTenantService<Bandeja> {
     if (q.lote_semilla_id) filters['lote_semilla_id'] = q.lote_semilla_id;
     if (q.lote_vermiculita_id)
       filters['lote_vermiculita_id'] = q.lote_vermiculita_id;
+    if (q.mesa_id) filters['mesa_id'] = q.mesa_id;
 
     return this.list(
       { ...q, filters },
@@ -84,6 +85,7 @@ export class BandejaService extends BaseCrudTenantService<Bandeja> {
           'siembra_id',
           'lote_semilla_id',
           'lote_vermiculita_id',
+          'mesa_id',
         ],
         sortAllowed: ['fecha_entrada_nursery', 'created_at'],
         sortFallback: { by: 'created_at', order: 'DESC' },
