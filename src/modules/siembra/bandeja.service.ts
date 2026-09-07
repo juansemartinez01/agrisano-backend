@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, In, Repository } from 'typeorm';
 import { BaseCrudTenantService } from 'src/common/crud/base-crud.service';
 import { AppError } from 'src/common/errors/app-error';
 import { ErrorCodes } from 'src/common/errors/error-codes';
@@ -9,7 +9,9 @@ import {
   hoyISO,
   resolveFechaDia,
 } from 'src/common/utils/fecha-dia.util';
+import { clampPagination } from 'src/common/query/query-utils';
 import {
+  buildUsuariosMap,
   fetchUsuarioSnapshot,
   resolveUsuarioResumen,
   UsuarioResumen,
@@ -17,8 +19,12 @@ import {
 } from 'src/common/utils/usuario-resumen.util';
 import { TenancyService } from 'src/modules/tenancy/tenancy.service';
 import { Bandeja, BandejaEstado } from './entities/bandeja.entity';
-import { BandejaDescarteMotivo } from './entities/bandeja-descarte.entity';
+import {
+  BandejaDescarte,
+  BandejaDescarteMotivo,
+} from './entities/bandeja-descarte.entity';
 import { QueryBandejasDto } from './dto/query-bandejas.dto';
+import { QueryDescartesDto } from './dto/query-descartes.dto';
 import { DescartarBandejasDto } from './dto/descartar-bandejas.dto';
 
 export const AUDIT = {
@@ -45,6 +51,55 @@ export interface BandejaDescartada {
   establecimiento_id: string;
 }
 
+/** Lo que se muestra en un listado: alcanza para marcar la baja y su causa. */
+export interface DescarteResumen {
+  motivo: BandejaDescarteMotivo;
+  fecha_descarte: Date;
+  estado_anterior: BandejaEstado;
+}
+
+/** Lo que se muestra al abrir la bandeja: suma el texto libre y el responsable. */
+export interface DescarteDetalle extends DescarteResumen {
+  observaciones: string | null;
+  usuario: UsuarioResumen | null;
+}
+
+export type BandejaConDescarte = Bandeja & { descarte: DescarteResumen | null };
+export type BandejaConDescarteDetalle = Bandeja & {
+  descarte: DescarteDetalle | null;
+};
+
+/** Fila del reporte de mermas: la constancia, mas de donde salio la bandeja. */
+export interface DescarteListItem {
+  bandeja_id: string;
+  estado_anterior: BandejaEstado;
+  motivo: BandejaDescarteMotivo;
+  observaciones: string | null;
+  fecha_descarte: Date;
+  created_at: Date;
+  usuario: UsuarioResumen | null;
+  bandeja: {
+    siembra_id: string;
+    mesa_id: string | null;
+    establecimiento_id: string;
+    lote_semilla_id: string;
+  };
+}
+
+interface DescarteRawRow extends UsuarioSnapshotFields {
+  bandeja_id: string;
+  estado_anterior: BandejaEstado;
+  motivo: BandejaDescarteMotivo;
+  observaciones: string | null;
+  fecha_descarte: Date;
+  created_at: Date;
+  usuario_id: string;
+  siembra_id: string;
+  mesa_id: string | null;
+  establecimiento_id: string;
+  lote_semilla_id: string;
+}
+
 export interface DescartarBandejasResult {
   descartadas: number;
   motivo: BandejaDescarteMotivo;
@@ -58,6 +113,8 @@ export class BandejaService extends BaseCrudTenantService<Bandeja> {
   constructor(
     @InjectRepository(Bandeja)
     private readonly bandejaRepo: Repository<Bandeja>,
+    @InjectRepository(BandejaDescarte)
+    private readonly descarteRepo: Repository<BandejaDescarte>,
     private readonly dataSource: DataSource,
     private readonly tenancy: TenancyService,
   ) {
@@ -72,7 +129,7 @@ export class BandejaService extends BaseCrudTenantService<Bandeja> {
    */
   async listBandejas(
     q: QueryBandejasDto,
-  ): Promise<{ items: Bandeja[]; total: number }> {
+  ): Promise<{ items: BandejaConDescarte[]; total: number }> {
     const filters: Record<string, unknown> = {};
     if (q.estado) filters['estado'] = q.estado;
     if (q.establecimiento_id) filters['establecimiento_id'] = q.establecimiento_id;
@@ -82,7 +139,7 @@ export class BandejaService extends BaseCrudTenantService<Bandeja> {
       filters['lote_vermiculita_id'] = q.lote_vermiculita_id;
     if (q.mesa_id) filters['mesa_id'] = q.mesa_id;
 
-    return this.list(
+    const { items, total } = await this.list(
       { ...q, filters },
       {
         filterAllowed: [
@@ -109,9 +166,60 @@ export class BandejaService extends BaseCrudTenantService<Bandeja> {
         },
       },
     );
+
+    const descartes = await this.buildDescartesMap(items);
+    return {
+      total,
+      items: items.map((b) => ({
+        ...b,
+        descarte: this.resumenDescarte(descartes.get(b.id)),
+      })),
+    };
   }
 
-  async getBandeja(id: string): Promise<Bandeja> {
+  /**
+   * Constancias de descarte de un conjunto de bandejas, en una sola consulta.
+   *
+   * Se resuelve sobre la pagina ya materializada en vez de con un LEFT JOIN
+   * dentro del listado porque `list()` del CRUD base cierra con
+   * `getManyAndCount()`, que descarta las columnas crudas de un join a una
+   * tabla sin relacion declarada. El costo es el mismo —una consulta por clave
+   * primaria, acotada al tamano de pagina— y el listado compartido no se toca.
+   *
+   * Solo una bandeja `descartada` puede tener constancia, asi que se filtra
+   * antes de preguntar: en el listado por default, que las excluye, no se
+   * ejecuta ninguna consulta extra.
+   */
+  private async buildDescartesMap(
+    bandejas: Bandeja[],
+  ): Promise<Map<string, BandejaDescarte>> {
+    const map = new Map<string, BandejaDescarte>();
+    const ids = bandejas
+      .filter((b) => b.estado === BandejaEstado.DESCARTADA)
+      .map((b) => b.id);
+    if (!ids.length) return map;
+
+    const tenantId = this.tenancy.requireTenantId();
+    const filas = await this.descarteRepo.find({
+      where: { bandeja_id: In(ids), tenant_id: tenantId },
+    });
+    for (const f of filas) map.set(f.bandeja_id, f);
+    return map;
+  }
+
+  private resumenDescarte(
+    d: BandejaDescarte | undefined,
+  ): DescarteResumen | null {
+    if (!d) return null;
+    return {
+      motivo: d.motivo,
+      fecha_descarte: d.fecha_descarte,
+      estado_anterior: d.estado_anterior,
+    };
+  }
+
+  async getBandeja(id: string): Promise<BandejaConDescarteDetalle> {
+    const tenantId = this.tenancy.requireTenantId();
     const bandeja = await this.findById(id, { strictTenant: true });
     if (!bandeja) {
       throw new AppError({
@@ -120,7 +228,133 @@ export class BandejaService extends BaseCrudTenantService<Bandeja> {
         status: 404,
       });
     }
-    return bandeja;
+
+    // carencia_hasta, mesa_id y las fechas del ciclo se devuelven tal cual: la
+    // perdida agrega informacion, no reescribe la historia de la bandeja.
+    if (bandeja.estado !== BandejaEstado.DESCARTADA) {
+      return { ...bandeja, descarte: null };
+    }
+
+    const d = await this.descarteRepo.findOne({
+      where: { bandeja_id: id, tenant_id: tenantId },
+    });
+    if (!d) return { ...bandeja, descarte: null };
+
+    const usuarios = await buildUsuariosMap(
+      this.dataSource,
+      [d.usuario_id],
+      tenantId,
+    );
+    return {
+      ...bandeja,
+      descarte: {
+        motivo: d.motivo,
+        fecha_descarte: d.fecha_descarte,
+        estado_anterior: d.estado_anterior,
+        observaciones: d.observaciones,
+        usuario: resolveUsuarioResumen(
+          d.usuario_id,
+          d,
+          usuarios.get(d.usuario_id),
+        ),
+      },
+    };
+  }
+
+  /**
+   * Reporte de mermas. Las columnas para agrupar —establecimiento y siembra—
+   * viven en `bandejas`, no en la constancia, de ahi el join.
+   *
+   * El join no filtra `deleted_at`: una merma es un hecho ocurrido, y que la
+   * bandeja se borre logicamente despues no la saca del reporte.
+   */
+  async listDescartes(
+    q: QueryDescartesDto,
+  ): Promise<{ items: DescarteListItem[]; total: number }> {
+    const tenantId = this.tenancy.requireTenantId();
+    const { limit, skip } = clampPagination(q.page, q.limit, 200);
+
+    const qb = this.descarteRepo
+      .createQueryBuilder('d')
+      .innerJoin('bandejas', 'b', 'b.id = d.bandeja_id')
+      .where('d.tenant_id = :tenantId', { tenantId });
+
+    if (q.establecimiento_id) {
+      qb.andWhere('b.establecimiento_id = :estId', {
+        estId: q.establecimiento_id,
+      });
+    }
+    if (q.siembra_id) {
+      qb.andWhere('b.siembra_id = :siembraId', { siembraId: q.siembra_id });
+    }
+    if (q.motivo) qb.andWhere('d.motivo = :motivo', { motivo: q.motivo });
+    if (q.estado_anterior) {
+      qb.andWhere('d.estado_anterior = :estadoAnterior', {
+        estadoAnterior: q.estado_anterior,
+      });
+    }
+
+    // Mismo criterio que al validar la fecha de un descarte: se compara el dia
+    // calendario como texto en UTC. Asi el rango no depende de la zona horaria
+    // de la sesion ni de como el driver mapea timestamptz, y `fecha_hasta`
+    // queda inclusivo hasta el final del dia sin aritmetica de intervalos.
+    const DIA = "to_char(d.fecha_descarte AT TIME ZONE 'UTC', 'YYYY-MM-DD')";
+    if (q.fecha_desde) {
+      qb.andWhere(`${DIA} >= :desde`, { desde: q.fecha_desde });
+    }
+    if (q.fecha_hasta) {
+      qb.andWhere(`${DIA} <= :hasta`, { hasta: q.fecha_hasta });
+    }
+
+    const total = await qb.getCount();
+
+    // bandeja_id como desempate: varias bandejas de un mismo lote se descartan
+    // en la misma llamada y comparten fecha_descarte al microsegundo.
+    qb.orderBy(`d.${q.sortBy ?? 'fecha_descarte'}`, q.sortOrder ?? 'DESC')
+      .addOrderBy('d.bandeja_id', 'ASC')
+      .offset(skip)
+      .limit(limit);
+
+    const filas = await qb
+      .select('d.bandeja_id', 'bandeja_id')
+      .addSelect('d.estado_anterior', 'estado_anterior')
+      .addSelect('d.motivo', 'motivo')
+      .addSelect('d.observaciones', 'observaciones')
+      .addSelect('d.fecha_descarte', 'fecha_descarte')
+      .addSelect('d.created_at', 'created_at')
+      .addSelect('d.usuario_id', 'usuario_id')
+      .addSelect('d.usuario_email_snapshot', 'usuario_email_snapshot')
+      .addSelect('d.usuario_nombre_snapshot', 'usuario_nombre_snapshot')
+      .addSelect('d.usuario_apellido_snapshot', 'usuario_apellido_snapshot')
+      .addSelect('b.siembra_id', 'siembra_id')
+      .addSelect('b.mesa_id', 'mesa_id')
+      .addSelect('b.establecimiento_id', 'establecimiento_id')
+      .addSelect('b.lote_semilla_id', 'lote_semilla_id')
+      .getRawMany<DescarteRawRow>();
+
+    const usuarios = await buildUsuariosMap(
+      this.dataSource,
+      filas.map((f) => f.usuario_id),
+      tenantId,
+    );
+
+    const items = filas.map((f) => ({
+      bandeja_id: f.bandeja_id,
+      estado_anterior: f.estado_anterior,
+      motivo: f.motivo,
+      observaciones: f.observaciones,
+      fecha_descarte: f.fecha_descarte,
+      created_at: f.created_at,
+      usuario: resolveUsuarioResumen(f.usuario_id, f, usuarios.get(f.usuario_id)),
+      bandeja: {
+        siembra_id: f.siembra_id,
+        mesa_id: f.mesa_id,
+        establecimiento_id: f.establecimiento_id,
+        lote_semilla_id: f.lote_semilla_id,
+      },
+    }));
+
+    return { items, total };
   }
 
   /**

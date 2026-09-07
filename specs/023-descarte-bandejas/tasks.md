@@ -187,17 +187,62 @@ Dos correcciones al armado de las pruebas, no al código: la primera corrida asu
 
 **Independent Test**: listar las bandejas de una mesa, elegir una y descartarla; después filtrar las pérdidas por motivo y por rango de fechas.
 
-- [ ] T027 [US2] Agregar `mesa_id` (`@IsOptional`, `@IsUUID`) a `src/modules/siembra/dto/query-bandejas.dto.ts` y `'mesa_id'` a `filterAllowed` en `bandeja.service.ts`
-- [ ] T028 [US2] **Commit propio**: quitar el default `estado ?? BandejaEstado.EN_NURSERY` de `listBandejas`. Sin filtro devuelve todo menos `descartada`; `estado=descartada` las devuelve. Ver decisión 4 de [plan.md](./plan.md)
-- [ ] T029 [US2] Agregar `id` como desempate en el orden de `listBandejas` (`sortFallback` y orden secundario), para que la paginación deje de ser inestable cuando varias filas comparten `created_at`
-- [ ] T030 [US2] Documentar el cambio de default en `docs/`: los consumidores que hoy no mandan `estado` deben pasar `estado=en_nursery` explícito. Actualizar también `postman/siembra.postman_collection.json`
-- [ ] T031 [P] [US2] Agregar `descarte` (objeto reducido o `null`) al listado y a `getBandeja` con LEFT JOIN a `bandeja_descartes`
-- [ ] T032 [P] [US4] Crear `src/modules/siembra/dto/query-descartes.dto.ts` extendiendo `PageQueryDto`: `establecimiento_id`, `siembra_id`, `motivo`, `estado_anterior`, `fecha_desde`, `fecha_hasta`, `sortBy`, `sortOrder`
-- [ ] T033 [US4] Implementar `BandejaService.listDescartes` con `page()`, scope de tenant, `fecha_hasta` inclusive hasta el final del día, y `bandeja_id` como desempate del orden
-- [ ] T034 [US4] Agregar `@Get('descartes')` a `bandeja.controller.ts`, **declarado antes de `@Get(':id')`**, resolviendo el usuario con `buildUsuariosMap` / `resolveUsuarioResumen`
-- [ ] T035 `npm run build` y verificación funcional: `GET /bandejas?mesa_id=…` devuelve las bandejas de la mesa; `?estado=descartada` devuelve solo las perdidas; sin filtro no aparecen descartadas; los 4 filtros de `/bandejas/descartes` acotan bien; paginación estable entre páginas
+- [x] T027 [US2] Agregar `mesa_id` (`@IsOptional`, `@IsUUID`) a `src/modules/siembra/dto/query-bandejas.dto.ts` y `'mesa_id'` a `filterAllowed` en `bandeja.service.ts`
+- [x] T028 [US2] **Commit propio**: quitar el default `estado ?? BandejaEstado.EN_NURSERY` de `listBandejas`. Sin filtro devuelve todo menos `descartada`; `estado=descartada` las devuelve. Ver decisión 4 de [plan.md](./plan.md)
+- [x] T029 [US2] Agregar `id` como desempate en el orden de `listBandejas` (`sortFallback` y orden secundario), para que la paginación deje de ser inestable cuando varias filas comparten `created_at`
+- [x] T030 [US2] Documentar el cambio de default en `docs/`: los consumidores que hoy no mandan `estado` deben pasar `estado=en_nursery` explícito. Actualizar también `postman/siembra.postman_collection.json`
+- [x] T031 [P] [US2] Agregar `descarte` (objeto reducido o `null`) al listado y a `getBandeja` con LEFT JOIN a `bandeja_descartes`
+- [x] T032 [P] [US4] Crear `src/modules/siembra/dto/query-descartes.dto.ts` extendiendo `PageQueryDto`: `establecimiento_id`, `siembra_id`, `motivo`, `estado_anterior`, `fecha_desde`, `fecha_hasta`, `sortBy`, `sortOrder`
+- [x] T033 [US4] Implementar `BandejaService.listDescartes` con `page()`, scope de tenant, `fecha_hasta` inclusive hasta el final del día, y `bandeja_id` como desempate del orden
+- [x] T034 [US4] Agregar `@Get('descartes')` a `bandeja.controller.ts`, **declarado antes de `@Get(':id')`**, resolviendo el usuario con `buildUsuariosMap` / `resolveUsuarioResumen`
+- [x] T035 `npm run build` y verificación funcional: `GET /bandejas?mesa_id=…` devuelve las bandejas de la mesa; `?estado=descartada` devuelve solo las perdidas; sin filtro no aparecen descartadas; los 4 filtros de `/bandejas/descartes` acotan bien; paginación estable entre páginas
 
 **Checkpoint**: US2 y US4 entregadas.
+
+### Notas de implementación
+
+**T029 — el desempate no podía ir en `customizeQb`.** `applySort()` de `query-utils.ts` llama a `qb.orderBy(...)`, que **resetea** todo el ORDER BY acumulado; `customizeQb` corre antes, así que cualquier `addOrderBy` puesto ahí se perdía. Se agregó una opción `sortTiebreak` a `CrudListOptions` que `BaseCrudTenantService.list()` aplica como `addOrderBy` justo después de `applySort`. Sin la opción el comportamiento no cambia, así que los otros módulos quedan intactos.
+
+El caso vale la pena: las bandejas de una siembra se crean en el mismo `INSERT` y comparten `created_at` —el orden por default— al microsegundo. En la base local hay 6 grupos de bandejas empatadas dentro de `en_nursery`, o sea que la paginación del caso más común era justamente la inestable.
+
+**T030 — es un breaking change y se documentó como tal.** `GET /bandejas` sin `estado` devolvía sólo `en_nursery`; ahora devuelve todo menos `descartada`. `docs/siembra-frontend.md` lleva una sección `BREAKING` con la tabla de migración (quien quiera el comportamiento viejo manda `estado=en_nursery` explícito). Los dos handoffs históricos —`handoff-frontend-lote-vermiculita.md` y `handoff-frontend-tenant-pruebas.md`— no se reescribieron: llevan una nota 🕐 arriba del párrafo que quedó viejo, para que sigan sirviendo como registro de lo que se dijo en su momento.
+
+**T031 — consulta en lote, no el LEFT JOIN que pedía la tarea.** `BaseCrudTenantService.list()` termina en `getManyAndCount()`, que descarta las columnas crudas de un join a una tabla sin relación declarada: el `descarte` nunca habría llegado a la respuesta. Se resolvió con una segunda consulta en lote sobre los ids de la página, **filtrando primero por `estado === 'descartada'`**. Como el listado por default excluye las descartadas, el caso normal no paga ninguna consulta extra: el array de ids queda vacío y la función corta antes de tocar la base.
+
+El detalle (`GET /bandejas/:id`) sí trae el objeto completo con `observaciones` y `usuario`; el listado trae sólo `motivo`, `fecha_descarte` y `estado_anterior`. Una lista de bandejas no necesita el texto libre ni resolver un usuario por fila.
+
+**T033 — el rango de fechas se compara como texto, igual que en la Fase 2.** `to_char(d.fecha_descarte AT TIME ZONE 'UTC', 'YYYY-MM-DD')` contra los strings del request. Con esto `fecha_hasta` es inclusivo hasta el final del día sin sumar intervalos, y el resultado no depende de la zona horaria de la sesión. `fecha_desde=2026-09-03&fecha_hasta=2026-09-03` devuelve el día entero, que era el caso a cuidar.
+
+El join a `bandejas` es por nombre de tabla (`.innerJoin('bandejas', 'b', 'b.id = d.bandeja_id')`) porque `BandejaDescarte` no declara la relación. **A propósito no filtra `b.deleted_at`**: una bandeja borrada lógicamente no debería desaparecer del reporte de mermas, que es justamente el registro de lo que se perdió.
+
+En el DTO, `estado_anterior` acepta los tres estados vivos y **rechaza `descartada`**: no existe ni puede existir una constancia con ese valor. Las fechas se validan sólo de formato (`@Matches(/^\d{4}-\d{2}-\d{2}$/)`), sin verificar que el día exista: un borde de reporte mal escrito acota de más y no persiste nada, a diferencia de la fecha de un descarte, que sí valida el calendario.
+
+**T034 — el usuario se resuelve en el service, no en el controller.** La tarea decía controller, pero los 18 llamadores de `buildUsuariosMap` del repo (aplicaciones-químicas, cosecha, mesas, packing, siembra, tareas, trasplante) lo hacen en el service, sin excepción. Se siguió la convención existente. El controller sólo pagina.
+
+El orden de rutas se verificó en el log de arranque, no por razonamiento: `{/bandejas, GET}` → `{/bandejas/descartes, GET}` → `{/bandejas/descartar, POST}` → `{/bandejas/:id, GET}`.
+
+**T035 — 121 aserciones, todas en verde.** Escenario armado por API: una siembra nueva con 6 bandejas trasplantadas a una mesa propia, sobre las 26 bandejas y 8 descartes que ya había en la base local.
+
+| Caso | Resultado |
+|---|---|
+| `?mesa_id=M` | las 6 de la mesa, ninguna ajena; mesa inexistente → 0; no-uuid → 400 |
+| Sin filtro de estado | 24 de 32, ninguna `descartada`, varios estados vivos |
+| `?estado=descartada` | las 8 perdidas, todas con su `descarte` |
+| Las dos vistas | suman el universo sin solaparse |
+| `?estado=en_nursery` explícito | sigue dando lo que daba el default viejo |
+| Shape del `descarte` | 3 campos en el listado, 5 (con `observaciones` y `usuario`) en el detalle |
+| Paginación de bandejas y de descartes | `limit=3` de punta a punta: sin repetidos, sin faltantes, dos corridas idénticas |
+| Los 6 filtros de `/bandejas/descartes` | cada uno contrastado contra la misma pregunta hecha en SQL |
+| Rango de un solo día | `desde=hasta=2026-09-03` devuelve ese día completo |
+| Orden | default `fecha_descarte DESC` + `bandeja_id ASC`; `sortOrder=ASC` invierte; `sortBy=created_at` acepta |
+| 9 rechazos de `class-validator` | 400 (incluidos `estado_anterior=descartada`, `sortBy=motivo`, `limit=999`) |
+| Aislamiento de tenant | el descarte movido de tenant desaparece del reporte y vuelve al restaurarlo |
+| Escenario final | perdidas 2 de las 6 de la mesa: `?mesa_id=M` → 4, `?mesa_id=M&estado=descartada` → 2, el reporte creció en 2 con la mesa correcta, 2 eventos nuevos de historial, y volver a descartarlas da 409 |
+
+Las expectativas se calculan leyendo la base, no hardcodeadas: el escenario comparte establecimiento con descartes previos, así que cualquier número fijo habría sido frágil.
+
+Un empujón al armado que no es un bug del código: `POST /mesas` asigna `posicion_actual` sola, y `trasplante.service.ts:71-73` exige `en_cosecha` o (`activa` con `posicion_actual` en `NULL`). Se puso `posicion_actual = NULL` a la mesa del escenario directamente en la base. Es un estado normal en producción; simplemente no se llega a él por API sin pasar por el módulo de cosecha.
+
 
 ---
 

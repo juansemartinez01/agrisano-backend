@@ -19,6 +19,7 @@ import { clampPagination } from 'src/common/query/query-utils';
 import type { JwtPayload } from 'src/modules/auth/types/jwt-payload.type';
 import { BandejaService, AUDIT } from './bandeja.service';
 import { QueryBandejasDto } from './dto/query-bandejas.dto';
+import { QueryDescartesDto } from './dto/query-descartes.dto';
 import { DescartarBandejasDto } from './dto/descartar-bandejas.dto';
 
 type AuthRequest = Request & {
@@ -42,6 +43,17 @@ export class BandejaController {
   async list(@Query() q: QueryBandejasDto) {
     const { page: p, limit } = clampPagination(q.page, q.limit, 200);
     const r = await this.svc.listBandejas(q);
+    return page(r.items, p, limit, r.total);
+  }
+
+  // Reporte de mermas. Sin @Roles, como los otros dos GET: lo lee cualquiera
+  // que ya pueda leer bandejas.
+  //
+  // Declarado antes de @Get(':id') por lo mismo que 'descartar'.
+  @Get('descartes')
+  async listDescartes(@Query() q: QueryDescartesDto) {
+    const { page: p, limit } = clampPagination(q.page, q.limit, 200);
+    const r = await this.svc.listDescartes(q);
     return page(r.items, p, limit, r.total);
   }
 
