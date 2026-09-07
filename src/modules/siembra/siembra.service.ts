@@ -474,13 +474,40 @@ export class SiembraService {
       });
     }
 
-    const trasplantadaCount = await this.bandejaRepo.count({
-      where: { siembra_id: id, estado: BandejaEstado.TRASPLANTADA },
-    });
+    // El filtro por tenant es defensa en profundidad: la siembra ya se valido
+    // contra el tenant arriba, asi que sus bandejas no pueden ser de otro. Va
+    // igual porque un count que decide si se borra o no no deberia depender de
+    // esa cadena de razonamiento (Principio II).
+    const [trasplantadaCount, descartadaCount] = await Promise.all([
+      this.bandejaRepo.count({
+        where: {
+          siembra_id: id,
+          tenant_id: tenantId,
+          estado: BandejaEstado.TRASPLANTADA,
+        },
+      }),
+      this.bandejaRepo.count({
+        where: {
+          siembra_id: id,
+          tenant_id: tenantId,
+          estado: BandejaEstado.DESCARTADA,
+        },
+      }),
+    ]);
     if (trasplantadaCount > 0) {
       throw new AppError({
         code: ErrorCodes.SIEMBRA_HAS_TRASPLANTADAS,
         message: 'No se puede eliminar una siembra con bandejas trasplantadas',
+        status: 409,
+      });
+    }
+    // Borrar la siembra le pondria deleted_at a sus bandejas y dejaria las
+    // constancias de descarte apuntando a filas borradas. Una perdida es un
+    // hecho registrado: no se va de la base junto con la siembra.
+    if (descartadaCount > 0) {
+      throw new AppError({
+        code: ErrorCodes.SIEMBRA_HAS_DESCARTADAS,
+        message: 'No se puede eliminar una siembra con bandejas descartadas',
         status: 409,
       });
     }

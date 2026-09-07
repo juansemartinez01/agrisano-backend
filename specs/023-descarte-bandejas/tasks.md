@@ -252,12 +252,47 @@ Un empujón al armado que no es un bug del código: `POST /mesas` asigna `posici
 
 **Independent Test**: trasplantar, cosechar, descartar una bandeja de ese ciclo y comparar la trazabilidad antes y después: mismas bandejas, con el campo `descarte` como única diferencia.
 
-- [ ] T036 [US5] Agregar `descarte` (objeto reducido o `null`) a cada elemento de `bandejas_ciclo` en `src/modules/trazabilidad/trazabilidad.service.ts`, con LEFT JOIN a `bandeja_descartes`, sin tocar la reconstrucción del ciclo desde `mesa_bandeja`
-- [ ] T037 [US5] Extender el `count` de bloqueo de `deleteSiembra` en `siembra.service.ts` para contar también `descartada` y lanzar `SIEMBRA_HAS_DESCARTADAS` 409; sumar el filtro `tenant_id` que falta (Principio II, ver "Deuda técnica anotada" en [plan.md](./plan.md))
-- [ ] T038 `npm run build` y verificación funcional: guardar la respuesta de trazabilidad de una cosecha, descartar una bandeja de ese ciclo, y comparar: mismas bandejas, `descarte` como única diferencia
-- [ ] T039 [US5] Verificar que `DELETE /lotes/:id` sigue bloqueado por una bandeja descartada (`LOTE_REFERENCED_BY_BANDEJA`, sin cambios de código) y que `DELETE /siembras/:id` devuelve 409
+- [x] T036 [US5] Agregar `descarte` (objeto reducido o `null`) a cada elemento de `bandejas_ciclo` en `src/modules/trazabilidad/trazabilidad.service.ts`, con LEFT JOIN a `bandeja_descartes`, sin tocar la reconstrucción del ciclo desde `mesa_bandeja`
+- [x] T037 [US5] Extender el `count` de bloqueo de `deleteSiembra` en `siembra.service.ts` para contar también `descartada` y lanzar `SIEMBRA_HAS_DESCARTADAS` 409; sumar el filtro `tenant_id` que falta (Principio II, ver "Deuda técnica anotada" en [plan.md](./plan.md))
+- [x] T038 `npm run build` y verificación funcional: guardar la respuesta de trazabilidad de una cosecha, descartar una bandeja de ese ciclo, y comparar: mismas bandejas, `descarte` como única diferencia
+- [x] T039 [US5] Verificar que `DELETE /lotes/:id` sigue bloqueado por una bandeja descartada (`LOTE_REFERENCED_BY_BANDEJA`, sin cambios de código) y que `DELETE /siembras/:id` devuelve 409
 
 **Checkpoint**: US5 entregada. Las 5 user stories completas.
+
+### Notas de implementación
+
+**T036 — acá el LEFT JOIN sí era viable.** Al revés que en T031: la consulta del ciclo es SQL crudo (`dataSource.query`), no pasa por `getManyAndCount()`, así que las columnas del join llegan enteras. Se sumaron tres columnas y un `LEFT JOIN bandeja_descartes bd ON bd.bandeja_id = b.id AND bd.tenant_id = $3`. **`bandeja_id` es la PK de `bandeja_descartes`**, así que el join no puede multiplicar las filas del ciclo — que era el único riesgo real de tocar esa consulta.
+
+`DescarteResumen` se declaró local al archivo en vez de importarlo de `bandeja.service.ts`. Es la convención del módulo: `UsuarioResumen`, `ProductoResumen` y compañía también están duplicados ahí. La forma es idéntica a la de `GET /bandejas`, que es lo que importa para el consumidor.
+
+`getTrazabilidadByMesa` no se tocó: devuelve cosechas, no `bandejas_ciclo`.
+
+**T037 — el `tenant_id` que faltaba es defensa en profundidad, no una fuga.** La siembra ya se validó contra el tenant veinte líneas antes, así que sus bandejas no pueden ser de otro. Se agregó igual, con el porqué escrito al lado: un `count` que decide si se borra o no no debería depender de esa cadena de razonamiento (Principio II).
+
+Lo que sí es un agujero real es lo otro: sin la guarda nueva, borrar una siembra le ponía `deleted_at` a sus bandejas descartadas y dejaba las constancias de merma apuntando a filas borradas. Como `listDescartes` a propósito no filtra `deleted_at`, el reporte habría seguido mostrando pérdidas cuya bandeja ya no existía.
+
+Las dos cuentas van en un `Promise.all`, y **`SIEMBRA_HAS_TRASPLANTADAS` se evalúa primero**: una siembra que tiene las dos cosas sigue devolviendo el mismo error que antes de esta feature.
+
+**T038/T039 — 41 aserciones, todas en verde.** El ciclo entero se armó por API sin ningún empujón a la base: la mesa quedó `activa` con `posicion_actual = 2` después del trasplante de T035, que es justo lo que `POST /cosecha` exige.
+
+| Caso | Resultado |
+|---|---|
+| Trazabilidad antes del descarte | las 6 bandejas del ciclo, 2 con `descarte` y 4 en `null`, contrastadas contra la base |
+| Shape de `descarte` | idéntico al de `GET /bandejas` |
+| Después de descartar una del ciclo | las mismas 6 bandejas, ninguna desapareció |
+| Diff fila por fila | la única fila que cambió es la descartada |
+| Diff campo por campo | sólo cambiaron `estado` y `descarte` |
+| Linaje de la bandeja perdida | `fecha_trasplante`, `siembra_id`, los tres lotes, `carencia_hasta` y el objeto `siembra` entero: idénticos |
+| Resto de la respuesta | cosecha, mesa, packing, aplicaciones y `alerta_carencia_incumplida`: idénticos |
+| `DELETE /siembras/:id` con descartadas y sin trasplantadas | 409 `SIEMBRA_HAS_DESCARTADAS`, y ninguna bandeja quedó con `deleted_at` |
+| `DELETE /siembras/:id` con las dos cosas | 409 `SIEMBRA_HAS_TRASPLANTADAS` (precedencia previa intacta) |
+| `DELETE /siembras/:id` sin bandejas bloqueantes | se borra: la guarda no bloquea de más |
+| `DELETE /lotes/:id` de una bandeja perdida | 409 `LOTE_REFERENCED_BY_BANDEJA`, sin cambios de código |
+
+El caso de control —la siembra que **sí** se borra— es el que hace que los tres 409 signifiquen algo: sin él, una guarda que rechazara todo habría pasado igual.
+
+Dos correcciones al armado, ninguna al código: la ruta es `POST /cosecha` en singular, y la respuesta anida la entidad en `data.cosecha`. Las expectativas del script se calculan leyendo la base y la cosecha se reutiliza si ya existe, porque cosechar deja la mesa en `en_cosecha` sin posición y un segundo `POST` fallaría.
+
 
 ---
 
