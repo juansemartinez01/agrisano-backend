@@ -304,6 +304,27 @@ export class AplicacionesQuimicasService {
 
       // Nursery bandeja links + carencia
       if (dto.contexto === AplicacionContexto.NURSERY && dto.bandeja_ids) {
+        // Revalidacion dentro de la transaccion: el chequeo del paso 5 corre
+        // fuera de ella, asi que la bandeja pudo haber sido trasplantada o
+        // descartada mientras tanto. El FOR UPDATE bloquea las filas hasta el
+        // commit, cubriendo tanto el link como la carencia.
+        const vigentes = (await qr.query(
+          `SELECT id FROM bandejas WHERE id = ANY($1::uuid[]) AND tenant_id = $2 AND estado = $3 AND deleted_at IS NULL ORDER BY id FOR UPDATE`,
+          [dto.bandeja_ids, tenantId, BandejaEstado.EN_NURSERY],
+        )) as Array<{ id: string }>;
+
+        const vigentesIds = new Set(vigentes.map((b) => b.id));
+        const invalidas = dto.bandeja_ids.filter((id) => !vigentesIds.has(id));
+
+        if (invalidas.length > 0) {
+          throw new AppError({
+            code: ErrorCodes.APLICACION_TARGET_INVALIDO,
+            message: `Las bandejas indicadas dejaron de estar en estado en_nursery`,
+            status: 422,
+            details: { bandeja_ids: invalidas },
+          });
+        }
+
         const hasCarencia =
           primaryQuimico.withholding_period_dias !== null &&
           primaryQuimico.withholding_period_dias !== undefined &&
