@@ -125,10 +125,23 @@ export class TrasplanteService {
       // 7. Update each bandeja + insert MesaBandeja
       const now = new Date();
       for (const bandeja_id of dto.bandeja_ids) {
-        await qr.query(
-          `UPDATE bandejas SET estado = 'trasplantada', mesa_id = $1, fecha_trasplante = now(), updated_at = now() WHERE id = $2 AND tenant_id = $3`,
-          [dto.mesa_id, bandeja_id, tenantId],
-        );
+        // La guarda de estado va en el WHERE, no en el chequeo previo a la
+        // transaccion: entre aquella validacion y este UPDATE la bandeja pudo
+        // haber sido trasplantada o descartada por otro request.
+        const updated = (await qr.query(
+          `UPDATE bandejas SET estado = 'trasplantada', mesa_id = $1, fecha_trasplante = now(), updated_at = now() WHERE id = $2 AND tenant_id = $3 AND estado = $4 RETURNING id`,
+          [dto.mesa_id, bandeja_id, tenantId, BandejaEstado.EN_NURSERY],
+        )) as Array<{ id: string }>;
+
+        if (updated.length === 0) {
+          throw new AppError({
+            code: ErrorCodes.TRASPLANTE_BANDEJA_INVALIDA,
+            message: `La bandeja ${bandeja_id} dejó de estar disponible para trasplante`,
+            status: 422,
+            details: { bandeja_ids: [bandeja_id] },
+          });
+        }
+
         await qr.manager.save(MesaBandeja, {
           mesa_id: dto.mesa_id,
           bandeja_id,
