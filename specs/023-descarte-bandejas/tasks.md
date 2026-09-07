@@ -89,16 +89,24 @@ Los dos escenarios "código viejo" reproducen el bug, así que la prueba discrim
 
 **⚠️ Bloqueante**: ninguna user story puede empezar antes de terminar esta fase.
 
-- [ ] T006 Crear `migrations/1774800000000-BandejaEstadoDescartada.ts` con **únicamente** `ALTER TYPE "bandeja_estado" ADD VALUE 'descartada'`, replicando el comentario explicativo de `1772200000000-BandejaCoolingPeriod.ts` (Postgres no permite usar un valor de enum recién agregado en la misma transacción)
-- [ ] T007 Crear `migrations/1774800000001-BandejaDescartesInit.ts`: tipo `bandeja_descarte_motivo`, tabla `bandeja_descartes` con PK sobre `bandeja_id`, las dos FKs sin `ON DELETE CASCADE`, y los 3 índices (`tenant_id`, `motivo`, `fecha_descarte`) según [data-model.md](./data-model.md)
-- [ ] T008 [P] Agregar `DESCARTADA = 'descartada'` al enum `BandejaEstado` en `src/modules/siembra/entities/bandeja.entity.ts`
-- [ ] T009 [P] Agregar `BANDEJA_DESCARTADA = 'bandeja_descartada'` al enum `HistorialTipoEvento` en `src/modules/mesas/entities/historial-mesa.entity.ts`
-- [ ] T010 [P] Agregar los 4 códigos a `src/common/errors/error-codes.ts`: `BANDEJA_YA_DESCARTADA`, `BANDEJA_DESCARTE_MOTIVO_REQUIERE_OBSERVACIONES`, `BANDEJA_DESCARTE_FECHA_INVALIDA`, `SIEMBRA_HAS_DESCARTADAS`
-- [ ] T011 Crear `src/modules/siembra/entities/bandeja-descarte.entity.ts` con el enum `BandejaDescarteMotivo` y la entidad; **no extiende `BaseEntity`** (sin `id` propio, sin `updated_at`, sin `deleted_at`), siguiendo el criterio de `mesa-bandeja.entity.ts`
-- [ ] T012 Registrar `BandejaDescarte` en `TypeOrmModule.forFeature` y agregar `AuditModule` a `src/modules/siembra/siembra.module.ts`
-- [ ] T013 `npm run migration:run` contra la base de desarrollo y `npm run build`
+- [x] T006 Crear `migrations/1774800000000-BandejaEstadoDescartada.ts` con **únicamente** `ALTER TYPE "bandeja_estado" ADD VALUE 'descartada'`, replicando el comentario explicativo de `1772200000000-BandejaCoolingPeriod.ts` (Postgres no permite usar un valor de enum recién agregado en la misma transacción)
+- [x] T007 Crear `migrations/1774800000001-BandejaDescartesInit.ts`: tipo `bandeja_descarte_motivo`, tabla `bandeja_descartes` con PK sobre `bandeja_id`, las dos FKs sin `ON DELETE CASCADE`, y los 3 índices (`tenant_id`, `motivo`, `fecha_descarte`) según [data-model.md](./data-model.md)
+- [x] T008 [P] Agregar `DESCARTADA = 'descartada'` al enum `BandejaEstado` en `src/modules/siembra/entities/bandeja.entity.ts`
+- [x] T009 [P] Agregar `BANDEJA_DESCARTADA = 'bandeja_descartada'` al enum `HistorialTipoEvento` en `src/modules/mesas/entities/historial-mesa.entity.ts`
+- [x] T010 [P] Agregar los 4 códigos a `src/common/errors/error-codes.ts`: `BANDEJA_YA_DESCARTADA`, `BANDEJA_DESCARTE_MOTIVO_REQUIERE_OBSERVACIONES`, `BANDEJA_DESCARTE_FECHA_INVALIDA`, `SIEMBRA_HAS_DESCARTADAS`
+- [x] T011 Crear `src/modules/siembra/entities/bandeja-descarte.entity.ts` con el enum `BandejaDescarteMotivo` y la entidad; **no extiende `BaseEntity`** (sin `id` propio, sin `updated_at`, sin `deleted_at`), siguiendo el criterio de `mesa-bandeja.entity.ts`
+- [x] T012 Registrar `BandejaDescarte` en `TypeOrmModule.forFeature` y agregar `AuditModule` a `src/modules/siembra/siembra.module.ts`
+- [x] T013 `npm run migration:run` contra la base de desarrollo y `npm run build`
 
 **Checkpoint**: el esquema existe y el proyecto compila. Ninguna conducta nueva todavía.
+
+### Notas de implementación
+
+**T006/T009 — `historial_tipo_evento` también es un enum de Postgres.** La tarea pedía "**únicamente** `ALTER TYPE "bandeja_estado"`", pero `HistorialMesa.tipo_evento` está declarado con `enumName: 'historial_tipo_evento'`: agregar el valor al enum de TypeScript (T009) sin su `ALTER TYPE` habría roto el primer `INSERT` en `historial_mesa` — y recién en la Fase 2, lejos de acá. Los dos `ALTER TYPE` van juntos en `1774800000000` porque lo que Postgres prohíbe es *usar* un valor recién agregado dentro de la transacción que lo agregó, no agregar dos. Ninguno se usa en esa migración; `1774800000001` sí usa `bandeja_estado` (en `estado_anterior`) y queda en otra transacción gracias a `migrationsTransactionMode: 'each'`.
+
+**T012 — `AuditModule` ya estaba importado** en `siembra.module.ts`. La tarea se redujo a sumar `BandejaDescarte` al `forFeature`.
+
+**T013 — qué se verificó.** Las dos migraciones corrieron contra la base local; `npm run build` verde; `npx jest` 5 suites / 69 tests verde; la API arranca limpia (`Nest application successfully started`, sin migraciones pendientes ni warnings de metadata, que es lo que confirma que la entidad nueva mapea contra el tipo `bandeja_descarte_motivo` real). El esquema entregado se contrastó por SQL contra [data-model.md](./data-model.md): las 11 columnas, PK sobre `bandeja_id`, los 3 índices, las 2 FKs `ON DELETE NO ACTION`, y los 3 enums con sus valores.
 
 ---
 

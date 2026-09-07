@@ -5,6 +5,8 @@ export enum BandejaEstado {
   COOLING_PERIOD = 'cooling_period',
   EN_NURSERY = 'en_nursery',
   TRASPLANTADA = 'trasplantada',
+  // Terminal: una bandeja descartada no vuelve a ningún otro estado.
+  DESCARTADA = 'descartada',
 }
 
 @Entity('bandejas')
