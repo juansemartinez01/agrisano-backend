@@ -128,12 +128,16 @@ export class TrasplanteService {
         // La guarda de estado va en el WHERE, no en el chequeo previo a la
         // transaccion: entre aquella validacion y este UPDATE la bandeja pudo
         // haber sido trasplantada o descartada por otro request.
-        const updated = (await qr.query(
+        //
+        // En un UPDATE, qr.query() devuelve [filas, affected] (no un
+        // UpdateResult), asi que el largo del resultado es siempre 2: hay que
+        // mirar las filas del RETURNING.
+        const [actualizadas] = (await qr.query(
           `UPDATE bandejas SET estado = 'trasplantada', mesa_id = $1, fecha_trasplante = now(), updated_at = now() WHERE id = $2 AND tenant_id = $3 AND estado = $4 RETURNING id`,
           [dto.mesa_id, bandeja_id, tenantId, BandejaEstado.EN_NURSERY],
-        )) as Array<{ id: string }>;
+        )) as [Array<{ id: string }>, number];
 
-        if (updated.length === 0) {
+        if (actualizadas.length === 0) {
           throw new AppError({
             code: ErrorCodes.TRASPLANTE_BANDEJA_INVALIDA,
             message: `La bandeja ${bandeja_id} dejó de estar disponible para trasplante`,
