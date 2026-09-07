@@ -487,7 +487,9 @@ type QueryBandejasDto = {
   establecimiento_id?: string;
   siembra_id?: string;
   lote_semilla_id?: string;
-  estado?: "cooling_period" | "en_nursery" | "trasplantada";
+  lote_vermiculita_id?: string;
+  mesa_id?: string;
+  estado?: "cooling_period" | "en_nursery" | "trasplantada" | "descartada";
   sortBy?: string;
   sortOrder?: "ASC" | "DESC";
 };
@@ -500,20 +502,46 @@ Validaciones y comportamiento:
 - `establecimiento_id`: opcional, UUID.
 - `siembra_id`: opcional, UUID.
 - `lote_semilla_id`: opcional, UUID.
-- `estado`: opcional. Valores permitidos: `cooling_period`, `en_nursery`, `trasplantada`.
+- `lote_vermiculita_id`: opcional, UUID.
+- `mesa_id`: opcional, UUID. Lista las bandejas que estan en esa mesa.
+- `estado`: opcional. Valores permitidos: `cooling_period`, `en_nursery`, `trasplantada`, `descartada`.
 - `sortBy`: opcional. Valores permitidos reales: `fecha_entrada_nursery`, `created_at`.
 - `sortOrder`: opcional. Valores permitidos: `ASC`, `DESC`.
 
-Importante:
+#### BREAKING: `estado` ya no tiene default `en_nursery`
 
-- Si `estado` no se envia, el backend filtra por `en_nursery` por default.
-- Para ver bandejas recien creadas (todavia no ingresadas a nursery), enviar explicitamente `estado=cooling_period`.
-- Para ver bandejas trasplantadas, enviar explicitamente `estado=trasplantada`.
+**Antes**: si no se enviaba `estado`, el backend filtraba `en_nursery` por su cuenta.
 
-Ejemplo:
+**Ahora**: sin `estado` se devuelven todas las bandejas **menos las descartadas**. Para ver solo las de nursery hay que **enviar `estado=en_nursery` explicitamente**.
+
+Que hacer si tu pantalla hoy no manda `estado`:
+
+| Pantalla | Cambio |
+|---|---|
+| Mostraba "bandejas en nursery" y no mandaba `estado` | Agregar `&estado=en_nursery`. Sin eso ahora vas a ver tambien las de cooling y las trasplantadas. |
+| Sumaba `meta.total` de tres llamadas (una por estado) para tener el total de la partida | Una sola llamada sin `estado` alcanza. |
+| Ya mandaba `estado` explicito | No cambia nada. |
+
+Las descartadas nunca aparecen sin pedirlas: `estado=descartada` es la unica via para verlas. Es la misma convencion que el borrado logico, con la diferencia de que aca el registro se conserva entero y se puede consultar. Ver `docs/bandejas-descarte-frontend.md`.
+
+El orden lleva `id` como desempate. Antes, dos bandejas de la misma siembra compartian `created_at` al microsegundo y podian repetirse entre paginas o no aparecer en ninguna.
+
+Cada bandeja suma el campo `descarte`, que es `null` salvo que este descartada:
+
+```ts
+descarte: {
+  motivo: BandejaDescarteMotivo;
+  fecha_descarte: string;   // ISO
+  estado_anterior: BandejaEstado;
+} | null;
+```
+
+Ejemplos:
 
 ```txt
 /bandejas?page=1&limit=20&estado=en_nursery&sortBy=created_at&sortOrder=DESC
+/bandejas?mesa_id=<uuid>
+/bandejas?siembra_id=<uuid>&estado=descartada
 ```
 
 ## 10. Endpoints de siembras

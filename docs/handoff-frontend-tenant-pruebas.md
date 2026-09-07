@@ -289,6 +289,12 @@ etiquetas nuevas a partir de los `codigo_qr` de ese tenant.
 
 ### 7.2 `GET /bandejas` sin filtro devuelve 0
 
+> 🕐 **Corregido.** El default se sacó junto con la feature de descarte de
+> bandejas: hoy `GET /bandejas` sin filtro devuelve todos los estados menos
+> `descartada`, así que este caso ya no da 0. Ver el bloque "BREAKING:
+> `estado` ya no tiene default `en_nursery`" en `docs/siembra-frontend.md`.
+> El hallazgo original queda abajo como registro.
+
 No es un problema del tenant nuevo — pasa igual en producción. El endpoint
 filtra por defecto `estado = en_nursery`, y las 732 bandejas de los dos tenants
 están en `trasplantada`.

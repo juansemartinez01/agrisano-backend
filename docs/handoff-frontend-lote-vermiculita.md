@@ -246,6 +246,12 @@ GET /bandejas?lote_vermiculita_id=<uuid>&estado=en_nursery
 GET /bandejas?lote_vermiculita_id=<uuid>&estado=trasplantada
 ```
 
+> 🕐 **Desactualizado.** Este aviso valia hasta la feature de descarte de bandejas.
+> Hoy `estado` es opcional de verdad: sin filtro se devuelven todos los estados
+> menos `descartada`. Ya no hace falta pedir estado por estado ni sumar totales.
+> Ver el bloque "BREAKING: `estado` ya no tiene default `en_nursery`" en
+> `docs/siembra-frontend.md`. Se deja el texto original como registro:
+
 > ⚠️ **`GET /bandejas` filtra `estado=en_nursery` cuando no se manda `estado`.** No es
 > de esta feature — es el default histórico del endpoint y le pasa igual a
 > `lote_semilla_id` — pero rompe la lectura ingenua de "todas las bandejas de la

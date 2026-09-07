@@ -67,6 +67,15 @@ export type CrudListOptions<T extends ObjectLiteral> = {
   /** fallback sort */
   sortFallback?: { by: string; order: 'ASC' | 'DESC' };
 
+  /**
+   * Desempate del orden. Sin esto la paginacion es inestable cuando varias
+   * filas comparten el valor de la columna ordenada: Postgres no garantiza
+   * ningun orden entre empates, asi que una misma fila puede repetirse en dos
+   * paginas o no aparecer en ninguna. Va como addOrderBy despues del sort
+   * principal; sin la opcion, el comportamiento no cambia.
+   */
+  sortTiebreak?: { by: string; order: 'ASC' | 'DESC' };
+
   /** columnas para ILIKE search */
   searchColumns?: string[];
 
@@ -251,6 +260,13 @@ export class BaseCrudTenantService<T extends TenantEntity> {
       opts?.sortAllowed ?? [],
       opts?.sortFallback ?? { by: 'created_at', order: 'DESC' },
     );
+
+    if (opts?.sortTiebreak) {
+      qb.addOrderBy(
+        `${alias}.${opts.sortTiebreak.by}`,
+        opts.sortTiebreak.order,
+      );
+    }
 
     qb.skip(skip).take(limit);
 

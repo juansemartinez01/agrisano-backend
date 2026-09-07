@@ -64,11 +64,17 @@ export class BandejaService extends BaseCrudTenantService<Bandeja> {
     super(bandejaRepo);
   }
 
+  /**
+   * El filtro `estado` es opcional de verdad: sin filtro se devuelve todo
+   * menos `descartada`, y `estado=descartada` es la via explicita para ver
+   * las perdidas. La asimetria es deliberada — ocultar un estado terminal por
+   * default es la misma convencion que `deleted_at IS NULL`.
+   */
   async listBandejas(
     q: QueryBandejasDto,
   ): Promise<{ items: Bandeja[]; total: number }> {
-    const estadoFilter = q.estado ?? BandejaEstado.EN_NURSERY;
-    const filters: Record<string, unknown> = { estado: estadoFilter };
+    const filters: Record<string, unknown> = {};
+    if (q.estado) filters['estado'] = q.estado;
     if (q.establecimiento_id) filters['establecimiento_id'] = q.establecimiento_id;
     if (q.siembra_id) filters['siembra_id'] = q.siembra_id;
     if (q.lote_semilla_id) filters['lote_semilla_id'] = q.lote_semilla_id;
@@ -89,7 +95,18 @@ export class BandejaService extends BaseCrudTenantService<Bandeja> {
         ],
         sortAllowed: ['fecha_entrada_nursery', 'created_at'],
         sortFallback: { by: 'created_at', order: 'DESC' },
+        // Las bandejas de una misma siembra se crean en el mismo INSERT y
+        // comparten created_at al microsegundo, asi que sin desempate la
+        // paginacion del caso mas comun es justamente la inestable.
+        sortTiebreak: { by: 'id', order: 'ASC' },
         strictTenant: true,
+        customizeQb: (qb, alias) => {
+          if (!q.estado) {
+            qb.andWhere(`${alias}.estado <> :estadoTerminal`, {
+              estadoTerminal: BandejaEstado.DESCARTADA,
+            });
+          }
+        },
       },
     );
   }
