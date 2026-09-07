@@ -11,6 +11,11 @@ import {
   resolveUsuarioResumen,
   UsuarioResumen,
 } from 'src/common/utils/usuario-resumen.util';
+import {
+  esFechaDiaValida,
+  hoyISO,
+  resolveFechaDia,
+} from 'src/common/utils/fecha-dia.util';
 import { TenancyService } from 'src/modules/tenancy/tenancy.service';
 import { LotesService } from 'src/modules/lotes/lotes.service';
 import { LoteEstado, LoteTipo } from 'src/modules/lotes/entities/lote.entity';
@@ -292,7 +297,7 @@ export class SiembraService {
       const siembra = qr.manager.create(Siembra, {
         tenant_id: tenantId,
         establecimiento_id: dto.establecimiento_id,
-        fecha: dto.fecha ?? new Date().toISOString().split('T')[0],
+        fecha: dto.fecha ?? hoyISO(),
         observaciones: dto.observaciones ?? null,
         usuario_id: userId,
         ...usuarioSnapshot,
@@ -326,11 +331,6 @@ export class SiembraService {
     }
   }
 
-  /** Día actual en formato 'YYYY-MM-DD' (UTC). */
-  private hoyISO(): string {
-    return new Date().toISOString().split('T')[0];
-  }
-
   /**
    * Valida la fecha de entrada a nursery informada por el usuario.
    *
@@ -339,14 +339,7 @@ export class SiembraService {
    * contra día calendario sin construir objetos Date ni arriesgar corrimientos.
    */
   private assertFechaEntradaValida(fecha: string, fechaSiembra: string): void {
-    // El formato ya lo validó el DTO; acá se descarta la fecha inexistente.
-    // Ojo: JS hace roll-over silencioso ('2026-02-31' -> '2026-03-03'), así que
-    // no alcanza con isNaN: hay que comparar el round-trip.
-    const parsed = new Date(`${fecha}T12:00:00.000Z`);
-    if (
-      Number.isNaN(parsed.getTime()) ||
-      parsed.toISOString().split('T')[0] !== fecha
-    ) {
+    if (!esFechaDiaValida(fecha)) {
       throw new AppError({
         code: ErrorCodes.SIEMBRA_FECHA_ENTRADA_INVALIDA,
         message: `La fecha de entrada ${fecha} no existe en el calendario`,
@@ -354,7 +347,7 @@ export class SiembraService {
       });
     }
 
-    const hoy = this.hoyISO();
+    const hoy = hoyISO();
     if (fecha > hoy) {
       throw new AppError({
         code: ErrorCodes.SIEMBRA_FECHA_ENTRADA_INVALIDA,
@@ -384,10 +377,9 @@ export class SiembraService {
   private resolveFechaEntradaNursery(
     fecha: string | undefined,
   ): Date | (() => string) {
-    if (!fecha || fecha === this.hoyISO()) {
-      return () => 'now()';
-    }
-    return new Date(`${fecha}T12:00:00.000Z`);
+    // El util devuelve null para "usar now()"; acá eso se expresa como la
+    // función que TypeORM interpreta como SQL crudo dentro de un save().
+    return resolveFechaDia(fecha) ?? (() => 'now()');
   }
 
   async ingresarNursery(

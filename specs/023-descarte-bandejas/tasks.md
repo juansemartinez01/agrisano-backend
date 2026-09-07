@@ -116,21 +116,68 @@ Los dos escenarios "código viejo" reproducen el bug, así que la prueba discrim
 
 **Independent Test**: descartar una bandeja de cada estado de origen, verificar que queda `descartada`, que el registro es consultable, y que un segundo descarte de la misma bandeja devuelve 409.
 
-- [ ] T014 [P] [US3] Crear `src/common/utils/fecha-dia.util.ts` extrayendo `hoyISO`, la validación de fecha calendario y el resolver de fecha a mediodía UTC que hoy son privados en `siembra.service.ts` (Principio I)
-- [ ] T015 [US3] Reemplazar los helpers privados de `src/modules/siembra/siembra.service.ts` por los del util nuevo, sin cambiar el comportamiento de `fecha_entrada_nursery`
-- [ ] T016 [P] [US1] Crear `src/modules/siembra/dto/descartar-bandejas.dto.ts` con `bandeja_ids` (`@ArrayNotEmpty`, `@ArrayMaxSize(200)`, `@IsUUID('4', { each: true })`), `motivo` (`@IsEnum`), `observaciones` (`@IsOptional`, `@MaxLength(500)`) y `fecha_descarte` (`@Matches` de `YYYY-MM-DD`)
-- [ ] T017 [US1] Implementar `BandejaService.descartarBandejas`: deduplicar ids, abrir `QueryRunner`, y ejecutar las 3 sentencias por conjunto de [data-model.md](./data-model.md) (`SELECT … FOR UPDATE` con join a `siembras`, `INSERT … SELECT`, `UPDATE` con guarda)
-- [ ] T018 [US1] Validar elegibilidad sobre el resultado del `SELECT` bloqueado: ids faltantes → `BANDEJA_NOT_FOUND` 404 con `details.ids`; ya descartadas → `BANDEJA_YA_DESCARTADA` 409 con `details.ids`. All-or-nothing
-- [ ] T019 [US1] Validar `motivo = 'otro'` sin observaciones → `BANDEJA_DESCARTE_MOTIVO_REQUIERE_OBSERVACIONES` 422
-- [ ] T020 [US3] Validar la fecha: futura o inexistente → `BANDEJA_DESCARTE_FECHA_INVALIDA` 422; anterior al último hecho conocido de la bandeja (`fecha_trasplante ?? fecha_entrada_nursery ?? siembra.fecha`) → mismo código con `details.ids`. Sin fecha o fecha de hoy → `now()`; fecha anterior → mediodía UTC
-- [ ] T021 [US1] Resolver el snapshot del usuario con `fetchUsuarioSnapshot` y persistirlo en las 3 columnas de snapshot
-- [ ] T022 [US1] Insertar por conjunto los eventos `bandeja_descartada` en `historial_mesa` para las bandejas cuyo `estado_anterior` era `trasplantada`, con `detalle` = `{ bandeja_id, motivo, observaciones, fecha_descarte }`
-- [ ] T023 [US1] Agregar `@Post('descartar')` a `src/modules/siembra/bandeja.controller.ts` con `@Roles('operario','supervisor','admin_global')`, **declarado antes de `@Get(':id')`**, devolviendo `ok()` con el shape del contrato
-- [ ] T024 [US1] Escribir la auditoría desde el controller con el `req` real (no un objeto sintético): acción `bandeja_descartada`, con ids alcanzados y motivo
-- [ ] T025 `npm run build` y verificación funcional: descarte desde `cooling_period`, `en_nursery` y `trasplantada`; doble descarte → 409; `motivo=otro` sin observaciones → 422; fecha futura → 422; fecha anterior al trasplante → 422; bandeja de otro tenant → 404
-- [ ] T026 [US1] Verificar que el descarte **no** modificó `mesa_bandeja`, `carencia_hasta`, `mesa_id`, `fecha_trasplante` ni las aplicaciones químicas de la bandeja
+- [x] T014 [P] [US3] Crear `src/common/utils/fecha-dia.util.ts` extrayendo `hoyISO`, la validación de fecha calendario y el resolver de fecha a mediodía UTC que hoy son privados en `siembra.service.ts` (Principio I)
+- [x] T015 [US3] Reemplazar los helpers privados de `src/modules/siembra/siembra.service.ts` por los del util nuevo, sin cambiar el comportamiento de `fecha_entrada_nursery`
+- [x] T016 [P] [US1] Crear `src/modules/siembra/dto/descartar-bandejas.dto.ts` con `bandeja_ids` (`@ArrayNotEmpty`, `@ArrayMaxSize(200)`, `@IsUUID('4', { each: true })`), `motivo` (`@IsEnum`), `observaciones` (`@IsOptional`, `@MaxLength(500)`) y `fecha_descarte` (`@Matches` de `YYYY-MM-DD`)
+- [x] T017 [US1] Implementar `BandejaService.descartarBandejas`: deduplicar ids, abrir `QueryRunner`, y ejecutar las 3 sentencias por conjunto de [data-model.md](./data-model.md) (`SELECT … FOR UPDATE` con join a `siembras`, `INSERT … SELECT`, `UPDATE` con guarda)
+- [x] T018 [US1] Validar elegibilidad sobre el resultado del `SELECT` bloqueado: ids faltantes → `BANDEJA_NOT_FOUND` 404 con `details.ids`; ya descartadas → `BANDEJA_YA_DESCARTADA` 409 con `details.ids`. All-or-nothing
+- [x] T019 [US1] Validar `motivo = 'otro'` sin observaciones → `BANDEJA_DESCARTE_MOTIVO_REQUIERE_OBSERVACIONES` 422
+- [x] T020 [US3] Validar la fecha: futura o inexistente → `BANDEJA_DESCARTE_FECHA_INVALIDA` 422; anterior al último hecho conocido de la bandeja (`fecha_trasplante ?? fecha_entrada_nursery ?? siembra.fecha`) → mismo código con `details.ids`. Sin fecha o fecha de hoy → `now()`; fecha anterior → mediodía UTC
+- [x] T021 [US1] Resolver el snapshot del usuario con `fetchUsuarioSnapshot` y persistirlo en las 3 columnas de snapshot
+- [x] T022 [US1] Insertar por conjunto los eventos `bandeja_descartada` en `historial_mesa` para las bandejas cuyo `estado_anterior` era `trasplantada`, con `detalle` = `{ bandeja_id, motivo, observaciones, fecha_descarte }`
+- [x] T023 [US1] Agregar `@Post('descartar')` a `src/modules/siembra/bandeja.controller.ts` con `@Roles('operario','supervisor','admin_global')`, **declarado antes de `@Get(':id')`**, devolviendo `ok()` con el shape del contrato
+- [x] T024 [US1] Escribir la auditoría desde el controller con el `req` real (no un objeto sintético): acción `bandeja_descartada`, con ids alcanzados y motivo
+- [x] T025 `npm run build` y verificación funcional: descarte desde `cooling_period`, `en_nursery` y `trasplantada`; doble descarte → 409; `motivo=otro` sin observaciones → 422; fecha futura → 422; fecha anterior al trasplante → 422; bandeja de otro tenant → 404
+- [x] T026 [US1] Verificar que el descarte **no** modificó `mesa_bandeja`, `carencia_hasta`, `mesa_id`, `fecha_trasplante` ni las aplicaciones químicas de la bandeja
 
 **Checkpoint**: US1 y US3 entregadas y usables por sí solas.
+
+### Notas de implementación
+
+**T014/T015 — el util devuelve `null`, no un `now()`.** `resolveFechaDia()` devuelve `null` para "usar el momento actual" en vez de resolverlo, porque *now()* no se escribe igual en los dos llamadores: en el `save()` de TypeORM de `fecha_entrada_nursery` es la función `() => 'now()'` que el ORM interpreta como SQL crudo, y en el SQL parametrizado del descarte es un `COALESCE($5::timestamptz, now())`. Un util que devolviera una `Date` de JS habría metido el reloj del proceso Node donde antes estaba el de la base. `siembra.service.ts` conserva su comportamiento exacto detrás de `resolveFechaEntradaNursery()`; las 69 pruebas siguen en verde.
+
+**T017 — tres sentencias, costo independiente de la cantidad de bandejas.** El `SELECT … FOR UPDATE OF b` bloquea sólo `bandejas`: el join a `siembras` está para leer su fecha, no hay razón para bloquear la siembra entera. El `INSERT … SELECT` toma `estado_anterior` de la fila ya bloqueada y nunca del request, así que no hay ventana entre leer el estado y guardarlo. El `UPDATE` final lleva `AND estado <> 'descartada'` como defensa en profundidad y **se lee destructurando la tupla**, aplicando la moraleja de T001:
+
+```ts
+const [actualizadas] = (await qr.query(`UPDATE … RETURNING id`, …)) as [Array<{ id: string }>, number];
+```
+
+Los tres `SELECT`/`INSERT` sí devuelven las filas directamente y no llevan destructuring.
+
+**T020 — los días calendario salen de la base como texto.** `to_char(COALESCE(fecha_trasplante, fecha_entrada_nursery) AT TIME ZONE 'UTC', 'YYYY-MM-DD')` en vez de dejar que el driver parsee `timestamptz` y comparar `Date`s: así la comparación es entre strings `'YYYY-MM-DD'` —en ISO 8601 el orden lexicográfico coincide con el cronológico— y no depende de cómo el driver mapea cada tipo ni de la zona horaria del proceso. El `RETURNING fecha_descarte` del `INSERT` existe para que la respuesta y el evento de historial lleven el instante realmente persistido cuando lo resolvió `now()`.
+
+**T022 — `fecha_hora` lleva la fecha del incidente, no la de la carga.** El spec no lo definía. Se eligió la fecha del descarte porque la línea de tiempo de la mesa tiene que mostrar *cuándo se perdió* la bandeja; cuándo se cargó el registro queda en `created_at`. Con un descarte retroactivo los dos valores difieren, que es justamente el caso que importa.
+
+**T024 — apareció un bug preexistente que descarta todos los `extra` de auditoría.** `auditLogPayload()` desparrama `extra` en la raíz del objeto (`...(extra ?? {})`), pero `redactPayload()` del módulo de audit conserva únicamente una lista blanca de 8 claves, entre ellas un **`extra` anidado**. El resultado es que *ningún* `extra` del repo llega a `audit_logs`: cada fila guarda `"extra": null`. Se verificó contra filas ya existentes de `siembra_created` y `siembra_ingreso_nursery`, ambas sin su `siembraId`. Son ~30 call sites en `admin`, `establecimientos`, `lotes`, `lotes-quimicos`, `marcas`, `siembra` y demás.
+
+Como T024 pide explícitamente que la auditoría lleve los ids y el motivo, el controller del descarte pasa el `extra` anidado además del que arma el util:
+
+```ts
+payload: { ...payload, extra: detalle },
+```
+
+**El arreglo de fondo es una línea en `auditLogPayload()`** (anidar `extra` en vez de desparramarlo), pero cambia la forma de los registros de auditoría de todo el repo y de las líneas de log `admin_audit`, así que no se hizo dentro de esta feature: queda anotado para decidirlo aparte.
+
+**T025 — 94 aserciones, todas en verde.** Escenario armado por API contra la base local: una siembra con fecha `2026-09-01` para poder probar el retroactivo válido, más las bandejas ya existentes en `en_nursery` y `trasplantada`.
+
+| Caso | Resultado |
+|---|---|
+| Descarte desde `cooling_period`, `en_nursery` y `trasplantada` | 201, con el `estado_anterior` correcto en cada uno |
+| Fecha retroactiva `2026-09-03` | persistida como `2026-09-03T12:00:00.000Z` |
+| Sin fecha | resuelta con el `now()` de la base |
+| Doble descarte | 409 `BANDEJA_YA_DESCARTADA` con `details.ids` |
+| `motivo=otro` sin observaciones (y con observaciones en blanco) | 422 |
+| Fecha futura / inexistente (`2026-02-30`) / anterior al ingreso a nursery | 422 `BANDEJA_DESCARTE_FECHA_INVALIDA` |
+| Bandeja de otro tenant | 404 `BANDEJA_NOT_FOUND`, nunca 403 |
+| Lote mixto con una ya descartada | 409, y la bandeja sana quedó intacta y sin constancia |
+| Ids repetidos | 201 con `descartadas: 1` |
+| 7 casos de `class-validator` | 400 |
+| Consistencia final | 8 descartadas / 8 constancias, 0 huérfanas, 0 sin snapshot, 3 eventos de historial para 3 descartes de trasplantadas |
+
+Dos correcciones al armado de las pruebas, no al código: la primera corrida asumía que se podía llegar a otro tenant mandando otro `x-tenant-id`, pero `jwt.strategy.ts:48` rechaza antes con 401 `Tenant mismatch` si el header no coincide con el token —el filtro de tenant del service se probó moviendo la fila de tenant y restaurándola—; y la tabla de auditoría es `audit_logs`, no `audit_admin`.
+
+**T026 — comparación foto contra foto.** Antes y después del descarte de la bandeja trasplantada se compararon `mesa_id`, `fecha_trasplante`, `carencia_hasta`, `fecha_entrada_nursery`, `lote_semilla_id`, `lote_sustrato_id`, `siembra_id` y `codigo`, más las filas completas de `mesa_bandeja` y de `aplicacion_quimica_bandeja`. Idénticas. El único cambio aguas afuera es el evento nuevo en `historial_mesa`, que es el esperado.
+
 
 ---
 
