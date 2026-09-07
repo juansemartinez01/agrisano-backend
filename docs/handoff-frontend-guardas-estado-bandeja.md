@@ -1,6 +1,6 @@
 # Handoff frontend — guardas de estado en trasplante y aplicaciones químicas
 
-**Estado**: implementado en la rama `023-fix-guardas-estado`, pendiente de verificación funcional.
+**Estado**: implementado en la rama `023-fix-guardas-estado`. Carrera verificada a nivel SQL (ver sección 5); falta la vuelta por HTTP con Postman.
 **Tipo de cambio**: ⚠️ **corrección de bug con cambio de comportamiento observable**. No se agregó, renombró ni eliminó ningún campo. Lo que cambia es que dos operaciones que hoy "funcionan" en silencio pasan a devolver 422.
 **Referencia técnica**: `specs/023-descarte-bandejas/plan.md`, sección "Prerrequisito: rama aparte con el fix de guardas de estado".
 
@@ -89,6 +89,17 @@ Un mensaje razonable: *"Alguna de las bandejas seleccionadas ya fue trasplantada
 | Aplicación nursery normal | 201 | 201, sin cambios |
 
 Las colecciones `postman/trasplante.postman_collection.json` y `postman/aplicaciones-quimicas.postman_collection.json` deben seguir pasando sin modificaciones.
+
+### Lo que ya se verificó
+
+Postman corre secuencial, así que no puede probar una carrera. La verificación se hizo con dos conexiones concurrentes a Postgres ejecutando las mismas sentencias que los services, confirmando contra `pg_stat_activity` que la transacción perdedora quedaba esperando el lock de fila:
+
+| Escenario | Código viejo | Código nuevo |
+|---|---|---|
+| Dos trasplantes de la misma bandeja | ambos afectan 1 fila → 2 filas en `mesa_bandeja` | 1 y 0 filas → la perdedora da 422 |
+| Aplicación nursery sobre bandeja recién trasplantada | el chequeo previo la ve vigente y escribe igual | `FOR UPDATE` bloquea, re-evalúa y devuelve 0 filas → 422 |
+
+Las dos filas de "código viejo" reproducen el bug, así que la prueba discrimina entre el antes y el después. `npm run build` y `npm test` (5 suites, 69 tests) quedaron en verde.
 
 ---
 
