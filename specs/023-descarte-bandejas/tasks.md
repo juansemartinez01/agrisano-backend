@@ -1,0 +1,192 @@
+---
+description: "Task list for 023-descarte-bandejas"
+---
+
+# Tasks: Descarte de bandejas (registro de pérdida)
+
+**Input**: Design documents from `specs/023-descarte-bandejas/`
+
+**Prerequisites**: [plan.md](./plan.md), [spec.md](./spec.md), [data-model.md](./data-model.md), [contracts/bandejas-descarte-api.md](./contracts/bandejas-descarte-api.md)
+
+**Tests**: sin tests automatizados. El repo verifica con `npm run build` y colecciones Postman; cada fase termina con su verificación funcional.
+
+## Format: `[ID] [P?] [Story] Description`
+
+- **[P]**: puede hacerse en paralelo (archivo distinto, sin dependencias)
+- **[Story]**: user story a la que pertenece (US1…US5)
+
+---
+
+## Phase 0: Rama prerrequisito — guardas de estado
+
+**Rama**: `023-fix-guardas-estado` → merge a `main` **antes** de arrancar la Fase 1.
+
+**Purpose**: cerrar el TOCTOU que ya existe hoy en producción. Sin esto, FR-005 no se cumple: una bandeja descartada puede trasplantarse igual.
+
+**⚠️ Bloqueante**: ninguna tarea de la Fase 2 en adelante tiene sentido sin esto mergeado.
+
+- [x] T001 Agregar `AND estado = 'en_nursery'` al `UPDATE bandejas` dentro de la transacción en `src/modules/trasplante/trasplante.service.ts`, y lanzar `TRASPLANTE_BANDEJA_INVALIDA` (422) con el `bandeja_id` en `details` cuando no se afecte ninguna fila
+- [x] T002 [P] Revalidar dentro de la transacción en `src/modules/aplicaciones-quimicas/aplicaciones-quimicas.service.ts`, fallando con `APLICACION_TARGET_INVALIDO` cuando alguna bandeja dejó de estar en `en_nursery`
+- [x] T003 `npm run build` (verde) y `npm test` (5 suites, 69 tests, verde)
+- [x] T004 Verificar la carrera: dos operaciones concurrentes sobre la misma bandeja; la perdedora no escribe
+- [x] T005 Anotar en `docs/handoff-frontend-guardas-estado-bandeja.md` el cambio de comportamiento observable: un doble trasplante que hoy "funciona" en silencio pasa a devolver 422
+
+**Checkpoint**: mergeado a `main`. Recién ahí se crea la rama `023-descarte-bandejas`.
+
+### Notas de implementación
+
+**T001 — `RETURNING id`, y hay que destructurar la tupla.** `qr.query()` no devuelve un `UpdateResult`, así que `.affected` no existe; la guarda se lee con `RETURNING id`. Pero **para un `UPDATE` o un `DELETE` el resultado no son las filas sino la tupla `[filas, rowCount]`** (`PostgresQueryRunner`: `result.raw = [raw.rows, raw.rowCount]` para esos dos comandos, `raw.rows` para todo el resto). El primer intento leía `rows.length === 0` sobre la tupla, cuyo largo es siempre 2, y la guarda quedaba en código muerto — ver la nota de T004. La forma correcta:
+
+```ts
+const [actualizadas] = (await qr.query(
+  `UPDATE bandejas SET … WHERE … AND estado = $4 RETURNING id`,
+  [...],
+)) as [Array<{ id: string }>, number];
+if (actualizadas.length === 0) { /* perdió la carrera */ }
+```
+
+En `aplicaciones-quimicas` la revalidación es un `SELECT … FOR UPDATE`, que sí devuelve las filas directamente: **no** lleva destructuring. Barrido del resto del repo: los `qr.query()` de `mesas.service.ts:92`, `tareas.service.ts:138` y `trasplante.service.ts:119` son `SELECT MAX(...)` y están bien.
+
+**T002 — la guarda no podía ir en un `UPDATE`.** El plan asumía agregarle `AND estado = 'en_nursery'` al `UPDATE bandejas` del módulo, pero ese `UPDATE` sólo corre `if (hasCarencia && carenciaHastaStr)`: un químico sin período de carencia no produce ninguna escritura sobre `bandejas`, y la guarda nunca se ejecutaría. Se resolvió con un `SELECT … FOR UPDATE` al principio del bloque nursery, que cubre tanto el link como la carencia.
+
+**T003 — la base local se recreó de cero.** Estaba 22 migraciones atrasada y la primera pendiente (`QuimicosLotesRefactor1771900000000`) fallaba porque `quimicos.batch` no existía en el esquema local aunque `AddChemicalFields1771500000000` figuraba como aplicada: drift preexistente por una columna borrada a mano, ajeno a este cambio. Con autorización explícita se dropeó y recreó `db_agrisano` (44/44 migraciones, 33 tablas, admin sembrado). **La base de Railway no se tocó.**
+
+Las colecciones Postman no son auto-contenidas — piden `mesaId`, `tunelId`, `bandejaId`, `loteQuimicoId` precargados a mano —, así que se recorrieron sus casos con un script que arma el escenario vía API y dispara las mismas requests con los mismos bodies y las mismas aserciones de sus `event.test`. **16/16 en verde**, incluidos los cuatro casos de `trasplante` y los ocho de `aplicaciones-quimicas`.
+
+Dos detalles preexistentes que aparecieron en el camino, ninguno provocado por este cambio: la colección de aplicaciones trae un caso negativo con `contexto: "invernadero"` y `receta_id`/`quimico_id`, campos que ya no existen en `CreateAplicacionDto`; y un `GET /aplicaciones-quimicas/:id` con un id que no es UUID devuelve 500 en vez de 400.
+
+**T004 — verificado por HTTP, y ahí apareció un bug en la propia guarda.** El test end-to-end dispara dos `POST /trasplante` concurrentes sobre la misma bandeja con `Promise.all`. La primera corrida dio **200 y 200**, con dos eventos en `historial_mesa`: la guarda corría pero no cortaba nada, porque leía mal el resultado del `UPDATE` (ver T001). `mesa_bandeja` mostraba una sola fila y disimulaba el problema — su PK compuesta `(mesa_id, bandeja_id)` hace que el segundo `save()` sea un upsert.
+
+Con el resultado destructurado, la corrida queda en **8/8**:
+
+| Aserción | Resultado |
+|---|---|
+| exactamente un 200 y un 422 | ✅ |
+| el 422 trae `TRASPLANTE_BANDEJA_INVALIDA` y `details.bandeja_ids` | ✅ |
+| una sola fila en `mesa_bandeja` | ✅ |
+| la bandeja queda `trasplantada` apuntando a la mesa correcta | ✅ |
+| un solo evento `trasplante` en `historial_mesa` | ✅ |
+| la mesa avanza una sola posición | ✅ |
+
+`POST /trasplante` responde **200**, no 201: el controller tiene `@HttpCode(200)` y la colección Postman ya asertaba 200.
+
+La carrera de `aplicaciones-quimicas` no se puede provocar por HTTP — hace falta que el chequeo previo del perdedor pase *antes* de que el ganador commitee, y desde afuera no hay forma de intercalarlos. Se verificó con dos conexiones concurrentes ejecutando las mismas sentencias que el service, confirmando contra `pg_stat_activity` que la transacción perdedora quedaba esperando el lock de fila:
+
+| Escenario | Código viejo | Código nuevo |
+|---|---|---|
+| Dos trasplantes de la misma bandeja | ambos afectan 1 fila → doble registro | 1 y 0 filas → la perdedora da 422 |
+| Aplicación nursery sobre bandeja recién trasplantada | el chequeo previo la ve vigente y escribe igual | `FOR UPDATE` bloquea, re-evalúa y devuelve 0 filas → 422 |
+
+Los dos escenarios "código viejo" reproducen el bug, así que la prueba discrimina. Lo que sí se verificó por HTTP del lado de aplicaciones es el caso secuencial: aplicación nursery sobre una bandeja ya trasplantada → 422 `APLICACION_TARGET_INVALIDO`, sin dejar registro.
+
+**Moraleja para las fases que siguen**: la prueba SQL valida la semántica de Postgres, no el TypeScript que lee el resultado. Toda guarda nueva de este tipo necesita además la vuelta por HTTP.
+
+---
+
+## Phase 1: Base de datos y modelo
+
+**Purpose**: el esquema y los tipos sobre los que se apoya todo lo demás.
+
+**⚠️ Bloqueante**: ninguna user story puede empezar antes de terminar esta fase.
+
+- [ ] T006 Crear `migrations/1774800000000-BandejaEstadoDescartada.ts` con **únicamente** `ALTER TYPE "bandeja_estado" ADD VALUE 'descartada'`, replicando el comentario explicativo de `1772200000000-BandejaCoolingPeriod.ts` (Postgres no permite usar un valor de enum recién agregado en la misma transacción)
+- [ ] T007 Crear `migrations/1774800000001-BandejaDescartesInit.ts`: tipo `bandeja_descarte_motivo`, tabla `bandeja_descartes` con PK sobre `bandeja_id`, las dos FKs sin `ON DELETE CASCADE`, y los 3 índices (`tenant_id`, `motivo`, `fecha_descarte`) según [data-model.md](./data-model.md)
+- [ ] T008 [P] Agregar `DESCARTADA = 'descartada'` al enum `BandejaEstado` en `src/modules/siembra/entities/bandeja.entity.ts`
+- [ ] T009 [P] Agregar `BANDEJA_DESCARTADA = 'bandeja_descartada'` al enum `HistorialTipoEvento` en `src/modules/mesas/entities/historial-mesa.entity.ts`
+- [ ] T010 [P] Agregar los 4 códigos a `src/common/errors/error-codes.ts`: `BANDEJA_YA_DESCARTADA`, `BANDEJA_DESCARTE_MOTIVO_REQUIERE_OBSERVACIONES`, `BANDEJA_DESCARTE_FECHA_INVALIDA`, `SIEMBRA_HAS_DESCARTADAS`
+- [ ] T011 Crear `src/modules/siembra/entities/bandeja-descarte.entity.ts` con el enum `BandejaDescarteMotivo` y la entidad; **no extiende `BaseEntity`** (sin `id` propio, sin `updated_at`, sin `deleted_at`), siguiendo el criterio de `mesa-bandeja.entity.ts`
+- [ ] T012 Registrar `BandejaDescarte` en `TypeOrmModule.forFeature` y agregar `AuditModule` a `src/modules/siembra/siembra.module.ts`
+- [ ] T013 `npm run migration:run` contra la base de desarrollo y `npm run build`
+
+**Checkpoint**: el esquema existe y el proyecto compila. Ninguna conducta nueva todavía.
+
+---
+
+## Phase 2: Operación de descarte (US1 + US3) 🎯 MVP
+
+**Goal**: un operario registra la pérdida de una o varias bandejas, con motivo, observaciones y fecha retroactiva opcional.
+
+**Independent Test**: descartar una bandeja de cada estado de origen, verificar que queda `descartada`, que el registro es consultable, y que un segundo descarte de la misma bandeja devuelve 409.
+
+- [ ] T014 [P] [US3] Crear `src/common/utils/fecha-dia.util.ts` extrayendo `hoyISO`, la validación de fecha calendario y el resolver de fecha a mediodía UTC que hoy son privados en `siembra.service.ts` (Principio I)
+- [ ] T015 [US3] Reemplazar los helpers privados de `src/modules/siembra/siembra.service.ts` por los del util nuevo, sin cambiar el comportamiento de `fecha_entrada_nursery`
+- [ ] T016 [P] [US1] Crear `src/modules/siembra/dto/descartar-bandejas.dto.ts` con `bandeja_ids` (`@ArrayNotEmpty`, `@ArrayMaxSize(200)`, `@IsUUID('4', { each: true })`), `motivo` (`@IsEnum`), `observaciones` (`@IsOptional`, `@MaxLength(500)`) y `fecha_descarte` (`@Matches` de `YYYY-MM-DD`)
+- [ ] T017 [US1] Implementar `BandejaService.descartarBandejas`: deduplicar ids, abrir `QueryRunner`, y ejecutar las 3 sentencias por conjunto de [data-model.md](./data-model.md) (`SELECT … FOR UPDATE` con join a `siembras`, `INSERT … SELECT`, `UPDATE` con guarda)
+- [ ] T018 [US1] Validar elegibilidad sobre el resultado del `SELECT` bloqueado: ids faltantes → `BANDEJA_NOT_FOUND` 404 con `details.ids`; ya descartadas → `BANDEJA_YA_DESCARTADA` 409 con `details.ids`. All-or-nothing
+- [ ] T019 [US1] Validar `motivo = 'otro'` sin observaciones → `BANDEJA_DESCARTE_MOTIVO_REQUIERE_OBSERVACIONES` 422
+- [ ] T020 [US3] Validar la fecha: futura o inexistente → `BANDEJA_DESCARTE_FECHA_INVALIDA` 422; anterior al último hecho conocido de la bandeja (`fecha_trasplante ?? fecha_entrada_nursery ?? siembra.fecha`) → mismo código con `details.ids`. Sin fecha o fecha de hoy → `now()`; fecha anterior → mediodía UTC
+- [ ] T021 [US1] Resolver el snapshot del usuario con `fetchUsuarioSnapshot` y persistirlo en las 3 columnas de snapshot
+- [ ] T022 [US1] Insertar por conjunto los eventos `bandeja_descartada` en `historial_mesa` para las bandejas cuyo `estado_anterior` era `trasplantada`, con `detalle` = `{ bandeja_id, motivo, observaciones, fecha_descarte }`
+- [ ] T023 [US1] Agregar `@Post('descartar')` a `src/modules/siembra/bandeja.controller.ts` con `@Roles('operario','supervisor','admin_global')`, **declarado antes de `@Get(':id')`**, devolviendo `ok()` con el shape del contrato
+- [ ] T024 [US1] Escribir la auditoría desde el controller con el `req` real (no un objeto sintético): acción `bandeja_descartada`, con ids alcanzados y motivo
+- [ ] T025 `npm run build` y verificación funcional: descarte desde `cooling_period`, `en_nursery` y `trasplantada`; doble descarte → 409; `motivo=otro` sin observaciones → 422; fecha futura → 422; fecha anterior al trasplante → 422; bandeja de otro tenant → 404
+- [ ] T026 [US1] Verificar que el descarte **no** modificó `mesa_bandeja`, `carencia_hasta`, `mesa_id`, `fecha_trasplante` ni las aplicaciones químicas de la bandeja
+
+**Checkpoint**: US1 y US3 entregadas y usables por sí solas.
+
+---
+
+## Phase 3: Lecturas (US2 + US4)
+
+**Goal**: llegar a la bandeja desde la mesa o la siembra, y analizar las mermas.
+
+**Independent Test**: listar las bandejas de una mesa, elegir una y descartarla; después filtrar las pérdidas por motivo y por rango de fechas.
+
+- [ ] T027 [US2] Agregar `mesa_id` (`@IsOptional`, `@IsUUID`) a `src/modules/siembra/dto/query-bandejas.dto.ts` y `'mesa_id'` a `filterAllowed` en `bandeja.service.ts`
+- [ ] T028 [US2] **Commit propio**: quitar el default `estado ?? BandejaEstado.EN_NURSERY` de `listBandejas`. Sin filtro devuelve todo menos `descartada`; `estado=descartada` las devuelve. Ver decisión 4 de [plan.md](./plan.md)
+- [ ] T029 [US2] Agregar `id` como desempate en el orden de `listBandejas` (`sortFallback` y orden secundario), para que la paginación deje de ser inestable cuando varias filas comparten `created_at`
+- [ ] T030 [US2] Documentar el cambio de default en `docs/`: los consumidores que hoy no mandan `estado` deben pasar `estado=en_nursery` explícito. Actualizar también `postman/siembra.postman_collection.json`
+- [ ] T031 [P] [US2] Agregar `descarte` (objeto reducido o `null`) al listado y a `getBandeja` con LEFT JOIN a `bandeja_descartes`
+- [ ] T032 [P] [US4] Crear `src/modules/siembra/dto/query-descartes.dto.ts` extendiendo `PageQueryDto`: `establecimiento_id`, `siembra_id`, `motivo`, `estado_anterior`, `fecha_desde`, `fecha_hasta`, `sortBy`, `sortOrder`
+- [ ] T033 [US4] Implementar `BandejaService.listDescartes` con `page()`, scope de tenant, `fecha_hasta` inclusive hasta el final del día, y `bandeja_id` como desempate del orden
+- [ ] T034 [US4] Agregar `@Get('descartes')` a `bandeja.controller.ts`, **declarado antes de `@Get(':id')`**, resolviendo el usuario con `buildUsuariosMap` / `resolveUsuarioResumen`
+- [ ] T035 `npm run build` y verificación funcional: `GET /bandejas?mesa_id=…` devuelve las bandejas de la mesa; `?estado=descartada` devuelve solo las perdidas; sin filtro no aparecen descartadas; los 4 filtros de `/bandejas/descartes` acotan bien; paginación estable entre páginas
+
+**Checkpoint**: US2 y US4 entregadas.
+
+---
+
+## Phase 4: Integridad aguas abajo (US5)
+
+**Goal**: que la pérdida no borre historia ni rompa la trazabilidad ya emitida.
+
+**Independent Test**: trasplantar, cosechar, descartar una bandeja de ese ciclo y comparar la trazabilidad antes y después: mismas bandejas, con el campo `descarte` como única diferencia.
+
+- [ ] T036 [US5] Agregar `descarte` (objeto reducido o `null`) a cada elemento de `bandejas_ciclo` en `src/modules/trazabilidad/trazabilidad.service.ts`, con LEFT JOIN a `bandeja_descartes`, sin tocar la reconstrucción del ciclo desde `mesa_bandeja`
+- [ ] T037 [US5] Extender el `count` de bloqueo de `deleteSiembra` en `siembra.service.ts` para contar también `descartada` y lanzar `SIEMBRA_HAS_DESCARTADAS` 409; sumar el filtro `tenant_id` que falta (Principio II, ver "Deuda técnica anotada" en [plan.md](./plan.md))
+- [ ] T038 `npm run build` y verificación funcional: guardar la respuesta de trazabilidad de una cosecha, descartar una bandeja de ese ciclo, y comparar: mismas bandejas, `descarte` como única diferencia
+- [ ] T039 [US5] Verificar que `DELETE /lotes/:id` sigue bloqueado por una bandeja descartada (`LOTE_REFERENCED_BY_BANDEJA`, sin cambios de código) y que `DELETE /siembras/:id` devuelve 409
+
+**Checkpoint**: US5 entregada. Las 5 user stories completas.
+
+---
+
+## Phase 5: Entregables de soporte
+
+- [ ] T040 [P] Escribir `docs/bandejas-descarte-frontend.md` siguiendo el formato de `docs/tareas-frontend.md`: endpoints, shapes, tabla de errores, el cambio de default de `estado`, y el flujo de pantalla para elegir la bandeja desde la mesa
+- [ ] T041 [P] Crear `postman/bandejas-descarte.postman_collection.json` con el camino feliz y los 6 rechazos: doble descarte, fecha futura, fecha anterior al último hecho, `motivo=otro` sin observaciones, tenant ajeno, y trasplante de una bandeja descartada
+- [ ] T042 Repasar el spec: confirmar FR-001…FR-023 y SC-001…SC-008 uno por uno contra el comportamiento real
+
+---
+
+## Dependencias
+
+```
+Phase 0 (rama aparte, merge a main)
+   └─> Phase 1 (esquema)
+         ├─> Phase 2 (US1+US3)  ── MVP entregable
+         │     └─> Phase 3 (US2+US4)   [T031 necesita bandeja_descartes con datos]
+         │           └─> Phase 4 (US5)
+         └─────────────────────────────> Phase 5 (docs y Postman, al final)
+```
+
+- **T014/T015** (util de fechas) puede hacerse durante la Fase 1 si conviene: no depende del esquema.
+- **T027/T028/T029** (filtros y default de `listBandejas`) no dependen del descarte y podrían adelantarse; se dejan en la Fase 3 para que el commit del cambio de default viaje junto a su documentación.
+- Las tareas marcadas **[P]** dentro de una misma fase tocan archivos distintos.
+
+## Orden sugerido de entrega
+
+1. **Phase 0** → merge a `main`. Arregla un bug vivo hoy, entra en el próximo deploy sin esperar al descarte.
+2. **Phase 1 + 2** → MVP. Ya se puede registrar la pérdida de una bandeja, que es el pedido original.
+3. **Phase 3** → hace el MVP usable en el campo (llegar a la bandeja desde la mesa).
+4. **Phase 4 + 5** → cierra la integridad y deja el handoff al frontend.
