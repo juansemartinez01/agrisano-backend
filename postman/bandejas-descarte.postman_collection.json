@@ -1,0 +1,2292 @@
+{
+  "info": {
+    "_postman_id": "b7e1c4a2-9f3d-4e8b-a5c6-1d2e3f4a5b6c",
+    "name": "Agrisano Backend - Descarte de bandejas",
+    "description": "Coleccion para probar el registro de perdidas de bandejas.\n\nImportar en Postman, completar email, password y tenantId, y correr las carpetas EN ORDEN: Auth, Setup, Descarte, Rechazos, Lecturas, Integridad. Cada carpeta depende de las variables que dejo la anterior.\n\nLa corrida arma su propio escenario (mesa, dos siembras, siete bandejas) y no pisa datos previos, asi que se puede correr varias veces seguidas. Las fechas se calculan en el prerequest de la coleccion contra el dia de la corrida: no hay fechas fijas que caduquen.\n\nCubre el camino feliz, los seis rechazos del flujo (doble descarte, fecha futura, fecha anterior al ultimo hecho, motivo otro sin observaciones, tenant ajeno y trasplante de una descartada) y lo que cambia en las lecturas.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "pm.request.headers.upsert({ key: 'Accept', value: 'application/json' });",
+          "if (!pm.request.headers.has('Content-Type') && ['POST', 'PATCH', 'PUT'].includes(pm.request.method)) {",
+          "  pm.request.headers.upsert({ key: 'Content-Type', value: 'application/json' });",
+          "}",
+          "",
+          "// Las fechas se calculan contra el dia de la corrida. Una coleccion con",
+          "// fechas fijas empieza a fallar sola: hoy se vuelve pasado y el rechazo",
+          "// por fecha futura deja de rechazar.",
+          "const DIA = 24 * 60 * 60 * 1000;",
+          "const iso = function (ms) { return new Date(ms).toISOString().slice(0, 10); };",
+          "const ahora = Date.now();",
+          "pm.collectionVariables.set('fechaHoy', iso(ahora));",
+          "pm.collectionVariables.set('fechaAyer', iso(ahora - DIA));",
+          "pm.collectionVariables.set('fechaFutura', iso(ahora + 30 * DIA));",
+          "pm.collectionVariables.set('fechaSiembraVieja', iso(ahora - 30 * DIA));"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "description": "El JWT lleva los roles adentro: si cambian en base hay que volver a loguearse. Descartar exige operario, supervisor o admin_global; admin a secas no alcanza.",
+      "item": [
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Login exitoso', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.access_token) pm.collectionVariables.set('token', json.access_token);",
+                  "if (json.refresh_token) pm.collectionVariables.set('refreshToken', json.refresh_token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}",
+                "description": "Obligatorio si TENANCY_REQUIRED=true, incluido en el login."
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}"
+            },
+            "description": "Obtiene access_token y refresh_token. El test los guarda en las variables token y refreshToken."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Setup",
+      "description": "Arma un escenario propio en vez de depender de datos preexistentes. Se elige primero el lote de semilla y de ahi sale el establecimiento, porque GET /lotes no filtra por establecimiento_id pero si devuelve el suyo.",
+      "item": [
+        {
+          "name": "Obtener lote de semilla y establecimiento",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Hay al menos un lote de semilla habilitado', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().data.length).to.be.above(0);",
+                  "});",
+                  "",
+                  "const lote = pm.response.json().data[0];",
+                  "pm.collectionVariables.set('loteSemillaId', lote.id);",
+                  "pm.collectionVariables.set('establecimientoId', lote.establecimiento_id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/lotes?tipo=semilla&estado=habilitado&activo=true&limit=200",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "lotes"
+              ],
+              "query": [
+                {
+                  "key": "tipo",
+                  "value": "semilla"
+                },
+                {
+                  "key": "estado",
+                  "value": "habilitado"
+                },
+                {
+                  "key": "activo",
+                  "value": "true"
+                },
+                {
+                  "key": "limit",
+                  "value": "200"
+                }
+              ]
+            },
+            "description": "El establecimiento sale del lote y no al reves: la siembra rechaza con LOTE_ESTABLECIMIENTO_MISMATCH si no coinciden."
+          }
+        },
+        {
+          "name": "Obtener lote de sustrato del mismo establecimiento",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const est = pm.collectionVariables.get('establecimientoId');",
+                  "const lote = pm.response.json().data.find(function (l) {",
+                  "  return l.establecimiento_id === est;",
+                  "});",
+                  "",
+                  "pm.test('Hay sustrato en el mismo establecimiento', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(lote, \"sin lote de sustrato para el establecimiento\").to.not.be.undefined;",
+                  "});",
+                  "",
+                  "if (lote) pm.collectionVariables.set('loteSustratoId', lote.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/lotes?tipo=sustrato&estado=habilitado&activo=true&limit=200",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "lotes"
+              ],
+              "query": [
+                {
+                  "key": "tipo",
+                  "value": "sustrato"
+                },
+                {
+                  "key": "estado",
+                  "value": "habilitado"
+                },
+                {
+                  "key": "activo",
+                  "value": "true"
+                },
+                {
+                  "key": "limit",
+                  "value": "200"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Obtener tunel del establecimiento",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Hay un tunel en el establecimiento', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().data.length).to.be.above(0);",
+                  "});",
+                  "",
+                  "pm.collectionVariables.set('tunelId', pm.response.json().data[0].id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/tuneles?establecimiento_id={{establecimientoId}}&limit=1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tuneles"
+              ],
+              "query": [
+                {
+                  "key": "establecimiento_id",
+                  "value": "{{establecimientoId}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "1"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Crear mesa para el trasplante",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Mesa creada', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const mesa = pm.response.json().data;",
+                  "pm.collectionVariables.set('mesaId', mesa.id);",
+                  "",
+                  "pm.test('Nace activa pero con posicion asignada', function () {",
+                  "  pm.expect(mesa.estado).to.eql('activa');",
+                  "  pm.expect(mesa.posicion_actual).to.not.eql(null);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/mesas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "mesas"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"establecimiento_id\": \"{{establecimientoId}}\",\n  \"tunel_id\": \"{{tunelId}}\",\n  \"nombre\": \"Mesa descarte {{$timestamp}}\"\n}"
+            },
+            "description": "La coleccion crea su propia mesa en vez de reusar una: el trasplante exige mesa en_cosecha, o activa sin posicion_actual. Con una mesa ya ocupada el rechazo del final saldria TRASPLANTE_MESA_ESTADO_INVALIDO y no probaria nada sobre el descarte. POST /mesas le asigna sola la posicion siguiente del tunel, asi que los dos pedidos que siguen la liberan."
+          }
+        },
+        {
+          "name": "Dar de baja la mesa",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('La baja libera la posicion', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const m = pm.response.json().data;",
+                  "  pm.expect(m.estado).to.eql('baja');",
+                  "  pm.expect(m.posicion_actual).to.eql(null);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/mesas/{{mesaId}}/dar-de-baja",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "mesas",
+                "{{mesaId}}",
+                "dar-de-baja"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Reactivar la mesa (queda trasplantable)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Activa y sin posicion: el unico estado trasplantable sin cosechar antes', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const m = pm.response.json().data;",
+                  "  pm.expect(m.estado).to.eql('activa');",
+                  "  pm.expect(m.posicion_actual).to.eql(null);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/mesas/{{mesaId}}/reactivar",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "mesas",
+                "{{mesaId}}",
+                "reactivar"
+              ]
+            },
+            "description": "baja + reactivar es el camino por API para dejar una mesa activa sin posicion. La otra puerta del trasplante es en_cosecha, que exige un ciclo entero de cosecha."
+          }
+        },
+        {
+          "name": "Crear siembra de hoy",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Siembra creada con 5 bandejas', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "  pm.expect(pm.response.json().data.bandejas.length).to.eql(5);",
+                  "});",
+                  "",
+                  "pm.collectionVariables.set('siembraId', pm.response.json().data.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/siembras",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "siembras"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"establecimiento_id\": \"{{establecimientoId}}\",\n  \"fecha\": \"{{fechaHoy}}\",\n  \"observaciones\": \"Siembra de la coleccion de descarte\",\n  \"bandejas\": [\n    {\n      \"lote_semilla_id\": \"{{loteSemillaId}}\",\n      \"lote_sustrato_id\": \"{{loteSustratoId}}\",\n      \"cantidad\": 5\n    }\n  ]\n}"
+            },
+            "description": "Fecha de hoy a proposito: con el ultimo hecho conocido en hoy, el rechazo por fecha anterior de mas abajo tiene contra que chocar."
+          }
+        },
+        {
+          "name": "Ingresar bandejas a nursery",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Bandejas en nursery', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/siembras/{{siembraId}}/ingresar-nursery",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "siembras",
+                "{{siembraId}}",
+                "ingresar-nursery"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fecha_entrada\": \"{{fechaHoy}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Listar bandejas de la siembra y repartirlas",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json().data;",
+                  "",
+                  "pm.test('Vuelven las 5 bandejas en nursery', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(data.length).to.eql(5);",
+                  "  data.forEach(function (b) {",
+                  "    pm.expect(b.estado).to.eql('en_nursery');",
+                  "  });",
+                  "});",
+                  "",
+                  "// Una bandeja por caso: ningun test pisa el escenario de otro.",
+                  "pm.collectionVariables.set('bandejaHappyId', data[0].id);",
+                  "pm.collectionVariables.set('bandejaDobleId', data[1].id);",
+                  "pm.collectionVariables.set('bandejaFechaId', data[2].id);",
+                  "pm.collectionVariables.set('bandejaOtroId', data[3].id);",
+                  "pm.collectionVariables.set('bandejaTrasplanteId', data[4].id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bandejas?siembra_id={{siembraId}}&limit=200",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bandejas"
+              ],
+              "query": [
+                {
+                  "key": "siembra_id",
+                  "value": "{{siembraId}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "200"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Crear siembra retroactiva",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Siembra retroactiva creada', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.collectionVariables.set('siembraViejaId', pm.response.json().data.id);",
+                  "pm.collectionVariables.set('bandejaRetroId', pm.response.json().data.bandejas[0].id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/siembras",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "siembras"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"establecimiento_id\": \"{{establecimientoId}}\",\n  \"fecha\": \"{{fechaSiembraVieja}}\",\n  \"observaciones\": \"Siembra vieja para probar el descarte retroactivo\",\n  \"bandejas\": [\n    {\n      \"lote_semilla_id\": \"{{loteSemillaId}}\",\n      \"lote_sustrato_id\": \"{{loteSustratoId}}\",\n      \"cantidad\": 1\n    }\n  ]\n}"
+            },
+            "description": "Queda en cooling_period, sin entrar a nursery: su unico hecho conocido es la siembra de hace 30 dias, asi que se la puede descartar con fecha de ayer."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Descarte",
+      "description": "El camino feliz: descartar, deduplicar ids y registrar una perdida de ayer.",
+      "item": [
+        {
+          "name": "Descartar una bandeja",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Descarte registrado', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const d = pm.response.json().data;",
+                  "",
+                  "pm.test('Responde el resumen del lote', function () {",
+                  "  pm.expect(d.descartadas).to.eql(1);",
+                  "  pm.expect(d.motivo).to.eql('caida');",
+                  "  pm.expect(d.bandejas.length).to.eql(1);",
+                  "  pm.expect(d.bandejas[0].estado_anterior).to.eql('en_nursery');",
+                  "  pm.expect(d.bandejas[0].bandeja_id).to.eql(pm.collectionVariables.get('bandejaHappyId'));",
+                  "});",
+                  "",
+                  "pm.test('Queda quien lo registro', function () {",
+                  "  pm.expect(d.usuario).to.be.an(\"object\");",
+                  "  pm.expect(d.usuario.id).to.be.a('string');",
+                  "});",
+                  "",
+                  "pm.test('Sin fecha_descarte queda el momento real, no el mediodia', function () {",
+                  "  pm.expect(d.fecha_descarte.slice(0, 10)).to.eql(pm.collectionVariables.get('fechaHoy'));",
+                  "  pm.expect(d.fecha_descarte).to.not.include('T12:00:00.000Z');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bandejas/descartar",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bandejas",
+                "descartar"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bandeja_ids\": [\n    \"{{bandejaHappyId}}\"\n  ],\n  \"motivo\": \"caida\",\n  \"observaciones\": \"Se cayo de la mesa al moverla\"\n}"
+            },
+            "description": "Sin fecha_descarte el registro usa el now() de la base. El ancla de las 12:00 UTC es solo para las fechas retroactivas."
+          }
+        },
+        {
+          "name": "Descartar con ids repetidos (se deduplican)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Los ids repetidos cuentan una vez', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "  const d = pm.response.json().data;",
+                  "  pm.expect(d.descartadas).to.eql(1);",
+                  "  pm.expect(d.bandejas.length).to.eql(1);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bandejas/descartar",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bandejas",
+                "descartar"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bandeja_ids\": [\n    \"{{bandejaDobleId}}\",\n    \"{{bandejaDobleId}}\",\n    \"{{bandejaDobleId}}\"\n  ],\n  \"motivo\": \"plaga\",\n  \"observaciones\": \"Foco de trips\"\n}"
+            },
+            "description": "Mandar el mismo id tres veces no es un error: se deduplica antes de validar. Ademas deja la bandeja lista para el rechazo por doble descarte."
+          }
+        },
+        {
+          "name": "Descartar con fecha retroactiva",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Acepta la perdida de ayer', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test('La fecha retroactiva queda anclada al mediodia UTC', function () {",
+                  "  const f = pm.response.json().data.fecha_descarte;",
+                  "  pm.expect(f).to.eql(pm.collectionVariables.get('fechaAyer') + 'T12:00:00.000Z');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bandejas/descartar",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bandejas",
+                "descartar"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bandeja_ids\": [\n    \"{{bandejaRetroId}}\"\n  ],\n  \"motivo\": \"mala_germinacion\",\n  \"observaciones\": \"Se detecto ayer al recorrer\",\n  \"fecha_descarte\": \"{{fechaAyer}}\"\n}"
+            },
+            "description": "El ancla de las 12:00 UTC hace que el dia calendario no se corra al pasar por husos horarios. La bandeja viene de la siembra de hace 30 dias, asi que ayer es posterior a su ultimo hecho."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Rechazos",
+      "description": "Los seis rechazos del flujo mas los dos de borde. Correr despues de Descarte: varios dependen de lo que quedo descartado ahi.",
+      "item": [
+        {
+          "name": "Doble descarte (debe fallar)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Rechaza con 409', function () {",
+                  "  pm.response.to.have.status(409);",
+                  "});",
+                  "",
+                  "pm.test('code = BANDEJA_YA_DESCARTADA', function () {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.error.code).to.eql('BANDEJA_YA_DESCARTADA');",
+                  "  pm.expect(json.ok).to.eql(false);",
+                  "});",
+                  "",
+                  "pm.test('Dice cual bandeja ya estaba perdida', function () {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.error.details.ids).to.include(pm.collectionVariables.get('bandejaDobleId'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bandejas/descartar",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bandejas",
+                "descartar"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bandeja_ids\": [\n    \"{{bandejaDobleId}}\"\n  ],\n  \"motivo\": \"rotura\"\n}"
+            },
+            "description": "El descarte es terminal: no se puede volver a descartar ni revertir."
+          }
+        },
+        {
+          "name": "Fecha futura (debe fallar)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Rechaza con 422', function () {",
+                  "  pm.response.to.have.status(422);",
+                  "});",
+                  "",
+                  "pm.test('code = BANDEJA_DESCARTE_FECHA_INVALIDA', function () {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.error.code).to.eql('BANDEJA_DESCARTE_FECHA_INVALIDA');",
+                  "  pm.expect(json.ok).to.eql(false);",
+                  "});",
+                  "",
+                  "pm.test('Sin details: el problema es la fecha, no las bandejas', function () {",
+                  "  pm.expect(pm.response.json().error.details).to.be.undefined;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bandejas/descartar",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bandejas",
+                "descartar"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bandeja_ids\": [\n    \"{{bandejaFechaId}}\"\n  ],\n  \"motivo\": \"caida\",\n  \"fecha_descarte\": \"{{fechaFutura}}\"\n}"
+            },
+            "description": "Se puede registrar una perdida de ayer, no una de manana. Este caso corta antes de tocar la base, por eso no trae details."
+          }
+        },
+        {
+          "name": "Fecha anterior al ultimo hecho (debe fallar)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Rechaza con 422', function () {",
+                  "  pm.response.to.have.status(422);",
+                  "});",
+                  "",
+                  "pm.test('code = BANDEJA_DESCARTE_FECHA_INVALIDA', function () {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.error.code).to.eql('BANDEJA_DESCARTE_FECHA_INVALIDA');",
+                  "  pm.expect(json.ok).to.eql(false);",
+                  "});",
+                  "",
+                  "pm.test('Aca si dice cual bandeja no cierra', function () {",
+                  "  pm.expect(pm.response.json().error.details.ids).to.include(pm.collectionVariables.get('bandejaFechaId'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bandejas/descartar",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bandejas",
+                "descartar"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bandeja_ids\": [\n    \"{{bandejaFechaId}}\"\n  ],\n  \"motivo\": \"caida\",\n  \"fecha_descarte\": \"{{fechaAyer}}\"\n}"
+            },
+            "description": "La bandeja entro a nursery hoy: no pudo perderse ayer. El ultimo hecho conocido es el trasplante, si no la entrada a nursery, si no la siembra. Mismo code que la fecha futura pero este si trae details.ids."
+          }
+        },
+        {
+          "name": "Fecha inexistente en el calendario (debe fallar)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Rechaza con 422', function () {",
+                  "  pm.response.to.have.status(422);",
+                  "});",
+                  "",
+                  "pm.test('code = BANDEJA_DESCARTE_FECHA_INVALIDA', function () {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.error.code).to.eql('BANDEJA_DESCARTE_FECHA_INVALIDA');",
+                  "  pm.expect(json.ok).to.eql(false);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bandejas/descartar",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bandejas",
+                "descartar"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bandeja_ids\": [\n    \"{{bandejaFechaId}}\"\n  ],\n  \"motivo\": \"caida\",\n  \"fecha_descarte\": \"2026-02-31\"\n}"
+            },
+            "description": "Sin esta validacion new Date(\"2026-02-31\") se corre solo al 3 de marzo y el descarte quedaria con una fecha que nadie escribio."
+          }
+        },
+        {
+          "name": "Motivo otro sin observaciones (debe fallar)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Rechaza con 422', function () {",
+                  "  pm.response.to.have.status(422);",
+                  "});",
+                  "",
+                  "pm.test('code = BANDEJA_DESCARTE_MOTIVO_REQUIERE_OBSERVACIONES', function () {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.error.code).to.eql('BANDEJA_DESCARTE_MOTIVO_REQUIERE_OBSERVACIONES');",
+                  "  pm.expect(json.ok).to.eql(false);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bandejas/descartar",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bandejas",
+                "descartar"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bandeja_ids\": [\n    \"{{bandejaOtroId}}\"\n  ],\n  \"motivo\": \"otro\"\n}"
+            },
+            "description": "El enum tiene una salida de emergencia y esta es la condicion para usarla: si el motivo es otro, hay que explicar cual."
+          }
+        },
+        {
+          "name": "Motivo fuera del enum (debe fallar)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Rechaza con 400', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bandejas/descartar",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bandejas",
+                "descartar"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bandeja_ids\": [\n    \"{{bandejaOtroId}}\"\n  ],\n  \"motivo\": \"se_perdio\"\n}"
+            },
+            "description": "Lo frena el DTO, no el service: por eso es 400 de validacion y no 422."
+          }
+        },
+        {
+          "name": "Bandeja inexistente o de otro tenant (debe fallar)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Rechaza con 404', function () {",
+                  "  pm.response.to.have.status(404);",
+                  "});",
+                  "",
+                  "pm.test('code = BANDEJA_NOT_FOUND', function () {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.error.code).to.eql('BANDEJA_NOT_FOUND');",
+                  "  pm.expect(json.ok).to.eql(false);",
+                  "});",
+                  "",
+                  "pm.test('Devuelve el id que no encontro', function () {",
+                  "  pm.expect(pm.response.json().error.details.ids).to.include(pm.collectionVariables.get('uuidInexistente'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bandejas/descartar",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bandejas",
+                "descartar"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bandeja_ids\": [\n    \"{{uuidInexistente}}\"\n  ],\n  \"motivo\": \"caida\"\n}"
+            },
+            "description": "Inexistente, borrada y de otro tenant colapsan en el mismo 404 a proposito: distinguirlos le confirmaria a un tenant que el id existe en otro lado."
+          }
+        },
+        {
+          "name": "Header de otro tenant (debe fallar)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Rechaza con 401', function () {",
+                  "  pm.response.to.have.status(401);",
+                  "});",
+                  "",
+                  "pm.test('code = AUTH_INVALID', function () {",
+                  "  pm.expect(pm.response.json().error.code).to.eql('AUTH_INVALID');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{otroTenantId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bandejas/descartar",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bandejas",
+                "descartar"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bandeja_ids\": [\n    \"{{bandejaOtroId}}\"\n  ],\n  \"motivo\": \"caida\"\n}"
+            },
+            "description": "Con un tenant que no es el del token corta el guard de auth, antes de llegar al modulo. Es 401 y no 404: el pedido ni siquiera se evalua."
+          }
+        },
+        {
+          "name": "Lote con una bandeja invalida: no se descarta ninguna (debe fallar)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Rechaza con 404', function () {",
+                  "  pm.response.to.have.status(404);",
+                  "});",
+                  "",
+                  "pm.test('code = BANDEJA_NOT_FOUND', function () {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.error.code).to.eql('BANDEJA_NOT_FOUND');",
+                  "  pm.expect(json.ok).to.eql(false);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bandejas/descartar",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bandejas",
+                "descartar"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bandeja_ids\": [\n    \"{{bandejaFechaId}}\",\n    \"{{uuidInexistente}}\"\n  ],\n  \"motivo\": \"contaminacion\"\n}"
+            },
+            "description": "Todo o nada. El pedido siguiente comprueba que la bandeja valida del lote quedo intacta."
+          }
+        },
+        {
+          "name": "La bandeja del lote rechazado sigue viva",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('No se descarto nada del lote rechazado', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const b = pm.response.json().data;",
+                  "  pm.expect(b.estado).to.not.eql('descartada');",
+                  "  pm.expect(b.descarte).to.eql(null);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bandejas/{{bandejaFechaId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bandejas",
+                "{{bandejaFechaId}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Lecturas",
+      "description": "Las tres formas de leer una perdida: el listado de bandejas, el detalle, y el reporte de mermas.",
+      "item": [
+        {
+          "name": "Listar bandejas (por defecto sin descartadas)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json().data;",
+                  "",
+                  "pm.test('Las descartadas no aparecen', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  data.forEach(function (b) {",
+                  "    pm.expect(b.estado).to.not.eql('descartada');",
+                  "    pm.expect(b.descarte).to.eql(null);",
+                  "  });",
+                  "});",
+                  "",
+                  "pm.test('Quedan 3 de las 5 sembradas', function () {",
+                  "  pm.expect(data.length).to.eql(3);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bandejas?siembra_id={{siembraId}}&limit=200",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bandejas"
+              ],
+              "query": [
+                {
+                  "key": "siembra_id",
+                  "value": "{{siembraId}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "200"
+                }
+              ]
+            },
+            "description": "CAMBIO DE COMPORTAMIENTO: sin filtro de estado, GET /bandejas ya no devuelve las descartadas. meta.total respeta el mismo filtro."
+          }
+        },
+        {
+          "name": "Listar solo las descartadas",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json().data;",
+                  "",
+                  "pm.test('Vuelven las 2 descartadas de esta siembra', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(data.length).to.eql(2);",
+                  "});",
+                  "",
+                  "pm.test('Cada una trae su constancia', function () {",
+                  "  data.forEach(function (b) {",
+                  "    pm.expect(b.estado).to.eql('descartada');",
+                  "    pm.expect(b.descarte, \"descarte no puede ser null en una descartada\").to.be.an(\"object\");",
+                  "    pm.expect(b.descarte.motivo).to.be.a('string');",
+                  "    pm.expect(b.descarte.fecha_descarte).to.be.a('string');",
+                  "    pm.expect(b.descarte.estado_anterior).to.not.eql('descartada');",
+                  "  });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bandejas?siembra_id={{siembraId}}&estado=descartada&limit=200",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bandejas"
+              ],
+              "query": [
+                {
+                  "key": "siembra_id",
+                  "value": "{{siembraId}}"
+                },
+                {
+                  "key": "estado",
+                  "value": "descartada"
+                },
+                {
+                  "key": "limit",
+                  "value": "200"
+                }
+              ]
+            },
+            "description": "estado_anterior nunca puede ser descartada: es el estado desde el que se perdio, y el descarte no se puede repetir."
+          }
+        },
+        {
+          "name": "Obtener bandeja descartada por ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json().data;",
+                  "",
+                  "pm.test('El detalle suma observaciones y usuario', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(b.estado).to.eql('descartada');",
+                  "  pm.expect(b.descarte.observaciones).to.eql('Se cayo de la mesa al moverla');",
+                  "  pm.expect(b.descarte.usuario).to.be.an(\"object\");",
+                  "});",
+                  "",
+                  "pm.test('La historia previa no se borra', function () {",
+                  "  pm.expect(b.siembra_id).to.eql(pm.collectionVariables.get(\"siembraId\"));",
+                  "  pm.expect(b.fecha_entrada_nursery).to.not.eql(null);",
+                  "});",
+                  "",
+                  "pm.test('estado_anterior conserva de donde venia', function () {",
+                  "  pm.expect(b.descarte.estado_anterior).to.eql('en_nursery');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bandejas/{{bandejaHappyId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bandejas",
+                "{{bandejaHappyId}}"
+              ]
+            },
+            "description": "Descartar no borra: la bandeja sigue con su siembra, sus lotes y su fecha de entrada a nursery."
+          }
+        },
+        {
+          "name": "Reporte de mermas",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "",
+                  "pm.test('Devuelve el reporte paginado', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(json.meta.total).to.be.at.least(3);",
+                  "});",
+                  "",
+                  "pm.test('Cada fila trae la constancia y su bandeja', function () {",
+                  "  const d = json.data[0];",
+                  "  pm.expect(d.bandeja_id).to.be.a('string');",
+                  "  pm.expect(d.motivo).to.be.a('string');",
+                  "  pm.expect(d.fecha_descarte).to.be.a('string');",
+                  "  pm.expect(d.usuario).to.be.an(\"object\");",
+                  "  pm.expect(d.bandeja).to.be.an(\"object\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bandejas/descartes?page={{page}}&limit={{limit}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bandejas",
+                "descartes"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "{{page}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "{{limit}}"
+                }
+              ]
+            },
+            "description": "La vista de mermas: una fila por perdida, no por bandeja. bandeja_id es la clave primaria de la constancia."
+          }
+        },
+        {
+          "name": "Reporte filtrado por motivo y rango",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const data = pm.response.json().data;",
+                  "",
+                  "pm.test('Solo caidas', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(data.length).to.be.above(0);",
+                  "  data.forEach(function (d) {",
+                  "    pm.expect(d.motivo).to.eql('caida');",
+                  "  });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bandejas/descartes?establecimiento_id={{establecimientoId}}&motivo=caida&fecha_desde={{fechaSiembraVieja}}&fecha_hasta={{fechaHoy}}&limit=200",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bandejas",
+                "descartes"
+              ],
+              "query": [
+                {
+                  "key": "establecimiento_id",
+                  "value": "{{establecimientoId}}"
+                },
+                {
+                  "key": "motivo",
+                  "value": "caida"
+                },
+                {
+                  "key": "fecha_desde",
+                  "value": "{{fechaSiembraVieja}}"
+                },
+                {
+                  "key": "fecha_hasta",
+                  "value": "{{fechaHoy}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "200"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "fecha_hasta es inclusivo",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Un rango de un solo dia trae el descarte de ese dia', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const ids = pm.response.json().data.map(function (d) { return d.bandeja_id; });",
+                  "  pm.expect(ids).to.include(pm.collectionVariables.get('bandejaRetroId'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bandejas/descartes?fecha_desde={{fechaAyer}}&fecha_hasta={{fechaAyer}}&limit=200",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bandejas",
+                "descartes"
+              ],
+              "query": [
+                {
+                  "key": "fecha_desde",
+                  "value": "{{fechaAyer}}"
+                },
+                {
+                  "key": "fecha_hasta",
+                  "value": "{{fechaAyer}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "200"
+                }
+              ]
+            },
+            "description": "fecha_desde = fecha_hasta = ayer tiene que traer la perdida registrada ayer. El filtro compara dias calendario en UTC, no timestamps."
+          }
+        },
+        {
+          "name": "Reporte por estado_anterior",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Solo perdidas que venian de nursery', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.response.json().data.forEach(function (d) {",
+                  "    pm.expect(d.estado_anterior).to.eql('en_nursery');",
+                  "  });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bandejas/descartes?estado_anterior=en_nursery&limit=200",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bandejas",
+                "descartes"
+              ],
+              "query": [
+                {
+                  "key": "estado_anterior",
+                  "value": "en_nursery"
+                },
+                {
+                  "key": "limit",
+                  "value": "200"
+                }
+              ]
+            },
+            "description": "Responde donde se pierden las bandejas: en nursery o ya trasplantadas."
+          }
+        },
+        {
+          "name": "estado_anterior=descartada (debe fallar)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Rechaza con 400', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bandejas/descartes?estado_anterior=descartada",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bandejas",
+                "descartes"
+              ],
+              "query": [
+                {
+                  "key": "estado_anterior",
+                  "value": "descartada"
+                }
+              ]
+            },
+            "description": "descartada queda fuera del enum del filtro a proposito: ninguna fila puede tenerlo, y aceptarlo devolveria siempre vacio sin explicar por que."
+          }
+        },
+        {
+          "name": "sortBy invalido en el reporte (debe fallar)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Rechaza con 400', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bandejas/descartes?sortBy=motivo",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bandejas",
+                "descartes"
+              ],
+              "query": [
+                {
+                  "key": "sortBy",
+                  "value": "motivo"
+                }
+              ]
+            },
+            "description": "Ojo con la asimetria: en GET /bandejas un sortBy invalido cae en el default sin avisar, aca es 400. Solo se puede ordenar por fecha_descarte o created_at."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Integridad",
+      "description": "Lo que una bandeja descartada ya no puede hacer.",
+      "item": [
+        {
+          "name": "Trasplantar una bandeja descartada (debe fallar)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Rechaza con 422', function () {",
+                  "  pm.response.to.have.status(422);",
+                  "});",
+                  "",
+                  "pm.test('code = TRASPLANTE_BANDEJA_INVALIDA', function () {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.error.code).to.eql('TRASPLANTE_BANDEJA_INVALIDA');",
+                  "  pm.expect(json.ok).to.eql(false);",
+                  "});",
+                  "",
+                  "pm.test('Nombra la bandeja perdida en el message, no en details', function () {",
+                  "  pm.expect(pm.response.json().error.message).to.include(pm.collectionVariables.get('bandejaHappyId'));",
+                  "  pm.expect(pm.response.json().error.details).to.be.undefined;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/trasplante",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "trasplante"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mesa_id\": \"{{mesaId}}\",\n  \"tunel_id\": \"{{tunelId}}\",\n  \"bandeja_ids\": [\n    \"{{bandejaHappyId}}\"\n  ]\n}"
+            },
+            "description": "La mesa se creo y se libero en el Setup justamente para que el rechazo sea por la bandeja y no por la mesa. Ojo: a diferencia de los errores de descarte, este no trae details.ids; nombra la bandeja dentro del message."
+          }
+        },
+        {
+          "name": "El trasplante valido sigue funcionando",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Una bandeja sana se trasplanta igual que antes', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/trasplante",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "trasplante"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mesa_id\": \"{{mesaId}}\",\n  \"tunel_id\": \"{{tunelId}}\",\n  \"bandeja_ids\": [\n    \"{{bandejaTrasplanteId}}\"\n  ]\n}"
+            },
+            "description": "El caso de control. Sin el, el rechazo de arriba podria estar fallando por la mesa o por el tunel y nadie se enteraria."
+          }
+        },
+        {
+          "name": "Eliminar la siembra con descartadas (debe fallar)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Rechaza con 409', function () {",
+                  "  pm.response.to.have.status(409);",
+                  "});",
+                  "",
+                  "pm.test('Gana la guarda de trasplantadas, que es la previa', function () {",
+                  "  pm.expect(pm.response.json().error.code).to.eql('SIEMBRA_HAS_TRASPLANTADAS');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/siembras/{{siembraId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "siembras",
+                "{{siembraId}}"
+              ]
+            },
+            "description": "La siembra tiene descartadas y una trasplantada. SIEMBRA_HAS_TRASPLANTADAS se evalua primero, asi que una siembra que ya se rechazaba antes de esta feature sigue devolviendo el mismo code."
+          }
+        },
+        {
+          "name": "Eliminar la siembra retroactiva, que solo tiene descartadas (debe fallar)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Rechaza con 409', function () {",
+                  "  pm.response.to.have.status(409);",
+                  "});",
+                  "",
+                  "pm.test('code = SIEMBRA_HAS_DESCARTADAS', function () {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.error.code).to.eql('SIEMBRA_HAS_DESCARTADAS');",
+                  "  pm.expect(json.ok).to.eql(false);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/siembras/{{siembraViejaId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "siembras",
+                "{{siembraViejaId}}"
+              ]
+            },
+            "description": "Sin esta guarda, borrar la siembra le ponia deleted_at a la bandeja y dejaba la constancia de merma apuntando a una fila borrada, pero el reporte la seguia mostrando."
+          }
+        },
+        {
+          "name": "La bandeja descartada no quedo borrada",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('El DELETE rechazado no toco nada', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().data.estado).to.eql('descartada');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bandejas/{{bandejaRetroId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bandejas",
+                "{{bandejaRetroId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Eliminar el lote de semilla de una bandeja perdida (debe fallar)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Rechaza con 409', function () {",
+                  "  pm.response.to.have.status(409);",
+                  "  pm.expect(pm.response.json().error.code).to.eql('LOTE_REFERENCED_BY_BANDEJA');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "description": "Opcional, segun configuracion TENANCY_HEADER.",
+                "disabled": true
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/lotes/{{loteSemillaId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "lotes",
+                "{{loteSemillaId}}"
+              ]
+            },
+            "description": "Sin cambios de codigo: la guarda de lotes ya no distinguia estados, asi que una bandeja descartada sigue reteniendo su lote. La trazabilidad de la perdida se conserva."
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "refreshToken",
+      "value": ""
+    },
+    {
+      "key": "email",
+      "value": "admin@example.com"
+    },
+    {
+      "key": "password",
+      "value": "password123"
+    },
+    {
+      "key": "tenantId",
+      "value": ""
+    },
+    {
+      "key": "tenantKey",
+      "value": ""
+    },
+    {
+      "key": "otroTenantId",
+      "value": "00000000-0000-0000-0000-0000000000ff",
+      "description": "Un tenant que no es el del token, para el rechazo por tenant ajeno."
+    },
+    {
+      "key": "uuidInexistente",
+      "value": "99999999-9999-4999-8999-999999999999",
+      "description": "UUID v4 valido que no existe en ninguna tabla."
+    },
+    {
+      "key": "page",
+      "value": "1"
+    },
+    {
+      "key": "limit",
+      "value": "20"
+    },
+    {
+      "key": "establecimientoId",
+      "value": "",
+      "description": "Lo completa el Setup."
+    },
+    {
+      "key": "tunelId",
+      "value": "",
+      "description": "Lo completa el Setup."
+    },
+    {
+      "key": "mesaId",
+      "value": "",
+      "description": "Lo completa el Setup."
+    },
+    {
+      "key": "loteSemillaId",
+      "value": "",
+      "description": "Lo completa el Setup."
+    },
+    {
+      "key": "loteSustratoId",
+      "value": "",
+      "description": "Lo completa el Setup."
+    },
+    {
+      "key": "siembraId",
+      "value": "",
+      "description": "Siembra de hoy, 5 bandejas."
+    },
+    {
+      "key": "siembraViejaId",
+      "value": "",
+      "description": "Siembra de hace 30 dias, 1 bandeja."
+    },
+    {
+      "key": "bandejaHappyId",
+      "value": "",
+      "description": "Se descarta en el camino feliz."
+    },
+    {
+      "key": "bandejaDobleId",
+      "value": "",
+      "description": "Se descarta y despues se reintenta."
+    },
+    {
+      "key": "bandejaFechaId",
+      "value": "",
+      "description": "Solo para los rechazos por fecha: no llega a descartarse."
+    },
+    {
+      "key": "bandejaOtroId",
+      "value": "",
+      "description": "Solo para los rechazos por motivo: no llega a descartarse."
+    },
+    {
+      "key": "bandejaTrasplanteId",
+      "value": "",
+      "description": "Se trasplanta sana, como caso de control."
+    },
+    {
+      "key": "bandejaRetroId",
+      "value": "",
+      "description": "Se descarta con fecha de ayer."
+    },
+    {
+      "key": "fechaHoy",
+      "value": "",
+      "description": "Lo calcula el prerequest de la coleccion."
+    },
+    {
+      "key": "fechaAyer",
+      "value": "",
+      "description": "Lo calcula el prerequest de la coleccion."
+    },
+    {
+      "key": "fechaFutura",
+      "value": "",
+      "description": "Lo calcula el prerequest de la coleccion."
+    },
+    {
+      "key": "fechaSiembraVieja",
+      "value": "",
+      "description": "Lo calcula el prerequest de la coleccion."
+    }
+  ]
+}

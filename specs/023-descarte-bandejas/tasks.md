@@ -298,9 +298,42 @@ Dos correcciones al armado, ninguna al código: la ruta es `POST /cosecha` en si
 
 ## Phase 5: Entregables de soporte
 
-- [ ] T040 [P] Escribir `docs/bandejas-descarte-frontend.md` siguiendo el formato de `docs/tareas-frontend.md`: endpoints, shapes, tabla de errores, el cambio de default de `estado`, y el flujo de pantalla para elegir la bandeja desde la mesa
-- [ ] T041 [P] Crear `postman/bandejas-descarte.postman_collection.json` con el camino feliz y los 6 rechazos: doble descarte, fecha futura, fecha anterior al último hecho, `motivo=otro` sin observaciones, tenant ajeno, y trasplante de una bandeja descartada
-- [ ] T042 Repasar el spec: confirmar FR-001…FR-023 y SC-001…SC-008 uno por uno contra el comportamiento real
+- [x] T040 [P] Escribir `docs/bandejas-descarte-frontend.md` siguiendo el formato de `docs/tareas-frontend.md`: endpoints, shapes, tabla de errores, el cambio de default de `estado`, y el flujo de pantalla para elegir la bandeja desde la mesa
+- [x] T041 [P] Crear `postman/bandejas-descarte.postman_collection.json` con el camino feliz y los 6 rechazos: doble descarte, fecha futura, fecha anterior al último hecho, `motivo=otro` sin observaciones, tenant ajeno, y trasplante de una bandeja descartada
+- [x] T042 Repasar el spec: confirmar FR-001…FR-023 y SC-001…SC-008 uno por uno contra el comportamiento real
+
+### Notas de implementación
+
+**T040/T041 — el handoff se escribió con los contratos ya quietos.** `docs/bandejas-descarte-frontend.md` sigue el formato de `docs/tareas-frontend.md`, y la colección de Postman cubre el camino feliz más los seis rechazos. El único punto que hubo que documentar con letra grande es el cambio de default de `estado` en `GET /bandejas`: una pantalla que hoy lista bandejas empieza a ver una fila menos por cada pérdida y no se entera, salvo que pida `estado=descartada` a propósito.
+
+**T042 — 88 verificaciones, todas en verde, y ninguna corrección al código.** El repaso no se hizo leyendo: se armó un recorrido que levanta sus propios datos (siembras, mesas, trasplantes y un lote de 200 bandejas) y le entrega a cada verificación bandejas nuevas. Sin eso, la mitad de las aserciones habría dado verde porque la bandeja ya estaba descartada, no porque el código funcione. Corrió dos veces seguidas con el mismo resultado.
+
+Hicieron falta datos que la base local no tenía: la matriz de roles (FR-001, FR-023) y el aislamiento entre clientes (FR-020, SC-007) son inverificables con el único admin local, que es `admin` **y** `admin_global` a la vez y por lo tanto siempre pasa. Se crearon un usuario por rol, un `admin` a secas como control negativo —tiene que recibir 403— y un cliente B completo con su propia cadena de establecimiento, lotes y siembra, para probar el aislamiento en las dos direcciones.
+
+**Todas las discrepancias que aparecieron eran del script, no de la API.** Vale anotar las que el frontend se va a comer igual:
+
+| Trampa | Qué pasa de verdad |
+|---|---|
+| `meta` de paginación | viaja **al lado** de `data`, no adentro: `{ ok, data: [...], meta: {...} }` |
+| Dos formas de listado | `/bandejas` y `/bandejas/descartes` paginan; `/lotes`, `/tuneles` y `/establecimientos` devuelven `data` como arreglo pelado |
+| `POST /cosecha` | devuelve `{ cosecha, mesa_id, tunel_id, posicion_recalculada }`, no la cosecha pelada |
+| UUID inexistente | tiene que ser **v4 bien formado** para llegar al 404; uno mal formado lo corta `@IsUUID('4')` con un 400 genérico |
+| `historial_mesa` | la columna es `detalle` (jsonb), no `payload` |
+
+**La guarda de la mesa tapa a la de la bandeja.** SC-002 pide probar que una bandeja descartada no se puede trasplantar, pero una mesa que ya recibió bandejas deja de ser trasplantable: reusar la mesa del fixture devuelve `TRASPLANTE_MESA_ESTADO_INVALIDO` sin haber mirado nunca la bandeja. Cada intento necesita una mesa recién creada —y creada, dada de baja y reactivada, porque una mesa nace con posición en el túnel y tampoco es trasplantable así.
+
+**SC-006 no se puede medir con `pg_stat_user_tables`.** El criterio pide que la cantidad de *consultas* no dependa de la cantidad de bandejas, y los contadores de scans no responden esa pregunta: el chequeo de clave foránea de cada fila insertada cuenta como un index scan, así que el contador crece con las filas aunque la app haya mandado una sola consulta. Medido: **5 accesos para 1 bandeja y 223 para 199**, que parece un fracaso y no lo es. (De paso: esos contadores tardan ~3 s en publicarse; muestreados al instante dan 0 y el check pasa por vacío.)
+
+La medición que sí sirve es contar sentencias: `log_statement = 'all'` con `pg_reload_conf()`, marcas en el log alrededor de cada operación, y `pg_read_binary_file` para leer el tramo. El resultado es el que el criterio pide:
+
+| Operación | Sentencias |
+|---|---|
+| Descartar 1 bandeja | 10 |
+| Descartar 199 bandejas | 10 |
+
+Son las mismas nueve más la marca: `START TRANSACTION`, el `SELECT` del usuario, el `SELECT` de las bandejas, el `INSERT` a `bandeja_descartes`, el `UPDATE` de `bandejas`, `COMMIT`, y después la transacción propia de la auditoría. 199 bandejas se resuelven en 51 ms.
+
+Las dos anotaciones que quedaron no son fallas: el desglose por motivo y etapa del período (que muestra que SC-008 se puede agrupar sin volver a pedir) y el tiempo del lote de 199.
 
 ---
 

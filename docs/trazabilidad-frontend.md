@@ -261,9 +261,17 @@ type BandejaCiclo = {
   siembra_id: string;
   lote_semilla_id: string;
   lote_sustrato_id: string;
+  lote_vermiculita_id: string | null;
   estado: string;
   carencia_hasta: string | null;
+  descarte: DescarteResumen | null;
   siembra: SiembraInfo | null;
+};
+
+type DescarteResumen = {
+  motivo: string;
+  fecha_descarte: string;
+  estado_anterior: string;
 };
 
 type SiembraInfo = {
@@ -286,6 +294,12 @@ type SiembraInfo = {
 ```
 
 `carencia_hasta` aquí es el período de carencia de la bandeja (aplicaciones de nursery), análogo al de la mesa.
+
+`descarte` es `null` salvo que la bandeja se haya registrado como perdida. **Descartar una bandeja no la saca del ciclo**: la trazabilidad de una cosecha sigue mostrando todas las bandejas que se trasplantaron a la mesa, con su linaje intacto (siembra, lotes, fecha de trasplante). Lo único que cambia es `estado`, que pasa a `"descartada"`, y este objeto, que deja de ser `null`.
+
+Eso es deliberado: si una bandeja perdida desapareciera del ciclo, la trazabilidad de la cosecha mentiría sobre de dónde salió la fruta. `estado_anterior` dice desde qué estado se perdió; en el ciclo de una cosecha va a ser casi siempre `"trasplantada"`.
+
+Es la misma forma reducida que devuelve `GET /bandejas`, sin `observaciones` ni `usuario`. Para el texto libre y quién la registró hay que ir a `GET /bandejas/:id`. El detalle completo del flujo está en [bandejas-descarte-frontend.md](./bandejas-descarte-frontend.md).
 
 ### Aplicacion quimica resumida
 
@@ -507,8 +521,10 @@ Respuesta `200`:
         "siembra_id": "ce455fd5-4e1c-4d3d-893a-b16a0c1e2c8c",
         "lote_semilla_id": "622dd2be-d38b-4f43-8abd-a41266018e34",
         "lote_sustrato_id": "2884aac5-75a0-4fda-a72e-9804079e51c7",
+        "lote_vermiculita_id": null,
         "estado": "trasplantada",
         "carencia_hasta": null,
+        "descarte": null,
         "siembra": {
           "id": "ce455fd5-4e1c-4d3d-893a-b16a0c1e2c8c",
           "fecha": "2026-05-20T12:00:00.000Z",
