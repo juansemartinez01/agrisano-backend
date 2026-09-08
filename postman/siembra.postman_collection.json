@@ -673,9 +673,15 @@
                   "value": "{{loteSemillaId}}"
                 },
                 {
+                  "key": "mesa_id",
+                  "value": "{{mesaId}}",
+                  "description": "Opcional. Lista las bandejas que estan en esa mesa.",
+                  "disabled": true
+                },
+                {
                   "key": "estado",
                   "value": "{{bandejaEstado}}",
-                  "description": "Valores permitidos: en_nursery, trasplantada. Si se omite, default backend: en_nursery."
+                  "description": "Valores permitidos: cooling_period, en_nursery, trasplantada, descartada. Si se omite NO hay default: se devuelven todos los estados menos descartada."
                 },
                 {
                   "key": "sortBy",
@@ -689,7 +695,7 @@
                 }
               ]
             },
-            "description": "Lista bandejas del tenant actual. Si no se envia estado, el backend filtra por en_nursery por default."
+            "description": "Lista bandejas del tenant actual. BREAKING: estado ya no tiene default en_nursery. Si se omite se devuelven todos los estados menos descartada; para ver solo nursery hay que enviar estado=en_nursery explicito. estado=descartada es la unica via para ver las perdidas. Cada bandeja trae el campo descarte (objeto o null). El orden lleva id como desempate."
           }
         },
         {
@@ -815,6 +821,10 @@
     {
       "key": "bandejaEstado",
       "value": "en_nursery"
+    },
+    {
+      "key": "mesaId",
+      "value": ""
     },
     {
       "key": "bandejaSortBy",

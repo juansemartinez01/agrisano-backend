@@ -6,6 +6,7 @@ import { LotesModule } from 'src/modules/lotes/lotes.module';
 import { EstablecimientosModule } from 'src/modules/establecimientos/establecimientos.module';
 import { Siembra } from './entities/siembra.entity';
 import { Bandeja } from './entities/bandeja.entity';
+import { BandejaDescarte } from './entities/bandeja-descarte.entity';
 import { SiembraService } from './siembra.service';
 import { BandejaService } from './bandeja.service';
 import { SiembraController } from './siembra.controller';
@@ -13,7 +14,7 @@ import { BandejaController } from './bandeja.controller';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Siembra, Bandeja]),
+    TypeOrmModule.forFeature([Siembra, Bandeja, BandejaDescarte]),
     TenancyModule,
     AuditModule,
     LotesModule,

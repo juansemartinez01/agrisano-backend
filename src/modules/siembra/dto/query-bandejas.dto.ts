@@ -19,6 +19,12 @@ export class QueryBandejasDto extends PageQueryDto {
   @IsUUID()
   lote_vermiculita_id?: string;
 
+  // Es la via para llegar a una bandeja desde su ubicacion fisica: el operario
+  // ve la mesa, no el id de la bandeja.
+  @IsOptional()
+  @IsUUID()
+  mesa_id?: string;
+
   @IsOptional()
   @IsEnum(BandejaEstado)
   estado?: BandejaEstado;

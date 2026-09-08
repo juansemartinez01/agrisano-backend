@@ -14,6 +14,9 @@ export enum HistorialTipoEvento {
   REACTIVACION = 'reactivacion',
   BAJA = 'baja',
   EN_CARENCIA = 'en_carencia',
+  // Solo se emite cuando la bandeja perdida estaba trasplantada: el historial
+  // es de la mesa, y una bandeja en nursery todavía no pertenece a ninguna.
+  BANDEJA_DESCARTADA = 'bandeja_descartada',
 }
 
 @Entity('historial_mesa')

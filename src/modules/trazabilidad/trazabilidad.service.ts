@@ -78,6 +78,9 @@ interface BandejaCicloRaw {
   lote_vermiculita_id: string | null;
   estado: string;
   carencia_hasta: string | null;
+  descarte_motivo: string | null;
+  descarte_fecha: string | null;
+  descarte_estado_anterior: string | null;
   s_id: string | null;
   s_fecha: string | null;
   s_obs: string | null;
@@ -112,6 +115,14 @@ interface SiembraInfo {
   } | null;
 }
 
+// Misma forma reducida que devuelve GET /bandejas: la trazabilidad dice que
+// la bandeja se perdio y por que, no hace falta el texto libre ni el usuario.
+interface DescarteResumen {
+  motivo: string;
+  fecha_descarte: string;
+  estado_anterior: string;
+}
+
 interface BandejaCicloRow {
   bandeja_id: string;
   fecha_trasplante: string;
@@ -121,6 +132,7 @@ interface BandejaCicloRow {
   lote_vermiculita_id: string | null;
   estado: string;
   carencia_hasta: string | null;
+  descarte: DescarteResumen | null;
   siembra: SiembraInfo | null;
 }
 
@@ -508,6 +520,8 @@ export class TrazabilidadService {
           `SELECT mb.bandeja_id, mb.fecha_trasplante,
                   b.siembra_id, b.lote_semilla_id, b.lote_sustrato_id, b.lote_vermiculita_id,
                   b.estado, b.carencia_hasta,
+                  bd.motivo AS descarte_motivo, bd.fecha_descarte AS descarte_fecha,
+                  bd.estado_anterior AS descarte_estado_anterior,
                   s.id AS s_id, s.fecha AS s_fecha, s.observaciones AS s_obs, s.usuario_id AS s_usuario_id,
                   COALESCE(s.usuario_email_snapshot, su.email) AS su_email,
                   COALESCE(s.usuario_nombre_snapshot, su.nombre) AS su_nombre,
@@ -518,6 +532,9 @@ export class TrazabilidadService {
                   lv.grado AS lote_vermiculita_grado
            FROM mesa_bandeja mb
            JOIN bandejas b ON b.id = mb.bandeja_id
+           -- bandeja_id es la PK de bandeja_descartes, asi que este LEFT JOIN
+           -- no puede multiplicar las filas del ciclo.
+           LEFT JOIN bandeja_descartes bd ON bd.bandeja_id = b.id AND bd.tenant_id = $3
            LEFT JOIN siembras s ON s.id = b.siembra_id
            LEFT JOIN users su ON su.id = s.usuario_id
            LEFT JOIN lotes ls ON ls.id = b.lote_semilla_id
@@ -551,6 +568,13 @@ export class TrazabilidadService {
         lote_vermiculita_id: r.lote_vermiculita_id,
         estado: r.estado,
         carencia_hasta: r.carencia_hasta,
+        descarte: r.descarte_motivo
+          ? {
+              motivo: r.descarte_motivo,
+              fecha_descarte: r.descarte_fecha!,
+              estado_anterior: r.descarte_estado_anterior!,
+            }
+          : null,
         siembra: r.s_id
           ? {
               id: r.s_id,
