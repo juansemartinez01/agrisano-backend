@@ -34,6 +34,7 @@ import { AplicacionQuimicaDetalle } from './entities/aplicacion-quimica-detalle.
 import { AplicacionQuimicaBandeja } from './entities/aplicacion-quimica-bandeja.entity';
 import { AplicacionQuimicaMesa } from './entities/aplicacion-quimica-mesa.entity';
 import { CreateAplicacionDto } from './dto/create-aplicacion.dto';
+import { UpdateAplicacionDto } from './dto/update-aplicacion.dto';
 import { QueryAplicacionesDto } from './dto/query-aplicaciones.dto';
 import {
   AplicacionDetalleEnriquecida,
@@ -60,6 +61,7 @@ import {
 export const AUDIT = {
   NURSERY: 'aplicacion_quimica_nursery',
   GREENHOUSE: 'aplicacion_quimica_greenhouse',
+  UPDATE: 'aplicacion_quimica_update',
 } as const;
 
 interface AuditReq {
@@ -122,6 +124,114 @@ export class AplicacionesQuimicasService {
     }
   }
 
+  // Espejo de decrementarLote, sin el guard de >= — revertir stock nunca
+  // puede "faltar" stock disponible.
+  private async incrementarLote(
+    qr: QueryRunner,
+    loteId: string,
+    cantidad: number,
+    tenantId: string,
+  ): Promise<void> {
+    const result = await qr.manager
+      .createQueryBuilder()
+      .update(LoteQuimico)
+      .set({ cantidad_actual: () => 'cantidad_actual + :cantidad' })
+      .where('id = :id', { id: loteId })
+      .andWhere('tenant_id = :tenantId', { tenantId })
+      .setParameter('cantidad', cantidad)
+      .execute();
+
+    if (!result.affected) {
+      throw new AppError({
+        code: ErrorCodes.LOTE_QUIMICO_NOT_FOUND,
+        message: `No se pudo revertir stock: el lote ${loteId} no existe`,
+        status: 404,
+      });
+    }
+  }
+
+  // Extraído de las validaciones antes duplicadas inline en createAplicacion
+  // (primario + detalles[]) — ahora también usado por updateAplicacion.
+  private async validateChemicalLine(
+    loteId: string,
+    establecimientoId: string,
+  ): Promise<{ lote: LoteQuimico; quimico: Quimico }> {
+    const entry =
+      await this.lotesQuimicosService.mustFindByIdWithQuimico(loteId);
+    if (entry.quimico.establecimiento_id !== establecimientoId) {
+      throw new AppError({
+        code: ErrorCodes.APLICACION_TARGET_INVALIDO,
+        message: `El lote ${loteId} no pertenece al establecimiento indicado`,
+        status: 422,
+      });
+    }
+    return entry;
+  }
+
+  /**
+   * Recalcula, para UN target (bandeja o mesa), el MAX de carencia entre
+   * TODAS las aplicaciones que siguen ligadas a él — histórico completo, no
+   * solo la fila que se está creando/editando. Por cada aplicación ligada
+   * también persiste el MAX de su propio withholding_period_dias (primario +
+   * detalles adicionales) en el header, reemplazando el valor viejo. Se
+   * llama siempre y escribe siempre, incluyendo null para limpiar
+   * carencia_hasta cuando ya no corresponde.
+   */
+  private async recomputeCarenciaHasta(
+    qr: QueryRunner,
+    tenantId: string,
+    contexto: AplicacionContexto,
+    targetId: string,
+  ): Promise<string | null> {
+    const linkTable =
+      contexto === AplicacionContexto.NURSERY
+        ? 'aplicacion_quimica_bandeja'
+        : 'aplicacion_quimica_mesa';
+    const linkColumn =
+      contexto === AplicacionContexto.NURSERY ? 'bandeja_id' : 'mesa_id';
+    const targetTable =
+      contexto === AplicacionContexto.NURSERY ? 'bandejas' : 'mesas';
+
+    const rows = (await qr.query(
+      `SELECT a.id, a.fecha_hora,
+              (SELECT MAX(q.withholding_period_dias)
+                 FROM aplicaciones_quimicas_detalle d
+                 JOIN lotes_quimicos lq ON lq.id = d.lote_quimico_id
+                 JOIN quimicos q ON q.id = lq.quimico_id
+                WHERE d.aplicacion_id = a.id) AS max_whp
+         FROM aplicaciones_quimicas a
+         JOIN ${linkTable} link ON link.aplicacion_id = a.id
+        WHERE link.${linkColumn} = $1 AND a.tenant_id = $2`,
+      [targetId, tenantId],
+    )) as Array<{ id: string; fecha_hora: Date; max_whp: number | null }>;
+
+    let maxCarenciaHasta: string | null = null;
+
+    for (const r of rows) {
+      const whp = r.max_whp ?? null;
+      await qr.query(
+        `UPDATE aplicaciones_quimicas SET withholding_period_dias = $1 WHERE id = $2`,
+        [whp, r.id],
+      );
+
+      if (whp !== null && whp > 0) {
+        const carenciaDate = new Date(r.fecha_hora);
+        carenciaDate.setDate(carenciaDate.getDate() + whp);
+        const carenciaHastaStr = carenciaDate.toISOString().split('T')[0];
+        if (maxCarenciaHasta === null || carenciaHastaStr > maxCarenciaHasta) {
+          maxCarenciaHasta = carenciaHastaStr;
+        }
+      }
+    }
+
+    await qr.query(
+      `UPDATE ${targetTable} SET carencia_hasta = $1 WHERE id = $2 AND tenant_id = $3`,
+      [maxCarenciaHasta, targetId, tenantId],
+    );
+
+    return maxCarenciaHasta;
+  }
+
   async createAplicacion(
     dto: CreateAplicacionDto,
     userId: string,
@@ -135,16 +245,10 @@ export class AplicacionesQuimicasService {
 
     // 2. Load + validate primary lote (and its quimico)
     const { lote: primaryLote, quimico: primaryQuimico } =
-      await this.lotesQuimicosService.mustFindByIdWithQuimico(
+      await this.validateChemicalLine(
         dto.lote_quimico_id,
+        dto.establecimiento_id,
       );
-    if (primaryQuimico.establecimiento_id !== dto.establecimiento_id) {
-      throw new AppError({
-        code: ErrorCodes.APLICACION_TARGET_INVALIDO,
-        message: `El lote ${dto.lote_quimico_id} no pertenece al establecimiento indicado`,
-        status: 422,
-      });
-    }
 
     // 3. Nursery requires bandeja_ids; greenhouse requires mesa_ids
     if (
@@ -173,17 +277,10 @@ export class AplicacionesQuimicasService {
     // 4. Load + validate supplementary lotes in detalles[]
     const loteMap: Record<string, { lote: LoteQuimico; quimico: Quimico }> = {};
     for (const d of dto.detalles ?? []) {
-      const entry = await this.lotesQuimicosService.mustFindByIdWithQuimico(
+      loteMap[d.lote_quimico_id] = await this.validateChemicalLine(
         d.lote_quimico_id,
+        dto.establecimiento_id,
       );
-      if (entry.quimico.establecimiento_id !== dto.establecimiento_id) {
-        throw new AppError({
-          code: ErrorCodes.APLICACION_TARGET_INVALIDO,
-          message: `El lote ${d.lote_quimico_id} no pertenece al establecimiento indicado`,
-          status: 422,
-        });
-      }
-      loteMap[d.lote_quimico_id] = entry;
     }
 
     // 5. Validate nursery targets
@@ -249,6 +346,15 @@ export class AplicacionesQuimicasService {
         userId,
         tenantId,
       );
+
+      // MAX real entre primario y adicionales, no solo el primario — antes
+      // un adicional con más carencia que el primario se ignoraba.
+      const whpCandidates = [
+        primaryQuimico.withholding_period_dias,
+        ...Object.values(loteMap).map((e) => e.quimico.withholding_period_dias),
+      ].filter((v): v is number => v !== null && v !== undefined);
+      const ownWhp = whpCandidates.length > 0 ? Math.max(...whpCandidates) : null;
+
       const aplicacion = qr.manager.create(AplicacionQuimica, {
         tenant_id: tenantId,
         establecimiento_id: dto.establecimiento_id,
@@ -261,7 +367,7 @@ export class AplicacionesQuimicasService {
         dosis: dto.dosis,
         dosis_unidad: dto.dosis_unidad ?? primaryQuimico.rate_unidad ?? null,
         batch: primaryLote.numero_lote ?? null,
-        withholding_period_dias: primaryQuimico.withholding_period_dias ?? null,
+        withholding_period_dias: ownWhp,
         operation_group_id: operationGroupId,
       });
       savedAplicacion = await qr.manager.save(AplicacionQuimica, aplicacion);
@@ -325,51 +431,24 @@ export class AplicacionesQuimicasService {
           });
         }
 
-        const hasCarencia =
-          primaryQuimico.withholding_period_dias !== null &&
-          primaryQuimico.withholding_period_dias !== undefined &&
-          primaryQuimico.withholding_period_dias > 0;
-
-        let carenciaHastaStr: string | null = null;
-        if (hasCarencia) {
-          const carenciaDate = new Date();
-          carenciaDate.setDate(
-            carenciaDate.getDate() + primaryQuimico.withholding_period_dias!,
-          );
-          carenciaHastaStr = carenciaDate.toISOString().split('T')[0];
-        }
-
         for (const bandeja_id of dto.bandeja_ids) {
           await qr.manager.save(AplicacionQuimicaBandeja, {
             aplicacion_id: savedAplicacion.id,
             bandeja_id,
           });
 
-          if (hasCarencia && carenciaHastaStr) {
-            await qr.query(
-              `UPDATE bandejas SET carencia_hasta = $1 WHERE id = $2 AND tenant_id = $3`,
-              [carenciaHastaStr, bandeja_id, tenantId],
-            );
-          }
+          await this.recomputeCarenciaHasta(
+            qr,
+            tenantId,
+            AplicacionContexto.NURSERY,
+            bandeja_id,
+          );
         }
       }
 
       // Greenhouse mesa links + historial + carencia
       if (dto.contexto === AplicacionContexto.GREENHOUSE && dto.mesa_ids) {
-        const hasCarencia =
-          primaryQuimico.withholding_period_dias !== null &&
-          primaryQuimico.withholding_period_dias !== undefined &&
-          primaryQuimico.withholding_period_dias > 0;
-
         const aplicacionDate = new Date();
-        let carenciaHastaStr: string | null = null;
-        if (hasCarencia) {
-          const carenciaDate = new Date(aplicacionDate);
-          carenciaDate.setDate(
-            carenciaDate.getDate() + primaryQuimico.withholding_period_dias!,
-          );
-          carenciaHastaStr = carenciaDate.toISOString().split('T')[0];
-        }
 
         for (const mesa_id of dto.mesa_ids) {
           await qr.manager.save(AplicacionQuimicaMesa, {
@@ -397,11 +476,14 @@ export class AplicacionesQuimicasService {
             },
           });
 
-          if (hasCarencia && carenciaHastaStr) {
-            await qr.query(
-              `UPDATE mesas SET carencia_hasta = $1 WHERE id = $2 AND tenant_id = $3`,
-              [carenciaHastaStr, mesa_id, tenantId],
-            );
+          const carenciaHastaStr = await this.recomputeCarenciaHasta(
+            qr,
+            tenantId,
+            AplicacionContexto.GREENHOUSE,
+            mesa_id,
+          );
+
+          if (carenciaHastaStr !== null) {
             await qr.manager.save(HistorialMesa, {
               mesa_id,
               tipo_evento: HistorialTipoEvento.EN_CARENCIA,
@@ -412,7 +494,7 @@ export class AplicacionesQuimicasService {
               detalle: {
                 aplicacion_id: savedAplicacion.id,
                 lote_quimico_id: dto.lote_quimico_id,
-                withholding_period_dias: primaryQuimico.withholding_period_dias,
+                withholding_period_dias: ownWhp,
                 carencia_hasta: carenciaHastaStr,
               },
             });
@@ -449,6 +531,323 @@ export class AplicacionesQuimicasService {
           ? { bandeja_ids: dto.bandeja_ids }
           : { mesa_ids: dto.mesa_ids },
     };
+  }
+
+  async updateAplicacion(
+    id: string,
+    dto: UpdateAplicacionDto,
+    userId: string,
+  ): Promise<AplicacionDetalleEnriquecida> {
+    const tenantId = this.tenancy.requireTenantId();
+
+    const qr = this.dataSource.createQueryRunner();
+    await qr.connect();
+    await qr.startTransaction();
+
+    try {
+      // 1. Lock del header — se mantiene hasta el commit para que nada más
+      // lo toque mientras revertimos/reaplicamos stock y recalculamos carencia.
+      const headerRows = (await qr.query(
+        `SELECT * FROM aplicaciones_quimicas WHERE id = $1 AND tenant_id = $2 FOR UPDATE`,
+        [id, tenantId],
+      )) as AplicacionQuimica[];
+      const current = headerRows[0];
+      if (!current) {
+        throw new AppError({
+          code: ErrorCodes.APLICACION_NOT_FOUND,
+          message: 'Aplicación química no encontrada',
+          status: 404,
+        });
+      }
+
+      // 2. contexto y establecimiento_id son inmutables — el campo de target
+      // enviado debe corresponder al contexto real de esta fila.
+      if (current.contexto === AplicacionContexto.NURSERY && dto.mesa_ids) {
+        throw new AppError({
+          code: ErrorCodes.APLICACION_TARGET_INVALIDO,
+          message:
+            'Esta aplicación es de nursery: no se puede enviar mesa_ids',
+          status: 422,
+        });
+      }
+      if (
+        current.contexto === AplicacionContexto.GREENHOUSE &&
+        dto.bandeja_ids
+      ) {
+        throw new AppError({
+          code: ErrorCodes.APLICACION_TARGET_INVALIDO,
+          message:
+            'Esta aplicación es de greenhouse: no se puede enviar bandeja_ids',
+          status: 422,
+        });
+      }
+
+      const targetLinkTable =
+        current.contexto === AplicacionContexto.NURSERY
+          ? 'aplicacion_quimica_bandeja'
+          : 'aplicacion_quimica_mesa';
+      const targetLinkColumn =
+        current.contexto === AplicacionContexto.NURSERY
+          ? 'bandeja_id'
+          : 'mesa_id';
+
+      // 3. Targets ligados antes de cualquier cambio (para la unión del paso 8).
+      const targetsAntesRows = (await qr.query(
+        `SELECT ${targetLinkColumn} AS target_id FROM ${targetLinkTable} WHERE aplicacion_id = $1`,
+        [id],
+      )) as Array<{ target_id: string }>;
+      const targetsAntes = targetsAntesRows.map((r) => r.target_id);
+
+      let lote_quimico_id = current.lote_quimico_id;
+      let dosis = current.dosis;
+      let dosis_unidad = current.dosis_unidad;
+      let batch = current.batch;
+
+      // 4. chemical_lines: revertir stock viejo, validar + descontar stock
+      // nuevo, reemplazar detalles. La primera línea nueva pasa a ser la
+      // primaria del header (columnas denormalizadas).
+      if (dto.chemical_lines !== undefined) {
+        const detallesActuales = (await qr.query(
+          `SELECT lote_quimico_id, cantidad FROM aplicaciones_quimicas_detalle WHERE aplicacion_id = $1`,
+          [id],
+        )) as Array<{ lote_quimico_id: string; cantidad: string }>;
+
+        for (const d of detallesActuales) {
+          await this.incrementarLote(
+            qr,
+            d.lote_quimico_id,
+            this.toNumberOrNull(d.cantidad) ?? 0,
+            tenantId,
+          );
+        }
+
+        await qr.query(
+          `DELETE FROM aplicaciones_quimicas_detalle WHERE aplicacion_id = $1`,
+          [id],
+        );
+
+        for (let i = 0; i < dto.chemical_lines.length; i++) {
+          const line = dto.chemical_lines[i];
+          const { lote, quimico } = await this.validateChemicalLine(
+            line.lote_quimico_id,
+            current.establecimiento_id,
+          );
+          await this.decrementarLote(
+            qr,
+            line.lote_quimico_id,
+            line.cantidad,
+            tenantId,
+          );
+          const lineaDosisUnidad =
+            line.dosis_unidad ?? quimico.rate_unidad ?? null;
+          await qr.manager.save(AplicacionQuimicaDetalle, {
+            aplicacion_id: id,
+            lote_quimico_id: line.lote_quimico_id,
+            dosis: line.dosis,
+            dosis_unidad: lineaDosisUnidad,
+            cantidad: line.cantidad,
+            unidad_medida: quimico.unidad_medida,
+          });
+
+          if (i === 0) {
+            lote_quimico_id = line.lote_quimico_id;
+            dosis = line.dosis;
+            dosis_unidad = lineaDosisUnidad;
+            batch = lote.numero_lote ?? null;
+          }
+        }
+      }
+
+      // 5. bandeja_ids / mesa_ids: reemplaza TODOS los targets del contexto.
+      const targetIdsNuevos = dto.bandeja_ids ?? dto.mesa_ids;
+      if (targetIdsNuevos !== undefined) {
+        const targetTable =
+          current.contexto === AplicacionContexto.NURSERY
+            ? 'bandejas'
+            : 'mesas';
+
+        let vigentes: Array<{ id: string }>;
+        if (current.contexto === AplicacionContexto.NURSERY) {
+          vigentes = (await qr.query(
+            `SELECT id FROM bandejas WHERE id = ANY($1::uuid[]) AND tenant_id = $2 AND estado = $3 AND deleted_at IS NULL ORDER BY id FOR UPDATE`,
+            [targetIdsNuevos, tenantId, BandejaEstado.EN_NURSERY],
+          )) as Array<{ id: string }>;
+        } else {
+          vigentes = (await qr.query(
+            `SELECT id FROM mesas WHERE id = ANY($1::uuid[]) AND tenant_id = $2 AND estado IN ($3, $4) AND deleted_at IS NULL ORDER BY id FOR UPDATE`,
+            [
+              targetIdsNuevos,
+              tenantId,
+              MesaEstado.ACTIVA,
+              MesaEstado.EN_COSECHA,
+            ],
+          )) as Array<{ id: string }>;
+        }
+
+        const vigentesIds = new Set(vigentes.map((v) => v.id));
+        const invalidas = targetIdsNuevos.filter(
+          (tid) => !vigentesIds.has(tid),
+        );
+        if (invalidas.length > 0) {
+          throw new AppError({
+            code: ErrorCodes.APLICACION_TARGET_INVALIDO,
+            message:
+              current.contexto === AplicacionContexto.NURSERY
+                ? 'Las bandejas indicadas no están en estado en_nursery'
+                : 'Las mesas indicadas no están en estado activa o en_cosecha',
+            status: 422,
+            details:
+              current.contexto === AplicacionContexto.NURSERY
+                ? { bandeja_ids: invalidas }
+                : { mesa_ids: invalidas },
+          });
+        }
+
+        const fueraDeEstablecimiento = (await qr.query(
+          `SELECT id FROM ${targetTable} WHERE id = ANY($1::uuid[]) AND tenant_id = $2 AND establecimiento_id != $3`,
+          [targetIdsNuevos, tenantId, current.establecimiento_id],
+        )) as Array<{ id: string }>;
+        if (fueraDeEstablecimiento.length > 0) {
+          throw new AppError({
+            code: ErrorCodes.APLICACION_TARGET_INVALIDO,
+            message:
+              'Alguno de los targets indicados no pertenece al establecimiento de la aplicación',
+            status: 422,
+            details: { ids: fueraDeEstablecimiento.map((r) => r.id) },
+          });
+        }
+
+        await qr.query(
+          `DELETE FROM ${targetLinkTable} WHERE aplicacion_id = $1`,
+          [id],
+        );
+
+        if (current.contexto === AplicacionContexto.NURSERY) {
+          for (const bandeja_id of targetIdsNuevos) {
+            await qr.manager.save(AplicacionQuimicaBandeja, {
+              aplicacion_id: id,
+              bandeja_id,
+            });
+          }
+        } else {
+          for (const mesa_id of targetIdsNuevos) {
+            await qr.manager.save(AplicacionQuimicaMesa, {
+              aplicacion_id: id,
+              mesa_id,
+            });
+          }
+        }
+      }
+
+      // 6-7. fecha_hora / observaciones (observaciones admite null explícito
+      // para limpiarlas).
+      const fecha_hora =
+        dto.fecha_hora !== undefined
+          ? new Date(dto.fecha_hora)
+          : current.fecha_hora;
+      const observaciones =
+        dto.observaciones !== undefined
+          ? dto.observaciones
+          : current.observaciones;
+
+      // 9. updated_by + snapshot, junto con el resto de columnas del header
+      // que hayan cambiado — un solo UPDATE. Corre ANTES del recálculo de
+      // carencia (paso 8) porque éste lee fecha_hora/detalles frescos desde
+      // la base, no desde variables en memoria.
+      const usuarioSnapshot = await fetchUsuarioSnapshot(
+        qr.manager,
+        userId,
+        tenantId,
+      );
+      await qr.query(
+        `UPDATE aplicaciones_quimicas
+            SET lote_quimico_id = $1, dosis = $2, dosis_unidad = $3, batch = $4,
+                fecha_hora = $5, observaciones = $6,
+                updated_by = $7, updated_by_email_snapshot = $8,
+                updated_by_nombre_snapshot = $9, updated_by_apellido_snapshot = $10,
+                updated_at = now()
+          WHERE id = $11 AND tenant_id = $12`,
+        [
+          lote_quimico_id,
+          dosis,
+          dosis_unidad,
+          batch,
+          fecha_hora,
+          observaciones,
+          userId,
+          usuarioSnapshot.usuario_email_snapshot,
+          usuarioSnapshot.usuario_nombre_snapshot,
+          usuarioSnapshot.usuario_apellido_snapshot,
+          id,
+          tenantId,
+        ],
+      );
+
+      // 8. Recalcular carencia para la unión de targets antes ∪ después,
+      // solo si algo que puede afectarla cambió.
+      const tocaCarencia =
+        dto.fecha_hora !== undefined ||
+        dto.chemical_lines !== undefined ||
+        targetIdsNuevos !== undefined;
+
+      if (tocaCarencia) {
+        const targetsDespues = targetIdsNuevos ?? targetsAntes;
+        const targetsUnion = [
+          ...new Set([...targetsAntes, ...targetsDespues]),
+        ];
+
+        for (const targetId of targetsUnion) {
+          const carenciaHastaStr = await this.recomputeCarenciaHasta(
+            qr,
+            tenantId,
+            current.contexto,
+            targetId,
+          );
+
+          if (
+            current.contexto === AplicacionContexto.GREENHOUSE &&
+            carenciaHastaStr !== null
+          ) {
+            await qr.manager.save(HistorialMesa, {
+              mesa_id: targetId,
+              tipo_evento: HistorialTipoEvento.EN_CARENCIA,
+              tenant_id: tenantId,
+              usuario_id: userId,
+              ...usuarioSnapshot,
+              fecha_hora: new Date(),
+              detalle: {
+                aplicacion_id: id,
+                carencia_hasta: carenciaHastaStr,
+              },
+            });
+          }
+        }
+      }
+
+      await qr.commitTransaction();
+    } catch (err) {
+      await qr.rollbackTransaction();
+      throw err;
+    } finally {
+      await qr.release();
+    }
+
+    // 10. Auditoría fuera de la transacción, mismo patrón que createAplicacion.
+    await this.writeAudit(
+      AUDIT.UPDATE,
+      'aplicacion_quimica',
+      id,
+      {
+        requestId: '',
+        method: 'PATCH',
+        url: `/aplicaciones-quimicas/${id}`,
+        userId,
+      },
+      tenantId,
+      200,
+    );
+
+    return this.getAplicacionById(id, tenantId);
   }
 
   async listAplicaciones(

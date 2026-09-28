@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
   Param,
   Body,
   Query,
@@ -13,11 +14,14 @@ import {
 import { JwtAuthGuard } from 'src/modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from 'src/modules/auth/guards/roles.guard';
 import { Roles } from 'src/modules/auth/decorators/roles.decorator';
+import { AppError } from 'src/common/errors/app-error';
+import { ErrorCodes } from 'src/common/errors/error-codes';
 import { ok, page } from 'src/common/http/api-response';
 import { clampPagination } from 'src/common/query/query-utils';
 import type { JwtPayload } from 'src/modules/auth/types/jwt-payload.type';
 import { AplicacionesQuimicasService } from './aplicaciones-quimicas.service';
 import { CreateAplicacionDto } from './dto/create-aplicacion.dto';
+import { UpdateAplicacionDto } from './dto/update-aplicacion.dto';
 import { QueryAplicacionesDto } from './dto/query-aplicaciones.dto';
 
 type AuthRequest = Request & {
@@ -26,6 +30,7 @@ type AuthRequest = Request & {
   tenantId?: string | null;
   method: string;
   url: string;
+  body: Record<string, unknown>;
 };
 
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -63,6 +68,40 @@ export class AplicacionesQuimicasController {
   async create(@Body() dto: CreateAplicacionDto, @Req() req: AuthRequest) {
     const userId = req.user?.sub;
     const result = await this.svc.createAplicacion(dto, userId);
+    return ok(result);
+  }
+
+  // ──────────────────────────────────────────────────────────────────────
+  // PATCH aplicaciones-quimicas/:id — corrección (contexto/establecimiento_id
+  // son inmutables, se validan también a nivel service)
+  // ──────────────────────────────────────────────────────────────────────
+  @Roles('supervisor', 'admin_global')
+  @Patch('aplicaciones-quimicas/:id')
+  async update(
+    @Param('id') id: string,
+    @Body() dto: UpdateAplicacionDto,
+    @Req() req: AuthRequest,
+  ) {
+    const ALLOWED = new Set([
+      'fecha_hora',
+      'observaciones',
+      'chemical_lines',
+      'bandeja_ids',
+      'mesa_ids',
+    ]);
+    const body = req.body as Record<string, unknown>;
+    const bodyKeys = Object.keys(body ?? {});
+    if (bodyKeys.length === 0 || bodyKeys.some((k) => !ALLOWED.has(k))) {
+      throw new AppError({
+        code: ErrorCodes.APLICACION_FIELD_IMMUTABLE,
+        message:
+          'Solo se pueden modificar fecha_hora, observaciones, chemical_lines, bandeja_ids y mesa_ids',
+        status: 400,
+      });
+    }
+
+    const userId = req.user?.sub;
+    const result = await this.svc.updateAplicacion(id, dto, userId);
     return ok(result);
   }
 

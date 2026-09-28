@@ -69,6 +69,9 @@ export class AplicacionQuimica {
   @Column({ type: 'varchar', length: 100, nullable: true })
   batch!: string | null;
 
+  // Recalculado (MAX entre el químico primario y todos los adicionales de
+  // aplicaciones_quimicas_detalle) cada vez que se crea o edita esta fila o
+  // cualquier otra que comparta target — no es un snapshot fijo de creación.
   @Column({ type: 'int', nullable: true })
   withholding_period_dias!: number | null;
 
@@ -77,6 +80,20 @@ export class AplicacionQuimica {
   // several sequential POSTs). Purely presentational — never merges DB rows.
   @Column({ type: 'uuid', nullable: true })
   operation_group_id!: string | null;
+
+  // Quién hizo la última corrección (PATCH) y su snapshot al momento de
+  // editar. Null mientras la fila nunca fue editada.
+  @Column({ type: 'uuid', nullable: true })
+  updated_by!: string | null;
+
+  @Column({ type: 'varchar', length: 150, nullable: true })
+  updated_by_email_snapshot!: string | null;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  updated_by_nombre_snapshot!: string | null;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  updated_by_apellido_snapshot!: string | null;
 
   @CreateDateColumn({ type: 'timestamptz' })
   created_at!: Date;

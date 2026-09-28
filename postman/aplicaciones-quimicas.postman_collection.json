@@ -179,7 +179,7 @@
     },
     {
       "name": "Aplicaciones Quimicas",
-      "description": "Endpoints de src/modules/aplicaciones-quimicas/aplicaciones-quimicas.controller.ts. Requieren JWT. Crear aplicaciones requiere rol operario, supervisor o admin_global. Listar y consultar requiere usuario autenticado.",
+      "description": "Endpoints de src/modules/aplicaciones-quimicas/aplicaciones-quimicas.controller.ts. Requieren JWT. Crear aplicaciones requiere rol operario, supervisor o admin_global. Corregir (PATCH) requiere rol supervisor o admin_global. Listar y consultar requiere usuario autenticado.",
       "item": [
         {
           "name": "Listar aplicaciones",
@@ -418,6 +418,55 @@
           }
         },
         {
+          "name": "Corregir aplicacion (PATCH)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Aplicacion corregida', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"observaciones\": \"{{observaciones}} (editado)\",\n  \"chemical_lines\": [\n    {\n      \"lote_quimico_id\": \"{{loteQuimicoId}}\",\n      \"dosis\": {{dosis}},\n      \"cantidad\": {{cantidad}}\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/aplicaciones-quimicas/{{aplicacionId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "aplicaciones-quimicas",
+                "{{aplicacionId}}"
+              ]
+            },
+            "description": "Corrige una aplicacion existente. Requiere rol supervisor o admin_global. Revierte el stock de las chemical_lines viejas, valida y descuenta las nuevas (rollback total si falta stock), y recalcula carencia_hasta/withholding_period_dias como MAX entre todas las aplicaciones que siguen ligadas a cada target. contexto y establecimiento_id son inmutables."
+          }
+        },
+        {
           "name": "Listar aplicaciones por mesa",
           "request": {
             "method": "GET",
@@ -604,6 +653,60 @@
               ]
             },
             "description": "Caso negativo de DTO: detalles requiere ArrayMinSize(1). El ValidationPipe suele responder 400 BAD_REQUEST antes de llegar al service."
+          }
+        },
+        {
+          "name": "Error esperado - PATCH campo inmutable (contexto)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Debe fallar por campo inmutable', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test('Codigo APLICACION_FIELD_IMMUTABLE', function () {",
+                  "  pm.expect(json.error && json.error.code).to.eql('APLICACION_FIELD_IMMUTABLE');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contexto\": \"greenhouse\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/aplicaciones-quimicas/{{aplicacionId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "aplicaciones-quimicas",
+                "{{aplicacionId}}"
+              ]
+            },
+            "description": "Caso negativo: contexto es inmutable. El guard manual del controller lo rechaza (APLICACION_FIELD_IMMUTABLE) aunque el campo no exista en el DTO."
           }
         }
       ]
