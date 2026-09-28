@@ -28,6 +28,7 @@ const TABLES = [
   'siembras',
   'bandejas',
   'mesa_bandeja',
+  'bandeja_descartes',
   'historial_mesa',
   'principios_activos',
   'quimicos',
@@ -40,6 +41,7 @@ const TABLES = [
   'cosechas',
   'lotes_packing',
   'lotes_packing_categorias',
+  'tareas',
   'audit_logs',
 ];
 

@@ -47,8 +47,9 @@ SELECT (SELECT count(*) FROM _init_bandejas)                      AS bandejas_in
 -- -----------------------------------------------------------------------------
 DO $$
 DECLARE
-  n_cosechas int;
-  n_aplic    int;
+  n_cosechas  int;
+  n_aplic     int;
+  n_descartes int;
 BEGIN
   SELECT count(*) INTO n_cosechas
     FROM cosechas c WHERE c.mesa_id IN (SELECT id FROM _init_mesas);
@@ -62,6 +63,15 @@ BEGIN
   IF n_aplic > 0 THEN
     RAISE EXCEPTION
       'Hay % aplicaciones quimicas sobre mesas de la carga INIT. Resolver a mano.', n_aplic;
+  END IF;
+
+  -- Un descarte es una constancia de merma: no puede desaparecer en un
+  -- rollback de seed. Por eso su FK a bandejas es ON DELETE NO ACTION.
+  SELECT count(*) INTO n_descartes
+    FROM bandeja_descartes d WHERE d.bandeja_id IN (SELECT id FROM _init_bandejas);
+  IF n_descartes > 0 THEN
+    RAISE EXCEPTION
+      'Hay % descartes sobre bandejas de la carga INIT. Son constancias de merma: resolver a mano.', n_descartes;
   END IF;
 END $$;
 
@@ -85,6 +95,8 @@ DELETE FROM historial_mesa h
 
 -- -----------------------------------------------------------------------------
 -- 3. Bandejas y siembras INIT.
+--    Las constancias de descarte no se borran aca: la guarda del paso 1 ya
+--    aborto la corrida si existia alguna sobre una bandeja INIT.
 -- -----------------------------------------------------------------------------
 DELETE FROM bandejas WHERE id IN (SELECT id FROM _init_bandejas);
 
@@ -135,6 +147,7 @@ SELECT t.nombre AS tunel,
 \echo '=== VERIFICACION: tablas que deben quedar en 0 ==='
 SELECT 'bandejas' t, count(*) FROM bandejas
 UNION ALL SELECT 'siembras', count(*) FROM siembras
+UNION ALL SELECT 'bandeja_descartes', count(*) FROM bandeja_descartes
 UNION ALL SELECT 'mesa_bandeja', count(*) FROM mesa_bandeja
 UNION ALL SELECT 'historial_mesa', count(*) FROM historial_mesa
 UNION ALL SELECT 'lotes', count(*) FROM lotes

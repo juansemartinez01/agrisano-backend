@@ -21,6 +21,10 @@
  *   API_URL=https://... TENANT_ID=... ADMIN_EMAIL=... ADMIN_PASSWORD=... \
  *   DATABASE_URL=postgres://... node scripts/seed-init-trasplante.js [--dry-run]
  *
+ * Los nombres de catalogos y lotes se pueden pisar con INIT_PROVEEDOR,
+ * INIT_MARCA, INIT_PRODUCTO, INIT_VARIEDAD, INIT_LOTE_SEMILLA,
+ * INIT_LOTE_SUSTRATO e INIT_LOTE_VERMICULITA (ver NOMBRES mas abajo).
+ *
  * Para deshacerlo: scripts/sql/rollback-init-trasplante.sql
  */
 const { Client } = require('pg');
@@ -32,15 +36,22 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 const DATABASE_URL = process.env.DATABASE_URL;
 const DRY_RUN = process.argv.includes('--dry-run');
 
-const PREFIJO = 'INIT';
+const PREFIJO = process.env.INIT_PREFIJO || 'INIT';
+
+// Los nombres se pueden pisar por entorno porque no son iguales en todos los
+// tenants: el tenant de produccion quedo con la nomenclatura en ingles de la
+// primera carga (INIT-SEED-001, "INIT - PRODUCT", ...) y el de pruebas con la
+// castellana. El script busca los catalogos por nombre exacto, asi que apuntarlo
+// a los nombres correctos es lo que hace que reutilice las filas ya existentes
+// en vez de crear un segundo juego INIT duplicado.
 const NOMBRES = {
-  proveedor: `${PREFIJO} - Proveedor inicial`,
-  marca: `${PREFIJO} - Marca inicial`,
-  producto: `${PREFIJO} - Producto inicial`,
-  variedad: `${PREFIJO} - Variedad inicial`,
-  loteSemilla: `${PREFIJO}-SEMILLA-001`,
-  loteSustrato: `${PREFIJO}-SUSTRATO-001`,
-  loteVermiculita: `${PREFIJO}-VERMICULITA-001`,
+  proveedor: process.env.INIT_PROVEEDOR || `${PREFIJO} - Proveedor inicial`,
+  marca: process.env.INIT_MARCA || `${PREFIJO} - Marca inicial`,
+  producto: process.env.INIT_PRODUCTO || `${PREFIJO} - Producto inicial`,
+  variedad: process.env.INIT_VARIEDAD || `${PREFIJO} - Variedad inicial`,
+  loteSemilla: process.env.INIT_LOTE_SEMILLA || `${PREFIJO}-SEMILLA-001`,
+  loteSustrato: process.env.INIT_LOTE_SUSTRATO || `${PREFIJO}-SUSTRATO-001`,
+  loteVermiculita: process.env.INIT_LOTE_VERMICULITA || `${PREFIJO}-VERMICULITA-001`,
 };
 const GRADO_VERMICULITA = 2; // el CHECK de la base exige 1..3
 const OBS = `${PREFIJO} - carga de arranque para posicionar las mesas en el mapa`;

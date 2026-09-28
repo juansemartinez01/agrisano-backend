@@ -1,4 +1,13 @@
 -- =============================================================================
+-- OBSOLETO - NO EJECUTAR. Usar scripts/sql/reset-tenant-produccion.sql.
+-- =============================================================================
+-- Este script es el que se corrio el 2026-08-16, cuando la base tenia un solo
+-- tenant. Sus DELETE no llevan WHERE, asi que hoy vaciaria tambien el tenant de
+-- pruebas (00000000-0000-0000-0000-000000000002). Se conserva solo como
+-- registro historico de aquel reset.
+-- =============================================================================
+
+-- =============================================================================
 -- RESET A PRODUCCION - Agrisano
 -- =============================================================================
 -- Deja la base lista para que el cliente empiece a operar desde cero:
@@ -31,6 +40,7 @@ SELECT 'mesas' t, count(*) FROM mesas
 UNION ALL SELECT 'tuneles', count(*) FROM tuneles
 UNION ALL SELECT 'users', count(*) FROM users
 UNION ALL SELECT 'bandejas', count(*) FROM bandejas
+UNION ALL SELECT 'bandeja_descartes', count(*) FROM bandeja_descartes
 UNION ALL SELECT 'audit_logs', count(*) FROM audit_logs
 ORDER BY 1;
 
@@ -66,7 +76,11 @@ DELETE FROM mesa_bandeja;
 
 -- -----------------------------------------------------------------------------
 -- 6. Bandejas y siembras
+--    Las constancias de descarte van primero: su FK a bandejas es
+--    ON DELETE NO ACTION a proposito, para que una merma no pueda
+--    desaparecer en cascada. Sin esta linea el DELETE de abajo falla.
 -- -----------------------------------------------------------------------------
+DELETE FROM bandeja_descartes;
 DELETE FROM bandejas;
 DELETE FROM siembras;
 

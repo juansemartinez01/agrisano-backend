@@ -1251,7 +1251,7 @@ Errores comunes:
 - En formulario de siembra, separar claramente lote de semilla y lote de sustrato.
 - El selector de semilla debe consultar/mostrar solo lotes `tipo=semilla`.
 - El selector de sustrato debe consultar/mostrar solo lotes `tipo=sustrato`.
-- En bandejas, recordar que el default del backend es `estado=en_nursery` si no se envia estado; las bandejas en `cooling_period` no aparecen a menos que se pida explicitamente.
+- En bandejas, `estado` no tiene default: sin filtro vienen todas menos las `descartada`. Para la pantalla de nursery hay que mandar `estado=en_nursery` explicito (ver "BREAKING: `estado` ya no tiene default `en_nursery`").
 - En el detalle de siembra, mostrar visualmente el estado de las bandejas (`cooling_period` / `en_nursery` / `trasplantada`) para que el operario sepa cuando puede ingresar a nursery o trasplantar.
 - Mostrar mensajes especificos para `LOTE_TIPO_INCORRECTO`, `LOTE_ESTABLECIMIENTO_MISMATCH`, `SIEMBRA_FIELD_IMMUTABLE`, `SIEMBRA_HAS_TRASPLANTADAS` y `SIEMBRA_SIN_BANDEJAS_EN_COOLING`.
 - Despues de crear una siembra, usar la respuesta para capturar los IDs de bandejas sin hacer otro request inmediato.
