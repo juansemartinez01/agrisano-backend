@@ -33,8 +33,13 @@ import {
 import { AplicacionQuimicaDetalle } from './entities/aplicacion-quimica-detalle.entity';
 import { AplicacionQuimicaBandeja } from './entities/aplicacion-quimica-bandeja.entity';
 import { AplicacionQuimicaMesa } from './entities/aplicacion-quimica-mesa.entity';
-import { CreateAplicacionDto } from './dto/create-aplicacion.dto';
+import {
+  CreateAplicacionDto,
+  DetalleItemDto,
+} from './dto/create-aplicacion.dto';
 import { UpdateAplicacionDto } from './dto/update-aplicacion.dto';
+import { UpdateOperationGroupDto } from './dto/update-operation-group.dto';
+import { OperationGroupOp } from './dto/operation-group-item.dto';
 import { QueryAplicacionesDto } from './dto/query-aplicaciones.dto';
 import {
   AplicacionDetalleEnriquecida,
@@ -62,6 +67,9 @@ export const AUDIT = {
   NURSERY: 'aplicacion_quimica_nursery',
   GREENHOUSE: 'aplicacion_quimica_greenhouse',
   UPDATE: 'aplicacion_quimica_update',
+  GROUP_CREATE: 'aplicacion_quimica_group_create',
+  GROUP_UPDATE: 'aplicacion_quimica_group_update',
+  GROUP_DELETE: 'aplicacion_quimica_group_delete',
 } as const;
 
 interface AuditReq {
@@ -166,6 +174,64 @@ export class AplicacionesQuimicasService {
       });
     }
     return entry;
+  }
+
+  // Extraído del bloque antes duplicado inline en updateAplicacion — ahora
+  // también usado por updateOperationGroup (fases D y F). Existencia +
+  // estado vigente con FOR UPDATE, y pertenencia al establecimiento.
+  private async validateAndLockTargets(
+    qr: QueryRunner,
+    tenantId: string,
+    contexto: AplicacionContexto,
+    establecimientoId: string,
+    targetIds: string[],
+  ): Promise<void> {
+    const targetTable =
+      contexto === AplicacionContexto.NURSERY ? 'bandejas' : 'mesas';
+
+    let vigentes: Array<{ id: string }>;
+    if (contexto === AplicacionContexto.NURSERY) {
+      vigentes = (await qr.query(
+        `SELECT id FROM bandejas WHERE id = ANY($1::uuid[]) AND tenant_id = $2 AND estado = $3 AND deleted_at IS NULL ORDER BY id FOR UPDATE`,
+        [targetIds, tenantId, BandejaEstado.EN_NURSERY],
+      )) as Array<{ id: string }>;
+    } else {
+      vigentes = (await qr.query(
+        `SELECT id FROM mesas WHERE id = ANY($1::uuid[]) AND tenant_id = $2 AND estado IN ($3, $4) AND deleted_at IS NULL ORDER BY id FOR UPDATE`,
+        [targetIds, tenantId, MesaEstado.ACTIVA, MesaEstado.EN_COSECHA],
+      )) as Array<{ id: string }>;
+    }
+
+    const vigentesIds = new Set(vigentes.map((v) => v.id));
+    const invalidas = targetIds.filter((tid) => !vigentesIds.has(tid));
+    if (invalidas.length > 0) {
+      throw new AppError({
+        code: ErrorCodes.APLICACION_TARGET_INVALIDO,
+        message:
+          contexto === AplicacionContexto.NURSERY
+            ? 'Las bandejas indicadas no están en estado en_nursery'
+            : 'Las mesas indicadas no están en estado activa o en_cosecha',
+        status: 422,
+        details:
+          contexto === AplicacionContexto.NURSERY
+            ? { bandeja_ids: invalidas }
+            : { mesa_ids: invalidas },
+      });
+    }
+
+    const fueraDeEstablecimiento = (await qr.query(
+      `SELECT id FROM ${targetTable} WHERE id = ANY($1::uuid[]) AND tenant_id = $2 AND establecimiento_id != $3`,
+      [targetIds, tenantId, establecimientoId],
+    )) as Array<{ id: string }>;
+    if (fueraDeEstablecimiento.length > 0) {
+      throw new AppError({
+        code: ErrorCodes.APLICACION_TARGET_INVALIDO,
+        message:
+          'Alguno de los targets indicados no pertenece al establecimiento de la aplicación',
+        status: 422,
+        details: { ids: fueraDeEstablecimiento.map((r) => r.id) },
+      });
+    }
   }
 
   /**
@@ -353,7 +419,8 @@ export class AplicacionesQuimicasService {
         primaryQuimico.withholding_period_dias,
         ...Object.values(loteMap).map((e) => e.quimico.withholding_period_dias),
       ].filter((v): v is number => v !== null && v !== undefined);
-      const ownWhp = whpCandidates.length > 0 ? Math.max(...whpCandidates) : null;
+      const ownWhp =
+        whpCandidates.length > 0 ? Math.max(...whpCandidates) : null;
 
       const aplicacion = qr.manager.create(AplicacionQuimica, {
         tenant_id: tenantId,
@@ -565,8 +632,7 @@ export class AplicacionesQuimicasService {
       if (current.contexto === AplicacionContexto.NURSERY && dto.mesa_ids) {
         throw new AppError({
           code: ErrorCodes.APLICACION_TARGET_INVALIDO,
-          message:
-            'Esta aplicación es de nursery: no se puede enviar mesa_ids',
+          message: 'Esta aplicación es de nursery: no se puede enviar mesa_ids',
           status: 422,
         });
       }
@@ -661,61 +727,13 @@ export class AplicacionesQuimicasService {
       // 5. bandeja_ids / mesa_ids: reemplaza TODOS los targets del contexto.
       const targetIdsNuevos = dto.bandeja_ids ?? dto.mesa_ids;
       if (targetIdsNuevos !== undefined) {
-        const targetTable =
-          current.contexto === AplicacionContexto.NURSERY
-            ? 'bandejas'
-            : 'mesas';
-
-        let vigentes: Array<{ id: string }>;
-        if (current.contexto === AplicacionContexto.NURSERY) {
-          vigentes = (await qr.query(
-            `SELECT id FROM bandejas WHERE id = ANY($1::uuid[]) AND tenant_id = $2 AND estado = $3 AND deleted_at IS NULL ORDER BY id FOR UPDATE`,
-            [targetIdsNuevos, tenantId, BandejaEstado.EN_NURSERY],
-          )) as Array<{ id: string }>;
-        } else {
-          vigentes = (await qr.query(
-            `SELECT id FROM mesas WHERE id = ANY($1::uuid[]) AND tenant_id = $2 AND estado IN ($3, $4) AND deleted_at IS NULL ORDER BY id FOR UPDATE`,
-            [
-              targetIdsNuevos,
-              tenantId,
-              MesaEstado.ACTIVA,
-              MesaEstado.EN_COSECHA,
-            ],
-          )) as Array<{ id: string }>;
-        }
-
-        const vigentesIds = new Set(vigentes.map((v) => v.id));
-        const invalidas = targetIdsNuevos.filter(
-          (tid) => !vigentesIds.has(tid),
+        await this.validateAndLockTargets(
+          qr,
+          tenantId,
+          current.contexto,
+          current.establecimiento_id,
+          targetIdsNuevos,
         );
-        if (invalidas.length > 0) {
-          throw new AppError({
-            code: ErrorCodes.APLICACION_TARGET_INVALIDO,
-            message:
-              current.contexto === AplicacionContexto.NURSERY
-                ? 'Las bandejas indicadas no están en estado en_nursery'
-                : 'Las mesas indicadas no están en estado activa o en_cosecha',
-            status: 422,
-            details:
-              current.contexto === AplicacionContexto.NURSERY
-                ? { bandeja_ids: invalidas }
-                : { mesa_ids: invalidas },
-          });
-        }
-
-        const fueraDeEstablecimiento = (await qr.query(
-          `SELECT id FROM ${targetTable} WHERE id = ANY($1::uuid[]) AND tenant_id = $2 AND establecimiento_id != $3`,
-          [targetIdsNuevos, tenantId, current.establecimiento_id],
-        )) as Array<{ id: string }>;
-        if (fueraDeEstablecimiento.length > 0) {
-          throw new AppError({
-            code: ErrorCodes.APLICACION_TARGET_INVALIDO,
-            message:
-              'Alguno de los targets indicados no pertenece al establecimiento de la aplicación',
-            status: 422,
-            details: { ids: fueraDeEstablecimiento.map((r) => r.id) },
-          });
-        }
 
         await qr.query(
           `DELETE FROM ${targetLinkTable} WHERE aplicacion_id = $1`,
@@ -792,9 +810,7 @@ export class AplicacionesQuimicasService {
 
       if (tocaCarencia) {
         const targetsDespues = targetIdsNuevos ?? targetsAntes;
-        const targetsUnion = [
-          ...new Set([...targetsAntes, ...targetsDespues]),
-        ];
+        const targetsUnion = [...new Set([...targetsAntes, ...targetsDespues])];
 
         for (const targetId of targetsUnion) {
           const carenciaHastaStr = await this.recomputeCarenciaHasta(
@@ -848,6 +864,555 @@ export class AplicacionesQuimicasService {
     );
 
     return this.getAplicacionById(id, tenantId);
+  }
+
+  /**
+   * Corrige en una sola transacción TODAS las filas físicas de un
+   * operation_group_id (crear / actualizar / borrar por ítem). El backend
+   * nunca reparte ni inventa `cantidad`: cada ítem trae su propio valor
+   * literal, igual que hoy en POST/PATCH de fila única.
+   */
+  async updateOperationGroup(
+    operationGroupId: string,
+    dto: UpdateOperationGroupDto,
+    userId: string,
+  ): Promise<{
+    operation_group_id: string;
+    applications: AplicacionDetalleEnriquecida[];
+    deleted_ids: string[];
+  }> {
+    const tenantId = this.tenancy.requireTenantId();
+
+    // Reglas de forma que no dependen de DB — se validan antes de abrir la
+    // transacción para no sostener locks por un body inválido.
+    const nonCreateIds = dto.items
+      .filter((i) => i.op !== OperationGroupOp.CREATE)
+      .map((i) => i.id as string);
+    if (new Set(nonCreateIds).size !== nonCreateIds.length) {
+      throw new AppError({
+        code: ErrorCodes.BAD_REQUEST,
+        message: 'No puede haber ids duplicados entre los ítems',
+        status: 400,
+      });
+    }
+    for (const item of dto.items) {
+      if (item.op === OperationGroupOp.CREATE) {
+        if (item.id !== undefined) {
+          throw new AppError({
+            code: ErrorCodes.BAD_REQUEST,
+            message: 'Un ítem create no debe traer id',
+            status: 400,
+          });
+        }
+        if (
+          !item.chemical_lines?.length ||
+          (!item.bandeja_ids?.length && !item.mesa_ids?.length)
+        ) {
+          throw new AppError({
+            code: ErrorCodes.BAD_REQUEST,
+            message:
+              'Un ítem create requiere chemical_lines y bandeja_ids o mesa_ids',
+            status: 400,
+          });
+        }
+      } else if (item.op === OperationGroupOp.DELETE) {
+        if (
+          item.chemical_lines !== undefined ||
+          item.bandeja_ids !== undefined ||
+          item.mesa_ids !== undefined
+        ) {
+          throw new AppError({
+            code: ErrorCodes.BAD_REQUEST,
+            message:
+              'Un ítem delete no debe traer chemical_lines, bandeja_ids ni mesa_ids',
+            status: 400,
+          });
+        }
+      }
+    }
+
+    const qr = this.dataSource.createQueryRunner();
+    await qr.connect();
+    await qr.startTransaction();
+
+    let survivingIds: string[] = [];
+    const deletedIds: string[] = [];
+    const auditEntries: Array<{ id: string; action: string }> = [];
+
+    try {
+      // 1. Lock de todas las filas del grupo — el índice compuesto
+      // (tenant_id, operation_group_id) ya cubre esta query.
+      const headerRows = (await qr.query(
+        `SELECT * FROM aplicaciones_quimicas WHERE tenant_id = $1 AND operation_group_id = $2 ORDER BY id FOR UPDATE`,
+        [tenantId, operationGroupId],
+      )) as AplicacionQuimica[];
+
+      if (headerRows.length === 0) {
+        throw new AppError({
+          code: ErrorCodes.APLICACION_NOT_FOUND,
+          message: 'No existe ninguna aplicación con ese operation_group_id',
+          status: 404,
+        });
+      }
+
+      // 2. El grupo debe ser uniforme — nada valida esto al aceptar un
+      // operation_group_id de cliente en createAplicacion, así que no se
+      // puede asumir. Si no lo es, es un dato pre-existente inconsistente.
+      const contexto = headerRows[0].contexto;
+      const establecimientoId = headerRows[0].establecimiento_id;
+      if (
+        headerRows.some(
+          (r) =>
+            r.contexto !== contexto ||
+            r.establecimiento_id !== establecimientoId,
+        )
+      ) {
+        throw new AppError({
+          code: ErrorCodes.CONFLICT,
+          message:
+            'Las filas de este operation_group_id no son uniformes (contexto/establecimiento)',
+          status: 409,
+        });
+      }
+
+      const groupRowIds = new Set(headerRows.map((r) => r.id));
+
+      // 3-4. Campo de target coherente con el contexto + todo id de
+      // update/delete pertenece a este grupo.
+      for (const item of dto.items) {
+        const wrongFieldValue =
+          contexto === AplicacionContexto.NURSERY
+            ? item.mesa_ids
+            : item.bandeja_ids;
+        if (wrongFieldValue !== undefined) {
+          throw new AppError({
+            code: ErrorCodes.APLICACION_TARGET_INVALIDO,
+            message:
+              contexto === AplicacionContexto.NURSERY
+                ? 'Este grupo es de nursery: no se puede enviar mesa_ids'
+                : 'Este grupo es de greenhouse: no se puede enviar bandeja_ids',
+            status: 422,
+          });
+        }
+        if (
+          item.op !== OperationGroupOp.CREATE &&
+          !groupRowIds.has(item.id as string)
+        ) {
+          throw new AppError({
+            code: ErrorCodes.APLICACION_NOT_FOUND,
+            message: `La fila ${item.id} no pertenece a este operation_group_id`,
+            status: 404,
+          });
+        }
+      }
+
+      // 5. El grupo no puede quedar vacío.
+      const deleteIds = new Set(
+        dto.items
+          .filter((i) => i.op === OperationGroupOp.DELETE)
+          .map((i) => i.id as string),
+      );
+      const createCount = dto.items.filter(
+        (i) => i.op === OperationGroupOp.CREATE,
+      ).length;
+      if (headerRows.length - deleteIds.size + createCount < 1) {
+        throw new AppError({
+          code: ErrorCodes.APLICACION_TARGETS_VACIOS,
+          message: 'El grupo quedaría sin filas',
+          status: 422,
+        });
+      }
+
+      const targetLinkTable =
+        contexto === AplicacionContexto.NURSERY
+          ? 'aplicacion_quimica_bandeja'
+          : 'aplicacion_quimica_mesa';
+      const targetLinkColumn =
+        contexto === AplicacionContexto.NURSERY ? 'bandeja_id' : 'mesa_id';
+
+      // 6. Snapshot de targets ligados a cualquier fila del grupo, antes de
+      // mutar nada.
+      const groupIdsArr = [...groupRowIds];
+      const targetsAntesRows = (await qr.query(
+        `SELECT DISTINCT ${targetLinkColumn} AS target_id FROM ${targetLinkTable} WHERE aplicacion_id = ANY($1::uuid[])`,
+        [groupIdsArr],
+      )) as Array<{ target_id: string }>;
+      const targetsAntes = targetsAntesRows.map((r) => r.target_id);
+
+      const usuarioSnapshot = await fetchUsuarioSnapshot(
+        qr.manager,
+        userId,
+        tenantId,
+      );
+
+      // 7-8. Fase A+B: revertir stock y borrar (hijos antes que padre) de
+      // cada fila marcada delete.
+      for (const item of dto.items) {
+        if (item.op !== OperationGroupOp.DELETE) continue;
+        const rowId = item.id as string;
+
+        const detalles = (await qr.query(
+          `SELECT lote_quimico_id, cantidad FROM aplicaciones_quimicas_detalle WHERE aplicacion_id = $1`,
+          [rowId],
+        )) as Array<{ lote_quimico_id: string; cantidad: string }>;
+        for (const d of detalles) {
+          await this.incrementarLote(
+            qr,
+            d.lote_quimico_id,
+            this.toNumberOrNull(d.cantidad) ?? 0,
+            tenantId,
+          );
+        }
+
+        await qr.query(
+          `DELETE FROM aplicaciones_quimicas_detalle WHERE aplicacion_id = $1`,
+          [rowId],
+        );
+        await qr.query(
+          `DELETE FROM ${targetLinkTable} WHERE aplicacion_id = $1`,
+          [rowId],
+        );
+        await qr.query(`DELETE FROM aplicaciones_quimicas WHERE id = $1`, [
+          rowId,
+        ]);
+
+        deletedIds.push(rowId);
+        auditEntries.push({ id: rowId, action: AUDIT.GROUP_DELETE });
+      }
+
+      // 9-11. Fase C+D+E: cada ítem update — nuevas líneas químicas, nuevos
+      // targets, y header (fecha_hora/observaciones de grupo + updated_by).
+      for (const item of dto.items) {
+        if (item.op !== OperationGroupOp.UPDATE) continue;
+        const rowId = item.id as string;
+        const current = headerRows.find((r) => r.id === rowId)!;
+
+        let lote_quimico_id = current.lote_quimico_id;
+        let dosis = current.dosis;
+        let dosis_unidad = current.dosis_unidad;
+        let batch = current.batch;
+
+        if (item.chemical_lines !== undefined) {
+          const detallesActuales = (await qr.query(
+            `SELECT lote_quimico_id, cantidad FROM aplicaciones_quimicas_detalle WHERE aplicacion_id = $1`,
+            [rowId],
+          )) as Array<{ lote_quimico_id: string; cantidad: string }>;
+          for (const d of detallesActuales) {
+            await this.incrementarLote(
+              qr,
+              d.lote_quimico_id,
+              this.toNumberOrNull(d.cantidad) ?? 0,
+              tenantId,
+            );
+          }
+          await qr.query(
+            `DELETE FROM aplicaciones_quimicas_detalle WHERE aplicacion_id = $1`,
+            [rowId],
+          );
+
+          for (let i = 0; i < item.chemical_lines.length; i++) {
+            const line = item.chemical_lines[i];
+            const { lote, quimico } = await this.validateChemicalLine(
+              line.lote_quimico_id,
+              establecimientoId,
+            );
+            await this.decrementarLote(
+              qr,
+              line.lote_quimico_id,
+              line.cantidad,
+              tenantId,
+            );
+            const lineaDosisUnidad =
+              line.dosis_unidad ?? quimico.rate_unidad ?? null;
+            await qr.manager.save(AplicacionQuimicaDetalle, {
+              aplicacion_id: rowId,
+              lote_quimico_id: line.lote_quimico_id,
+              dosis: line.dosis,
+              dosis_unidad: lineaDosisUnidad,
+              cantidad: line.cantidad,
+              unidad_medida: quimico.unidad_medida,
+            });
+
+            if (i === 0) {
+              lote_quimico_id = line.lote_quimico_id;
+              dosis = line.dosis;
+              dosis_unidad = lineaDosisUnidad;
+              batch = lote.numero_lote ?? null;
+            }
+          }
+        }
+
+        const targetIdsNuevos = item.bandeja_ids ?? item.mesa_ids;
+        if (targetIdsNuevos !== undefined) {
+          await this.validateAndLockTargets(
+            qr,
+            tenantId,
+            contexto,
+            establecimientoId,
+            targetIdsNuevos,
+          );
+
+          await qr.query(
+            `DELETE FROM ${targetLinkTable} WHERE aplicacion_id = $1`,
+            [rowId],
+          );
+
+          if (contexto === AplicacionContexto.NURSERY) {
+            for (const bandeja_id of targetIdsNuevos) {
+              await qr.manager.save(AplicacionQuimicaBandeja, {
+                aplicacion_id: rowId,
+                bandeja_id,
+              });
+            }
+          } else {
+            for (const mesa_id of targetIdsNuevos) {
+              await qr.manager.save(AplicacionQuimicaMesa, {
+                aplicacion_id: rowId,
+                mesa_id,
+              });
+            }
+          }
+        }
+
+        const fecha_hora =
+          dto.fecha_hora !== undefined
+            ? new Date(dto.fecha_hora)
+            : current.fecha_hora;
+        const observaciones =
+          dto.observaciones !== undefined
+            ? dto.observaciones
+            : current.observaciones;
+
+        await qr.query(
+          `UPDATE aplicaciones_quimicas
+              SET lote_quimico_id = $1, dosis = $2, dosis_unidad = $3, batch = $4,
+                  fecha_hora = $5, observaciones = $6,
+                  updated_by = $7, updated_by_email_snapshot = $8,
+                  updated_by_nombre_snapshot = $9, updated_by_apellido_snapshot = $10,
+                  updated_at = now()
+            WHERE id = $11 AND tenant_id = $12`,
+          [
+            lote_quimico_id,
+            dosis,
+            dosis_unidad,
+            batch,
+            fecha_hora,
+            observaciones,
+            userId,
+            usuarioSnapshot.usuario_email_snapshot,
+            usuarioSnapshot.usuario_nombre_snapshot,
+            usuarioSnapshot.usuario_apellido_snapshot,
+            rowId,
+            tenantId,
+          ],
+        );
+
+        auditEntries.push({ id: rowId, action: AUDIT.GROUP_UPDATE });
+      }
+
+      // 12. Fase F: cada ítem create — mismo patrón que createAplicacion
+      // (primario = chemical_lines[0]), generalizado a N líneas.
+      for (const item of dto.items) {
+        if (item.op !== OperationGroupOp.CREATE) continue;
+
+        const chemicalLines = item.chemical_lines as DetalleItemDto[];
+        const targetIdsNuevos = (item.bandeja_ids ?? item.mesa_ids) as string[];
+
+        await this.validateAndLockTargets(
+          qr,
+          tenantId,
+          contexto,
+          establecimientoId,
+          targetIdsNuevos,
+        );
+
+        const lineEntries: Array<{
+          line: DetalleItemDto;
+          lote: LoteQuimico;
+          quimico: Quimico;
+        }> = [];
+        for (const line of chemicalLines) {
+          const { lote, quimico } = await this.validateChemicalLine(
+            line.lote_quimico_id,
+            establecimientoId,
+          );
+          lineEntries.push({ line, lote, quimico });
+        }
+
+        const whpCandidates = lineEntries
+          .map((e) => e.quimico.withholding_period_dias)
+          .filter((v): v is number => v !== null && v !== undefined);
+        const ownWhp =
+          whpCandidates.length > 0 ? Math.max(...whpCandidates) : null;
+
+        const primary = lineEntries[0];
+        const newRow = qr.manager.create(AplicacionQuimica, {
+          tenant_id: tenantId,
+          establecimiento_id: establecimientoId,
+          contexto,
+          observaciones:
+            dto.observaciones !== undefined ? dto.observaciones : null,
+          usuario_id: userId,
+          ...usuarioSnapshot,
+          fecha_hora:
+            dto.fecha_hora !== undefined
+              ? new Date(dto.fecha_hora)
+              : new Date(),
+          lote_quimico_id: primary.line.lote_quimico_id,
+          dosis: primary.line.dosis,
+          dosis_unidad:
+            primary.line.dosis_unidad ?? primary.quimico.rate_unidad ?? null,
+          batch: primary.lote.numero_lote ?? null,
+          withholding_period_dias: ownWhp,
+          operation_group_id: operationGroupId,
+        });
+        const savedRow = await qr.manager.save(AplicacionQuimica, newRow);
+
+        for (const { line, quimico } of lineEntries) {
+          await this.decrementarLote(
+            qr,
+            line.lote_quimico_id,
+            line.cantidad,
+            tenantId,
+          );
+          await qr.manager.save(AplicacionQuimicaDetalle, {
+            aplicacion_id: savedRow.id,
+            lote_quimico_id: line.lote_quimico_id,
+            dosis: line.dosis,
+            dosis_unidad: line.dosis_unidad ?? quimico.rate_unidad ?? null,
+            cantidad: line.cantidad,
+            unidad_medida: quimico.unidad_medida,
+          });
+        }
+
+        if (contexto === AplicacionContexto.NURSERY) {
+          for (const bandeja_id of targetIdsNuevos) {
+            await qr.manager.save(AplicacionQuimicaBandeja, {
+              aplicacion_id: savedRow.id,
+              bandeja_id,
+            });
+          }
+        } else {
+          const aplicacionDate = savedRow.fecha_hora;
+          for (const mesa_id of targetIdsNuevos) {
+            await qr.manager.save(AplicacionQuimicaMesa, {
+              aplicacion_id: savedRow.id,
+              mesa_id,
+            });
+
+            await qr.manager.save(HistorialMesa, {
+              mesa_id,
+              tipo_evento: HistorialTipoEvento.APLICACION_QUIMICA,
+              tenant_id: tenantId,
+              usuario_id: userId,
+              ...usuarioSnapshot,
+              fecha_hora: aplicacionDate,
+              detalle: {
+                aplicacion_id: savedRow.id,
+                lote_quimico_id: primary.line.lote_quimico_id,
+                dosis: primary.line.dosis,
+                cantidad: primary.line.cantidad,
+                batch: primary.lote.numero_lote ?? null,
+                quimicos_adicionales: lineEntries.slice(1).map((e) => ({
+                  lote_quimico_id: e.line.lote_quimico_id,
+                  cantidad: e.line.cantidad,
+                })),
+              },
+            });
+          }
+        }
+
+        groupRowIds.add(savedRow.id);
+        auditEntries.push({ id: savedRow.id, action: AUDIT.GROUP_CREATE });
+      }
+
+      // 13. targetsDespues recalculado desde la DB (no armado a mano desde
+      // el body) — queda correcto aunque una fila agregue un target que otra
+      // quitó en el mismo request.
+      survivingIds = [...groupRowIds].filter((id) => !deleteIds.has(id));
+
+      const targetsDespuesRows = survivingIds.length
+        ? ((await qr.query(
+            `SELECT DISTINCT ${targetLinkColumn} AS target_id FROM ${targetLinkTable} WHERE aplicacion_id = ANY($1::uuid[])`,
+            [survivingIds],
+          )) as Array<{ target_id: string }>)
+        : [];
+      const targetsDespues = targetsDespuesRows.map((r) => r.target_id);
+
+      // 14. Recalcular carencia para la unión antes ∪ después — siempre,
+      // sin gate condicional (a diferencia del PATCH de fila única, acá
+      // casi cualquier ítem puede afectar carencia de algún target).
+      const targetsUnion = [...new Set([...targetsAntes, ...targetsDespues])];
+      for (const targetId of targetsUnion) {
+        const carenciaHastaStr = await this.recomputeCarenciaHasta(
+          qr,
+          tenantId,
+          contexto,
+          targetId,
+        );
+
+        if (
+          contexto === AplicacionContexto.GREENHOUSE &&
+          carenciaHastaStr !== null
+        ) {
+          await qr.manager.save(HistorialMesa, {
+            mesa_id: targetId,
+            tipo_evento: HistorialTipoEvento.EN_CARENCIA,
+            tenant_id: tenantId,
+            usuario_id: userId,
+            ...usuarioSnapshot,
+            fecha_hora: new Date(),
+            detalle: {
+              operation_group_id: operationGroupId,
+              carencia_hasta: carenciaHastaStr,
+            },
+          });
+        }
+      }
+
+      await qr.commitTransaction();
+    } catch (err) {
+      await qr.rollbackTransaction();
+      throw err;
+    } finally {
+      await qr.release();
+    }
+
+    // 16. Auditoría fuera de la transacción, una entrada por fila tocada —
+    // quien audite una fila puntual debe encontrarla sin importar por qué
+    // endpoint se tocó.
+    for (const entry of auditEntries) {
+      await this.writeAudit(
+        entry.action,
+        'aplicacion_quimica',
+        entry.id,
+        {
+          requestId: '',
+          method: 'PATCH',
+          url: `/aplicaciones-quimicas/operation-group/${operationGroupId}`,
+          userId,
+        },
+        tenantId,
+        200,
+      );
+    }
+
+    // 17. Response: filas sobrevivientes con el mismo shape enriquecido que
+    // POST/GET/PATCH, ordenadas por created_at. Sin shape "agregado" —
+    // fusionar totales sería un número fabricado por el backend.
+    const applications = await Promise.all(
+      survivingIds.map((appId) => this.getAplicacionById(appId, tenantId)),
+    );
+    applications.sort(
+      (a, b) =>
+        a.aplicacion.created_at.getTime() - b.aplicacion.created_at.getTime(),
+    );
+
+    return {
+      operation_group_id: operationGroupId,
+      applications,
+      deleted_ids: deletedIds,
+    };
   }
 
   async listAplicaciones(

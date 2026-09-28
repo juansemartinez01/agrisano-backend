@@ -377,6 +377,116 @@
           }
         },
         {
+          "name": "Crear aplicacion nursery (chunk 1 de grupo)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Chunk 1 creado', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.aplicacion) {",
+                  "  pm.collectionVariables.set('groupChunk1Id', json.data.aplicacion.id);",
+                  "  pm.collectionVariables.set('operationGroupId', json.data.aplicacion.operation_group_id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"establecimiento_id\": \"{{establecimientoId}}\",\n  \"contexto\": \"nursery\",\n  \"lote_quimico_id\": \"{{loteQuimicoId}}\",\n  \"dosis\": {{dosis}},\n  \"cantidad\": {{cantidad}},\n  \"observaciones\": \"{{observaciones}} (chunk 1 de grupo)\",\n  \"bandeja_ids\": [\n    \"{{bandejaId}}\"\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/aplicaciones-quimicas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "aplicaciones-quimicas"
+              ]
+            },
+            "description": "Primer chunk de un operation_group_id compartido. No envia operation_group_id en el body (el backend genera uno nuevo); el test lo captura en la variable de coleccion operationGroupId, junto con el id de esta fila en groupChunk1Id. Usar antes de 'Crear aplicacion nursery (chunk 2, mismo operation_group_id)' y de los PATCH de operation-group de abajo."
+          }
+        },
+        {
+          "name": "Crear aplicacion nursery (chunk 2, mismo operation_group_id)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Chunk 2 creado en el mismo grupo', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.aplicacion) {",
+                  "  pm.collectionVariables.set('groupChunk2Id', json.data.aplicacion.id);",
+                  "  pm.test('Mismo operation_group_id que el chunk 1', function () {",
+                  "    pm.expect(json.data.aplicacion.operation_group_id).to.eql(pm.collectionVariables.get('operationGroupId'));",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"establecimiento_id\": \"{{establecimientoId}}\",\n  \"contexto\": \"nursery\",\n  \"lote_quimico_id\": \"{{loteQuimicoId}}\",\n  \"dosis\": {{dosis}},\n  \"cantidad\": {{cantidad}},\n  \"observaciones\": \"{{observaciones}} (chunk 2 de grupo)\",\n  \"bandeja_ids\": [\n    \"{{bandejaId}}\"\n  ],\n  \"operation_group_id\": \"{{operationGroupId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/aplicaciones-quimicas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "aplicaciones-quimicas"
+              ]
+            },
+            "description": "Segundo chunk, reusa operationGroupId capturado por el request anterior. Ejecutar 'Crear aplicacion nursery (chunk 1 de grupo)' primero. Junto con el chunk 1 arma el grupo multi-fila que usan los PATCH de operation-group de abajo."
+          }
+        },
+        {
           "name": "Obtener aplicacion por ID",
           "event": [
             {
@@ -464,6 +574,241 @@
               ]
             },
             "description": "Corrige una aplicacion existente. Requiere rol supervisor o admin_global. Revierte el stock de las chemical_lines viejas, valida y descuenta las nuevas (rollback total si falta stock), y recalcula carencia_hasta/withholding_period_dias como MAX entre todas las aplicaciones que siguen ligadas a cada target. contexto y establecimiento_id son inmutables."
+          }
+        },
+        {
+          "name": "Corregir grupo (PATCH) - correccion in-place",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Grupo corregido in-place', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test('Sigue habiendo 2 filas, ninguna borrada', function () {",
+                  "  pm.expect(json.data.applications.length).to.eql(2);",
+                  "  pm.expect(json.data.deleted_ids.length).to.eql(0);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"observaciones\": \"{{observaciones}} (grupo corregido in-place)\",\n  \"items\": [\n    {\n      \"op\": \"update\",\n      \"id\": \"{{groupChunk1Id}}\",\n      \"chemical_lines\": [\n        {\n          \"lote_quimico_id\": \"{{loteQuimicoId}}\",\n          \"dosis\": {{dosis}},\n          \"cantidad\": {{cantidad}}\n        }\n      ]\n    },\n    {\n      \"op\": \"update\",\n      \"id\": \"{{groupChunk2Id}}\",\n      \"bandeja_ids\": [\n        \"{{bandejaId}}\"\n      ]\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/aplicaciones-quimicas/operation-group/{{operationGroupId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "aplicaciones-quimicas",
+                "operation-group",
+                "{{operationGroupId}}"
+              ]
+            },
+            "description": "Corrige las 2 filas del grupo sin agregar ni quitar ninguna: la primera reemplaza su chemical_lines (revierte stock viejo, descuenta el nuevo), la segunda reemplaza su bandeja_ids. observaciones a nivel grupo se aplica a ambas por ser las dos 'update'. Requiere haber corrido antes los 2 chunks de creacion."
+          }
+        },
+        {
+          "name": "Corregir grupo (PATCH) - grupo que crece",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Grupo crecio a 3 filas', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test('Aparece una fila nueva', function () {",
+                  "  pm.expect(json.data.applications.length).to.eql(3);",
+                  "});",
+                  "",
+                  "const known = [pm.collectionVariables.get('groupChunk1Id'), pm.collectionVariables.get('groupChunk2Id')];",
+                  "const nueva = json.data.applications.find((a) => !known.includes(a.aplicacion.id));",
+                  "if (nueva) {",
+                  "  pm.collectionVariables.set('groupChunk3Id', nueva.aplicacion.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    {\n      \"op\": \"create\",\n      \"chemical_lines\": [\n        {\n          \"lote_quimico_id\": \"{{loteQuimicoId}}\",\n          \"dosis\": {{dosis}},\n          \"cantidad\": {{cantidad}}\n        }\n      ],\n      \"bandeja_ids\": [\n        \"{{bandejaId}}\"\n      ]\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/aplicaciones-quimicas/operation-group/{{operationGroupId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "aplicaciones-quimicas",
+                "operation-group",
+                "{{operationGroupId}}"
+              ]
+            },
+            "description": "Agrega una fila nueva al grupo (op create) sin mencionar chunk 1 ni chunk 2, que quedan intactos por no aparecer en items. La fila nueva nace con usuario_id=actor y updated_by=null, igual que un POST normal. El test guarda su id en groupChunk3Id para 'grupo que se achica'."
+          }
+        },
+        {
+          "name": "Corregir grupo (PATCH) - grupo que se achica",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Grupo volvio a 2 filas', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test('La fila borrada aparece en deleted_ids, no en applications', function () {",
+                  "  pm.expect(json.data.deleted_ids).to.include(pm.collectionVariables.get('groupChunk3Id'));",
+                  "  pm.expect(json.data.applications.length).to.eql(2);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    {\n      \"op\": \"delete\",\n      \"id\": \"{{groupChunk3Id}}\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/aplicaciones-quimicas/operation-group/{{operationGroupId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "aplicaciones-quimicas",
+                "operation-group",
+                "{{operationGroupId}}"
+              ]
+            },
+            "description": "Borra la fila creada por 'grupo que crece' (revierte su stock) y deja el grupo otra vez en 2 filas. Requiere haber corrido antes ese request. Confirmar con 'Obtener aplicacion por ID' usando groupChunk3Id que ahora da 404."
+          }
+        },
+        {
+          "name": "Corregir grupo (PATCH) - operacion mixta",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Operacion mixta aplicada atomicamente', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test('Grupo sigue en 2 filas (1 update + 1 create - 1 delete)', function () {",
+                  "  pm.expect(json.data.applications.length).to.eql(2);",
+                  "  pm.expect(json.data.deleted_ids).to.include(pm.collectionVariables.get('groupChunk2Id'));",
+                  "});",
+                  "",
+                  "const known = [pm.collectionVariables.get('groupChunk1Id')];",
+                  "const nueva = json.data.applications.find((a) => !known.includes(a.aplicacion.id));",
+                  "if (nueva) {",
+                  "  pm.collectionVariables.set('groupChunk4Id', nueva.aplicacion.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    {\n      \"op\": \"update\",\n      \"id\": \"{{groupChunk1Id}}\",\n      \"chemical_lines\": [\n        {\n          \"lote_quimico_id\": \"{{loteQuimicoId}}\",\n          \"dosis\": {{dosis}},\n          \"cantidad\": {{cantidad}}\n        }\n      ]\n    },\n    {\n      \"op\": \"create\",\n      \"chemical_lines\": [\n        {\n          \"lote_quimico_id\": \"{{loteQuimicoId}}\",\n          \"dosis\": {{dosis}},\n          \"cantidad\": {{cantidad}}\n        }\n      ],\n      \"bandeja_ids\": [\n        \"{{bandejaId}}\"\n      ]\n    },\n    {\n      \"op\": \"delete\",\n      \"id\": \"{{groupChunk2Id}}\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/aplicaciones-quimicas/operation-group/{{operationGroupId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "aplicaciones-quimicas",
+                "operation-group",
+                "{{operationGroupId}}"
+              ]
+            },
+            "description": "En un mismo request: actualiza chunk 1 (nuevas chemical_lines), crea una fila nueva y borra chunk 2 - los tres efectos se confirman juntos o ninguno (si el create fallara por stock insuficiente, el update y el delete tampoco se aplican). El test guarda el id de la fila nueva en groupChunk4Id, que usan los casos de error de abajo."
           }
         },
         {
@@ -708,6 +1053,171 @@
             },
             "description": "Caso negativo: contexto es inmutable. El guard manual del controller lo rechaza (APLICACION_FIELD_IMMUTABLE) aunque el campo no exista en el DTO."
           }
+        },
+        {
+          "name": "Error esperado - grupo quedaria en 0 filas",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Debe fallar por grupo vacio', function () {",
+                  "  pm.response.to.have.status(422);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test('Codigo APLICACION_TARGETS_VACIOS', function () {",
+                  "  pm.expect(json.error && json.error.code).to.eql('APLICACION_TARGETS_VACIOS');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    {\n      \"op\": \"delete\",\n      \"id\": \"{{groupChunk1Id}}\"\n    },\n    {\n      \"op\": \"delete\",\n      \"id\": \"{{groupChunk4Id}}\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/aplicaciones-quimicas/operation-group/{{operationGroupId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "aplicaciones-quimicas",
+                "operation-group",
+                "{{operationGroupId}}"
+              ]
+            },
+            "description": "Intenta borrar las 2 filas que quedan en el grupo (chunk1 y la creada por 'operacion mixta') en el mismo request. Debe rechazarse sin aplicar ningun cambio (rollback total) - confirmar con 'Obtener aplicacion por ID' que ambas siguen existiendo."
+          }
+        },
+        {
+          "name": "Error esperado - id de otro grupo en item",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Debe fallar porque el id no pertenece a este grupo', function () {",
+                  "  pm.response.to.have.status(404);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test('Codigo APLICACION_NOT_FOUND', function () {",
+                  "  pm.expect(json.error && json.error.code).to.eql('APLICACION_NOT_FOUND');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    {\n      \"op\": \"update\",\n      \"id\": \"{{aplicacionId}}\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/aplicaciones-quimicas/operation-group/{{operationGroupId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "aplicaciones-quimicas",
+                "operation-group",
+                "{{operationGroupId}}"
+              ]
+            },
+            "description": "aplicacionId es la fila creada por 'Crear aplicacion nursery' o 'Crear aplicacion invernadero' (otro operation_group_id, generado aparte, ninguno de los dos enviado por esos requests). Mismo codigo si el id fuera de otro tenant: la query de pertenencia filtra por tenant_id ademas de operation_group_id."
+          }
+        },
+        {
+          "name": "Error esperado - operation_group_id inexistente",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Debe fallar por operation_group_id inexistente', function () {",
+                  "  pm.response.to.have.status(404);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test('Codigo APLICACION_NOT_FOUND', function () {",
+                  "  pm.expect(json.error && json.error.code).to.eql('APLICACION_NOT_FOUND');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    {\n      \"op\": \"update\",\n      \"id\": \"{{groupChunk1Id}}\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/aplicaciones-quimicas/operation-group/00000000-0000-0000-0000-000000000000",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "aplicaciones-quimicas",
+                "operation-group",
+                "00000000-0000-0000-0000-000000000000"
+              ]
+            },
+            "description": "UUID valido pero que no matchea ninguna fila del tenant: el lock inicial (FOR UPDATE por tenant_id + operation_group_id) no encuentra nada."
+          }
         }
       ]
     }
@@ -795,6 +1305,31 @@
     },
     {
       "key": "aplicacionId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "operationGroupId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "groupChunk1Id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "groupChunk2Id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "groupChunk3Id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "groupChunk4Id",
       "value": "",
       "type": "string"
     },

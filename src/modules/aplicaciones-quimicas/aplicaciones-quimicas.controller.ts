@@ -22,6 +22,7 @@ import type { JwtPayload } from 'src/modules/auth/types/jwt-payload.type';
 import { AplicacionesQuimicasService } from './aplicaciones-quimicas.service';
 import { CreateAplicacionDto } from './dto/create-aplicacion.dto';
 import { UpdateAplicacionDto } from './dto/update-aplicacion.dto';
+import { UpdateOperationGroupDto } from './dto/update-operation-group.dto';
 import { QueryAplicacionesDto } from './dto/query-aplicaciones.dto';
 
 type AuthRequest = Request & {
@@ -102,6 +103,38 @@ export class AplicacionesQuimicasController {
 
     const userId = req.user?.sub;
     const result = await this.svc.updateAplicacion(id, dto, userId);
+    return ok(result);
+  }
+
+  // ──────────────────────────────────────────────────────────────────────
+  // PATCH aplicaciones-quimicas/operation-group/:operation_group_id —
+  // corrección atómica de TODAS las filas de un mismo operation_group_id
+  // (crear/actualizar/borrar por ítem, ver UpdateOperationGroupDto).
+  // ──────────────────────────────────────────────────────────────────────
+  @Roles('supervisor', 'admin_global')
+  @Patch('aplicaciones-quimicas/operation-group/:operation_group_id')
+  async correctGroup(
+    @Param('operation_group_id') operationGroupId: string,
+    @Body() dto: UpdateOperationGroupDto,
+    @Req() req: AuthRequest,
+  ) {
+    const ALLOWED = new Set(['fecha_hora', 'observaciones', 'items']);
+    const body = req.body as Record<string, unknown>;
+    const bodyKeys = Object.keys(body ?? {});
+    if (bodyKeys.some((k) => !ALLOWED.has(k))) {
+      throw new AppError({
+        code: ErrorCodes.APLICACION_FIELD_IMMUTABLE,
+        message: 'Solo se pueden enviar fecha_hora, observaciones e items',
+        status: 400,
+      });
+    }
+
+    const userId = req.user?.sub;
+    const result = await this.svc.updateOperationGroup(
+      operationGroupId,
+      dto,
+      userId,
+    );
     return ok(result);
   }
 

@@ -12,6 +12,7 @@ Todos los endpoints requieren JWT (`JwtAuthGuard`). Reglas por endpoint:
 
 - `POST /aplicaciones-quimicas` — requiere rol `operario`, `supervisor` o `admin_global`.
 - `PATCH /aplicaciones-quimicas/:id` — requiere rol `supervisor` o `admin_global` (no `operario`).
+- `PATCH /aplicaciones-quimicas/operation-group/:operation_group_id` — requiere rol `supervisor` o `admin_global` (no `operario`). Corrige atómicamente todas las filas de un grupo — sección 5a.
 - El resto de los endpoints (`GET`) solo requieren estar autenticado (no tienen restricción de rol adicional).
 
 ## 2. Enum `AplicacionContexto`
@@ -202,19 +203,9 @@ Este recálculo también corrige (para esta fila y para cualquier otra que compa
 
 ### `operation_group_id`
 
-Este PATCH edita **únicamente la fila física `:id`**. Si la operación original se trocó en varios POST (`operation_group_id` agrupa varias filas), corregirla implica repetir el PATCH en cada `id` del grupo — no existe un endpoint que edite el grupo completo de una sola vez.
+Cuando una operación supera el límite de 200 targets por request, el frontend la trocea en varios `POST` que comparten un `operation_group_id` (el primer `POST` lo genera si no se envía; los siguientes lo reciben en el body para unirse al mismo grupo — sección 4).
 
-**Atomicidad: por fila sí, por grupo no.** Cada PATCH individual es transaccional — si falla, esa fila queda exactamente como estaba, sin cambios parciales de stock, targets ni carencia. Pero el backend no envuelve varios PATCH en una sola transacción: si estás corrigiendo un grupo de 3 filas y el PATCH de la fila 2 falla (por ejemplo `LOTE_QUIMICO_STOCK_INSUFICIENTE`), las filas quedan así — 1 con los datos nuevos, 2 sin tocar (rollback de esa fila), 3 todavía con los datos viejos. El grupo queda inconsistente hasta que frontend termine de reconciliarlo.
-
-**Patrón recomendado para frontend:**
-
-1. Antes de empezar el batch, guardar el estado previo de cada fila del grupo (el `GET /aplicaciones-quimicas/:id` de cada una) para poder revertirlas si hace falta.
-2. Disparar los PATCH del grupo **secuencialmente**, no en paralelo, registrando cuáles terminaron en `200` y cuáles fallaron.
-3. Si todos terminan en `200`, la corrección del grupo está completa.
-4. Si alguno falla, hacer PATCH de compensación sobre cada fila que sí se llegó a actualizar en el paso 2, mandándole de vuelta sus valores previos (los guardados en el paso 1), para dejar el grupo entero otra vez en su estado original. Recién ahí mostrar el error al usuario — nunca dejar el grupo a mitad de camino entre la versión vieja y la nueva.
-5. Si un PATCH de compensación también falla (caso raro, p. ej. el stock cambió mientras tanto), no hay forma automática de resolverlo — hay que alertar para revisión manual, porque en ese punto el grupo puede tener filas con datos nuevos y viejos mezclados.
-
-El punto 5 es la única situación en la que el grupo puede terminar inconsistente siguiendo este patrón. Es un límite conocido de no tener un endpoint de grupo atómico, aceptado como trade-off de este diseño.
+Este PATCH edita **únicamente la fila física `:id`** — sirve para corregir un valor puntual de una sola fila, distinto al resto del grupo. Para corregir **todas** las filas del grupo a la vez (crear, actualizar y borrar filas en un solo request atómico, sin reconciliación manual), usar `PATCH /aplicaciones-quimicas/operation-group/:operation_group_id` — sección 5a.
 
 ### Response `200`
 
@@ -230,6 +221,93 @@ Mismo shape que `GET /aplicaciones-quimicas/:id` (sección 7) — incluye `aplic
 | `LOTE_QUIMICO_STOCK_INSUFICIENTE` | 422 | Stock insuficiente en alguna línea nueva de `chemical_lines` (la reversión de las líneas viejas también se deshace) |
 | `LOTE_QUIMICO_NOT_FOUND` | 404 | Un `lote_quimico_id` de `chemical_lines` no existe |
 | 400 (validación) | 400 | Body inválido según `class-validator` |
+
+## 5a. Corregir grupo completo — `PATCH /aplicaciones-quimicas/operation-group/:operation_group_id`
+
+Corrige **todas** las filas físicas de un mismo `operation_group_id` en una sola transacción: crea, actualiza y borra filas del grupo en un solo request, sin dejarlo nunca a mitad de camino entre la versión vieja y la nueva. Requiere rol `supervisor` o `admin_global` (no `operario`).
+
+**El backend nunca inventa ni reparte `cantidad`.** No existe un modo "un `chemical_lines` y un array de targets para todo el grupo" — cada fila física (crear, actualizar o borrar) se declara por separado en `items[]`, con su propio `cantidad` real, exactamente como en `POST`/`PATCH` de fila única.
+
+`:operation_group_id` en la URL identifica el grupo — no es el id de ninguna fila individual.
+
+### Body
+
+```ts
+{
+  fecha_hora?: string;              // ISO 8601 — nivel grupo: aplica a TODA fila creada o
+                                     // actualizada por este request; nunca a las borradas, nunca
+                                     // a filas del grupo ausentes de items[]
+  observaciones?: string | null;    // ídem, nivel grupo
+
+  items: Array<{                    // requerido, 1 a 50 elementos — un ítem por fila física
+    op: 'create' | 'update' | 'delete';
+
+    id?: string;                    // uuid — requerido en update/delete, prohibido en create
+
+    chemical_lines?: Array<{        // mismo shape que en create/PATCH de fila única
+      lote_quimico_id: string;
+      dosis: number;                // > 0
+      dosis_unidad?: QuimicoRateUnidad;
+      cantidad: number;             // > 0 — se descuenta literal
+    }>;                             // requerido en create; opcional en update (solo si se
+                                     // reemplazan las líneas de esa fila); prohibido en delete
+
+    bandeja_ids?: string[];         // uuid[] — solo si el contexto del grupo es nursery
+    mesa_ids?: string[];            // uuid[] — solo si el contexto del grupo es greenhouse
+                                     // (uno de los dos requerido en create junto con
+                                     // chemical_lines; opcional en update; prohibido en delete)
+  }>;
+}
+```
+
+Reglas de forma por `op` (se validan contra el `contexto` real del grupo, no contra lo que declare el body):
+
+- `create`: sin `id`. Requiere `chemical_lines` y el campo de target que corresponde al contexto del grupo (`bandeja_ids` en `nursery`, `mesa_ids` en `greenhouse`).
+- `update`: requiere `id` de una fila que pertenezca a este grupo. Todo lo demás es opcional — un `update` sin `chemical_lines` ni targets simplemente re-estampa `fecha_hora`/`observaciones` de nivel grupo (si vinieron) y quién hizo la corrección.
+- `delete`: requiere `id`; no debe traer `chemical_lines`, `bandeja_ids` ni `mesa_ids`.
+- Ningún `id` puede repetirse entre ítems.
+- Una fila del grupo que no aparece en `items[]` queda intacta (no se borra ni se toca).
+
+### Reglas de negocio
+
+1. Se lockea (`FOR UPDATE`) todo el grupo por `operation_group_id` + tenant. Si no hay ninguna fila, `APLICACION_NOT_FOUND` (404).
+2. Todas las filas lockeadas deben compartir `contexto` y `establecimiento_id` — si un grupo pre-existente resultara no uniforme, `CONFLICT` (409); esto es un chequeo defensivo sobre datos ya guardados, no algo que el caller pueda provocar con este request.
+3. Cada `id` de `update`/`delete` debe pertenecer a este grupo y tenant — si no, `APLICACION_NOT_FOUND` (404).
+4. El grupo no puede quedar en 0 filas tras aplicar creates/updates/deletes — si quedaría vacío, `APLICACION_TARGETS_VACIOS` (422), sin aplicar ningún cambio.
+5. Descuento/reversión de stock: igual que en `PATCH` de fila única, por cada línea de `chemical_lines` tocada (reemplazada en un `update`, agregada en un `create`, revertida en un `delete`). Si falta stock en cualquier línea de cualquier ítem, **toda la operación se revierte** — ninguna fila del grupo cambia, aunque otros ítems del mismo request fueran válidos.
+6. Cada fila `create` nace con el mismo shape que un `POST` normal (`usuario_id` = quien ejecuta el PATCH, `updated_by` = `null`). Cada fila `update` siempre re-estampa `updated_by` + snapshot, sin importar qué campo puntual cambió.
+7. Carencia (WHP): se recalcula, **siempre y sin excepción**, para la unión de todos los targets que el grupo tenía antes del request y los que tiene después — no solo los targets tocados por un ítem en particular. Mismo criterio que la sección "Comportamiento de carencia" de arriba (MAX entre todas las aplicaciones que siguen ligadas a cada target).
+
+### Response `200`
+
+```ts
+{
+  data: {
+    operation_group_id: string;
+    applications: Array<{           // filas sobrevivientes del grupo (no incluye las borradas),
+      // mismo shape que cada item de GET /aplicaciones-quimicas/:id (sección 7):
+      // aplicacion, detalles, bandeja_ids?/mesa_ids?, targets
+      ...
+    }>;                              // ordenadas por created_at ascendente
+    deleted_ids: string[];          // ids de las filas borradas por este request
+  }
+}
+```
+
+No existe un shape "agregado" (totales de químicos/targets fusionados de todo el grupo): igual que en `create`, sería un número fabricado por el backend. Para saber qué se borró, usar `deleted_ids` — una fila borrada, por definición, no puede aparecer en `applications`.
+
+### Errores posibles
+
+| Código | Status | Causa |
+|---|---|---|
+| `APLICACION_NOT_FOUND` | 404 | `operation_group_id` no matchea ninguna fila del tenant, o un `id` de `update`/`delete` no pertenece a este grupo/tenant |
+| `APLICACION_TARGETS_VACIOS` | 422 | El grupo quedaría en 0 filas tras aplicar el request |
+| `APLICACION_TARGET_INVALIDO` | 422 | El campo de target de un ítem no corresponde al `contexto` del grupo, o falla la validación de un target/lote dentro de un ítem |
+| `LOTE_QUIMICO_STOCK_INSUFICIENTE` | 422 | Stock insuficiente en alguna línea de `chemical_lines` de cualquier ítem |
+| `LOTE_QUIMICO_NOT_FOUND` | 404 | Un `lote_quimico_id` referenciado no existe |
+| `CONFLICT` | 409 | El grupo lockeado tiene filas con `contexto`/`establecimiento_id` no uniforme (dato pre-existente inconsistente) |
+| `BAD_REQUEST` | 400 | `id` duplicado entre ítems, o la forma de un ítem no es consistente con su `op` (ej. `create` con `id`, `delete` con `chemical_lines`) |
+| 400 (validación) | 400 | Body inválido según `class-validator` — ej. `items` vacío/ausente o con más de 50 elementos, o una key fuera de `{fecha_hora, observaciones, items}` en el body (incluyendo `contexto`/`establecimiento_id`) |
 
 ## 6. Listar aplicaciones — `GET /aplicaciones-quimicas`
 
