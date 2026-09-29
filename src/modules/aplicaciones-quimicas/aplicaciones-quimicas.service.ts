@@ -235,20 +235,37 @@ export class AplicacionesQuimicasService {
   }
 
   /**
-   * Recalcula, para UN target (bandeja o mesa), el MAX de carencia entre
-   * TODAS las aplicaciones que siguen ligadas a él — histórico completo, no
-   * solo la fila que se está creando/editando. Por cada aplicación ligada
-   * también persiste el MAX de su propio withholding_period_dias (primario +
-   * detalles adicionales) en el header, reemplazando el valor viejo. Se
-   * llama siempre y escribe siempre, incluyendo null para limpiar
-   * carencia_hasta cuando ya no corresponde.
+   * Recalcula, para un lote de targets (bandejas o mesas), el MAX de
+   * carencia entre TODAS las aplicaciones que siguen ligadas a cada uno —
+   * histórico completo, no solo la fila que se está creando/editando.
+   * Batcheado en vez de una query por target: con hasta 200 targets por
+   * request, un round-trip por target es imperceptible en local (latencia
+   * ~0) pero se vuelve minutos contra una DB remota por la cantidad de
+   * round-trips secuenciales dentro de la misma transacción.
+   *
+   * También persiste el MAX de withholding_period_dias (primario +
+   * detalles) en cada aplicación afectada — deduplicado por aplicación, no
+   * por target: una aplicación ligada a varios targets del lote se
+   * recalcula una sola vez (antes se recalculaba, con el mismo resultado,
+   * una vez por cada target al que estaba ligada).
+   *
+   * Se llama siempre y escribe siempre para todo target del lote,
+   * incluyendo null para limpiar carencia_hasta cuando ya no corresponde.
    */
-  private async recomputeCarenciaHasta(
+  private async recomputeCarenciaHastaBatch(
     qr: QueryRunner,
     tenantId: string,
     contexto: AplicacionContexto,
-    targetId: string,
-  ): Promise<string | null> {
+    targetIds: string[],
+  ): Promise<Map<string, string | null>> {
+    const uniqueTargetIds = [...new Set(targetIds)];
+    const result = new Map<string, string | null>(
+      uniqueTargetIds.map((id) => [id, null]),
+    );
+    if (uniqueTargetIds.length === 0) {
+      return result;
+    }
+
     const linkTable =
       contexto === AplicacionContexto.NURSERY
         ? 'aplicacion_quimica_bandeja'
@@ -259,43 +276,75 @@ export class AplicacionesQuimicasService {
       contexto === AplicacionContexto.NURSERY ? 'bandejas' : 'mesas';
 
     const rows = (await qr.query(
-      `SELECT a.id, a.fecha_hora,
-              (SELECT MAX(q.withholding_period_dias)
-                 FROM aplicaciones_quimicas_detalle d
-                 JOIN lotes_quimicos lq ON lq.id = d.lote_quimico_id
-                 JOIN quimicos q ON q.id = lq.quimico_id
-                WHERE d.aplicacion_id = a.id) AS max_whp
+      `SELECT link.${linkColumn} AS target_id, a.id AS aplicacion_id, a.fecha_hora
          FROM aplicaciones_quimicas a
          JOIN ${linkTable} link ON link.aplicacion_id = a.id
-        WHERE link.${linkColumn} = $1 AND a.tenant_id = $2`,
-      [targetId, tenantId],
-    )) as Array<{ id: string; fecha_hora: Date; max_whp: number | null }>;
+        WHERE link.${linkColumn} = ANY($1::uuid[]) AND a.tenant_id = $2`,
+      [uniqueTargetIds, tenantId],
+    )) as Array<{ target_id: string; aplicacion_id: string; fecha_hora: Date }>;
 
-    let maxCarenciaHasta: string | null = null;
+    if (rows.length === 0) {
+      await qr.query(
+        `UPDATE ${targetTable} SET carencia_hasta = NULL WHERE id = ANY($1::uuid[]) AND tenant_id = $2`,
+        [uniqueTargetIds, tenantId],
+      );
+      return result;
+    }
+
+    // MAX WHP por aplicación única — no depende del target, así que se
+    // calcula una sola vez por aplicación aunque esté ligada a varios
+    // targets del lote que se está recalculando.
+    const aplicacionIds = [...new Set(rows.map((r) => r.aplicacion_id))];
+    const whpRows = (await qr.query(
+      `SELECT d.aplicacion_id, MAX(q.withholding_period_dias) AS max_whp
+         FROM aplicaciones_quimicas_detalle d
+         JOIN lotes_quimicos lq ON lq.id = d.lote_quimico_id
+         JOIN quimicos q ON q.id = lq.quimico_id
+        WHERE d.aplicacion_id = ANY($1::uuid[])
+        GROUP BY d.aplicacion_id`,
+      [aplicacionIds],
+    )) as Array<{ aplicacion_id: string; max_whp: number | null }>;
+    const whpByAplicacion = new Map(
+      whpRows.map((r) => [r.aplicacion_id, r.max_whp]),
+    );
+
+    await qr.query(
+      `UPDATE aplicaciones_quimicas AS a
+          SET withholding_period_dias = v.max_whp
+         FROM unnest($1::uuid[], $2::int[]) AS v(id, max_whp)
+        WHERE a.id = v.id`,
+      [
+        aplicacionIds,
+        aplicacionIds.map((id) => whpByAplicacion.get(id) ?? null),
+      ],
+    );
 
     for (const r of rows) {
-      const whp = r.max_whp ?? null;
-      await qr.query(
-        `UPDATE aplicaciones_quimicas SET withholding_period_dias = $1 WHERE id = $2`,
-        [whp, r.id],
-      );
-
+      const whp = whpByAplicacion.get(r.aplicacion_id) ?? null;
       if (whp !== null && whp > 0) {
         const carenciaDate = new Date(r.fecha_hora);
         carenciaDate.setDate(carenciaDate.getDate() + whp);
         const carenciaHastaStr = carenciaDate.toISOString().split('T')[0];
-        if (maxCarenciaHasta === null || carenciaHastaStr > maxCarenciaHasta) {
-          maxCarenciaHasta = carenciaHastaStr;
+        const current = result.get(r.target_id) ?? null;
+        if (current === null || carenciaHastaStr > current) {
+          result.set(r.target_id, carenciaHastaStr);
         }
       }
     }
 
     await qr.query(
-      `UPDATE ${targetTable} SET carencia_hasta = $1 WHERE id = $2 AND tenant_id = $3`,
-      [maxCarenciaHasta, targetId, tenantId],
+      `UPDATE ${targetTable} AS t
+          SET carencia_hasta = v.carencia_hasta
+         FROM unnest($1::uuid[], $2::date[]) AS v(id, carencia_hasta)
+        WHERE t.id = v.id AND t.tenant_id = $3`,
+      [
+        uniqueTargetIds,
+        uniqueTargetIds.map((id) => result.get(id) ?? null),
+        tenantId,
+      ],
     );
 
-    return maxCarenciaHasta;
+    return result;
   }
 
   async createAplicacion(
@@ -498,32 +547,37 @@ export class AplicacionesQuimicasService {
           });
         }
 
-        for (const bandeja_id of dto.bandeja_ids) {
-          await qr.manager.save(AplicacionQuimicaBandeja, {
+        await qr.manager.save(
+          AplicacionQuimicaBandeja,
+          dto.bandeja_ids.map((bandeja_id) => ({
             aplicacion_id: savedAplicacion.id,
             bandeja_id,
-          });
+          })),
+        );
 
-          await this.recomputeCarenciaHasta(
-            qr,
-            tenantId,
-            AplicacionContexto.NURSERY,
-            bandeja_id,
-          );
-        }
+        await this.recomputeCarenciaHastaBatch(
+          qr,
+          tenantId,
+          AplicacionContexto.NURSERY,
+          dto.bandeja_ids,
+        );
       }
 
       // Greenhouse mesa links + historial + carencia
       if (dto.contexto === AplicacionContexto.GREENHOUSE && dto.mesa_ids) {
         const aplicacionDate = new Date();
 
-        for (const mesa_id of dto.mesa_ids) {
-          await qr.manager.save(AplicacionQuimicaMesa, {
+        await qr.manager.save(
+          AplicacionQuimicaMesa,
+          dto.mesa_ids.map((mesa_id) => ({
             aplicacion_id: savedAplicacion.id,
             mesa_id,
-          });
+          })),
+        );
 
-          await qr.manager.save(HistorialMesa, {
+        await qr.manager.save(
+          HistorialMesa,
+          dto.mesa_ids.map((mesa_id) => ({
             mesa_id,
             tipo_evento: HistorialTipoEvento.APLICACION_QUIMICA,
             tenant_id: tenantId,
@@ -541,31 +595,34 @@ export class AplicacionesQuimicasService {
                 cantidad: d.cantidad,
               })),
             },
-          });
+          })),
+        );
 
-          const carenciaHastaStr = await this.recomputeCarenciaHasta(
-            qr,
-            tenantId,
-            AplicacionContexto.GREENHOUSE,
+        const carenciaByTarget = await this.recomputeCarenciaHastaBatch(
+          qr,
+          tenantId,
+          AplicacionContexto.GREENHOUSE,
+          dto.mesa_ids,
+        );
+
+        const enCarenciaEntries = dto.mesa_ids
+          .filter((mesa_id) => carenciaByTarget.get(mesa_id) !== null)
+          .map((mesa_id) => ({
             mesa_id,
-          );
-
-          if (carenciaHastaStr !== null) {
-            await qr.manager.save(HistorialMesa, {
-              mesa_id,
-              tipo_evento: HistorialTipoEvento.EN_CARENCIA,
-              tenant_id: tenantId,
-              usuario_id: userId,
-              ...usuarioSnapshot,
-              fecha_hora: aplicacionDate,
-              detalle: {
-                aplicacion_id: savedAplicacion.id,
-                lote_quimico_id: dto.lote_quimico_id,
-                withholding_period_dias: ownWhp,
-                carencia_hasta: carenciaHastaStr,
-              },
-            });
-          }
+            tipo_evento: HistorialTipoEvento.EN_CARENCIA,
+            tenant_id: tenantId,
+            usuario_id: userId,
+            ...usuarioSnapshot,
+            fecha_hora: aplicacionDate,
+            detalle: {
+              aplicacion_id: savedAplicacion.id,
+              lote_quimico_id: dto.lote_quimico_id,
+              withholding_period_dias: ownWhp,
+              carencia_hasta: carenciaByTarget.get(mesa_id),
+            },
+          }));
+        if (enCarenciaEntries.length > 0) {
+          await qr.manager.save(HistorialMesa, enCarenciaEntries);
         }
       }
 
@@ -741,19 +798,21 @@ export class AplicacionesQuimicasService {
         );
 
         if (current.contexto === AplicacionContexto.NURSERY) {
-          for (const bandeja_id of targetIdsNuevos) {
-            await qr.manager.save(AplicacionQuimicaBandeja, {
+          await qr.manager.save(
+            AplicacionQuimicaBandeja,
+            targetIdsNuevos.map((bandeja_id) => ({
               aplicacion_id: id,
               bandeja_id,
-            });
-          }
+            })),
+          );
         } else {
-          for (const mesa_id of targetIdsNuevos) {
-            await qr.manager.save(AplicacionQuimicaMesa, {
+          await qr.manager.save(
+            AplicacionQuimicaMesa,
+            targetIdsNuevos.map((mesa_id) => ({
               aplicacion_id: id,
               mesa_id,
-            });
-          }
+            })),
+          );
         }
       }
 
@@ -812,30 +871,31 @@ export class AplicacionesQuimicasService {
         const targetsDespues = targetIdsNuevos ?? targetsAntes;
         const targetsUnion = [...new Set([...targetsAntes, ...targetsDespues])];
 
-        for (const targetId of targetsUnion) {
-          const carenciaHastaStr = await this.recomputeCarenciaHasta(
-            qr,
-            tenantId,
-            current.contexto,
-            targetId,
-          );
+        const carenciaByTarget = await this.recomputeCarenciaHastaBatch(
+          qr,
+          tenantId,
+          current.contexto,
+          targetsUnion,
+        );
 
-          if (
-            current.contexto === AplicacionContexto.GREENHOUSE &&
-            carenciaHastaStr !== null
-          ) {
-            await qr.manager.save(HistorialMesa, {
+        if (current.contexto === AplicacionContexto.GREENHOUSE) {
+          const now = new Date();
+          const enCarenciaEntries = targetsUnion
+            .filter((targetId) => carenciaByTarget.get(targetId) !== null)
+            .map((targetId) => ({
               mesa_id: targetId,
               tipo_evento: HistorialTipoEvento.EN_CARENCIA,
               tenant_id: tenantId,
               usuario_id: userId,
               ...usuarioSnapshot,
-              fecha_hora: new Date(),
+              fecha_hora: now,
               detalle: {
                 aplicacion_id: id,
-                carencia_hasta: carenciaHastaStr,
+                carencia_hasta: carenciaByTarget.get(targetId),
               },
-            });
+            }));
+          if (enCarenciaEntries.length > 0) {
+            await qr.manager.save(HistorialMesa, enCarenciaEntries);
           }
         }
       }
@@ -1158,19 +1218,21 @@ export class AplicacionesQuimicasService {
           );
 
           if (contexto === AplicacionContexto.NURSERY) {
-            for (const bandeja_id of targetIdsNuevos) {
-              await qr.manager.save(AplicacionQuimicaBandeja, {
+            await qr.manager.save(
+              AplicacionQuimicaBandeja,
+              targetIdsNuevos.map((bandeja_id) => ({
                 aplicacion_id: rowId,
                 bandeja_id,
-              });
-            }
+              })),
+            );
           } else {
-            for (const mesa_id of targetIdsNuevos) {
-              await qr.manager.save(AplicacionQuimicaMesa, {
+            await qr.manager.save(
+              AplicacionQuimicaMesa,
+              targetIdsNuevos.map((mesa_id) => ({
                 aplicacion_id: rowId,
                 mesa_id,
-              });
-            }
+              })),
+            );
           }
         }
 
@@ -1286,21 +1348,26 @@ export class AplicacionesQuimicasService {
         }
 
         if (contexto === AplicacionContexto.NURSERY) {
-          for (const bandeja_id of targetIdsNuevos) {
-            await qr.manager.save(AplicacionQuimicaBandeja, {
+          await qr.manager.save(
+            AplicacionQuimicaBandeja,
+            targetIdsNuevos.map((bandeja_id) => ({
               aplicacion_id: savedRow.id,
               bandeja_id,
-            });
-          }
+            })),
+          );
         } else {
           const aplicacionDate = savedRow.fecha_hora;
-          for (const mesa_id of targetIdsNuevos) {
-            await qr.manager.save(AplicacionQuimicaMesa, {
+          await qr.manager.save(
+            AplicacionQuimicaMesa,
+            targetIdsNuevos.map((mesa_id) => ({
               aplicacion_id: savedRow.id,
               mesa_id,
-            });
+            })),
+          );
 
-            await qr.manager.save(HistorialMesa, {
+          await qr.manager.save(
+            HistorialMesa,
+            targetIdsNuevos.map((mesa_id) => ({
               mesa_id,
               tipo_evento: HistorialTipoEvento.APLICACION_QUIMICA,
               tenant_id: tenantId,
@@ -1318,8 +1385,8 @@ export class AplicacionesQuimicasService {
                   cantidad: e.line.cantidad,
                 })),
               },
-            });
-          }
+            })),
+          );
         }
 
         groupRowIds.add(savedRow.id);
@@ -1343,30 +1410,31 @@ export class AplicacionesQuimicasService {
       // sin gate condicional (a diferencia del PATCH de fila única, acá
       // casi cualquier ítem puede afectar carencia de algún target).
       const targetsUnion = [...new Set([...targetsAntes, ...targetsDespues])];
-      for (const targetId of targetsUnion) {
-        const carenciaHastaStr = await this.recomputeCarenciaHasta(
-          qr,
-          tenantId,
-          contexto,
-          targetId,
-        );
+      const carenciaByTarget = await this.recomputeCarenciaHastaBatch(
+        qr,
+        tenantId,
+        contexto,
+        targetsUnion,
+      );
 
-        if (
-          contexto === AplicacionContexto.GREENHOUSE &&
-          carenciaHastaStr !== null
-        ) {
-          await qr.manager.save(HistorialMesa, {
+      if (contexto === AplicacionContexto.GREENHOUSE) {
+        const now = new Date();
+        const enCarenciaEntries = targetsUnion
+          .filter((targetId) => carenciaByTarget.get(targetId) !== null)
+          .map((targetId) => ({
             mesa_id: targetId,
             tipo_evento: HistorialTipoEvento.EN_CARENCIA,
             tenant_id: tenantId,
             usuario_id: userId,
             ...usuarioSnapshot,
-            fecha_hora: new Date(),
+            fecha_hora: now,
             detalle: {
               operation_group_id: operationGroupId,
-              carencia_hasta: carenciaHastaStr,
+              carencia_hasta: carenciaByTarget.get(targetId),
             },
-          });
+          }));
+        if (enCarenciaEntries.length > 0) {
+          await qr.manager.save(HistorialMesa, enCarenciaEntries);
         }
       }
 
