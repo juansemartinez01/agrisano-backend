@@ -3,11 +3,10 @@ import {
   IsString,
   IsNotEmpty,
   MaxLength,
-  IsNumber,
-  Min,
   IsOptional,
   IsDateString,
 } from 'class-validator';
+import { IsCantidadStock } from 'src/common/validators/cantidad-stock.validator';
 
 export class CreateLoteQuimicoDto {
   @IsUUID()
@@ -21,8 +20,7 @@ export class CreateLoteQuimicoDto {
   @MaxLength(100)
   numero_lote!: string;
 
-  @IsNumber()
-  @Min(0.001)
+  @IsCantidadStock()
   cantidad_inicial!: number;
 
   @IsOptional()

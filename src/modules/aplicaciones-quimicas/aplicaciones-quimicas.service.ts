@@ -133,11 +133,13 @@ export class AplicacionesQuimicasService {
   }
 
   // Espejo de decrementarLote, sin el guard de >= — revertir stock nunca
-  // puede "faltar" stock disponible.
+  // puede "faltar" stock disponible. `cantidad` acepta el string numeric tal
+  // como lo devuelve pg: así la reposición de una edición nunca pasa por un
+  // float de JS.
   private async incrementarLote(
     qr: QueryRunner,
     loteId: string,
-    cantidad: number,
+    cantidad: number | string,
     tenantId: string,
   ): Promise<void> {
     const result = await qr.manager
@@ -739,7 +741,7 @@ export class AplicacionesQuimicasService {
           await this.incrementarLote(
             qr,
             d.lote_quimico_id,
-            this.toNumberOrNull(d.cantidad) ?? 0,
+            d.cantidad,
             tenantId,
           );
         }
@@ -1119,7 +1121,7 @@ export class AplicacionesQuimicasService {
           await this.incrementarLote(
             qr,
             d.lote_quimico_id,
-            this.toNumberOrNull(d.cantidad) ?? 0,
+            d.cantidad,
             tenantId,
           );
         }
@@ -1161,7 +1163,7 @@ export class AplicacionesQuimicasService {
             await this.incrementarLote(
               qr,
               d.lote_quimico_id,
-              this.toNumberOrNull(d.cantidad) ?? 0,
+              d.cantidad,
               tenantId,
             );
           }
