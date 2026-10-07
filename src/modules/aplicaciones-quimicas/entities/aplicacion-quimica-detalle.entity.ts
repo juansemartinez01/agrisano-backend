@@ -23,7 +23,7 @@ export class AplicacionQuimicaDetalle {
   })
   dosis_unidad!: QuimicoRateUnidad | null;
 
-  @Column({ type: 'decimal', precision: 10, scale: 3 })
+  @Column({ type: 'decimal', precision: 13, scale: 6 })
   cantidad!: number;
 
   @Column({ type: 'varchar', length: 30 })

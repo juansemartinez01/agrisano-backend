@@ -15,10 +15,10 @@ export class LoteQuimico extends BaseEntity {
   @Column({ type: 'varchar', length: 100 })
   numero_lote!: string;
 
-  @Column({ type: 'decimal', precision: 10, scale: 3 })
+  @Column({ type: 'decimal', precision: 13, scale: 6 })
   cantidad_inicial!: number;
 
-  @Column({ type: 'decimal', precision: 10, scale: 3 })
+  @Column({ type: 'decimal', precision: 13, scale: 6 })
   cantidad_actual!: number;
 
   @Column({ type: 'date', nullable: true })

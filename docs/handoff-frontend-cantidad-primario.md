@@ -116,7 +116,7 @@ Puntos importantes:
 - **El backend nunca multiplica por la cantidad de targets ni ajusta el valor.** El cálculo del total es 100% del frontend.
 - **`dosis` no interviene en el stock.** Se guarda como snapshot informativo en la cabecera y en cada línea de detalle, y se muestra en las lecturas (`dose` / `dosis`). Sirve para trazabilidad, no para calcular.
 - **La operación es atómica.** Si el stock de cualquier lote (primario o adicional) no alcanza, se revierte todo: no se crea la aplicación, ni los detalles, ni los vínculos con mesas/bandejas, ni el historial, ni la carencia. Se responde `422 LOTE_QUIMICO_STOCK_INSUFICIENTE`.
-- **La precisión es de 3 decimales** (columna `numeric(10,3)`), igual que siempre. `0.0004` se persiste redondeado; conviene no mandar más de 3 decimales.
+- **La precisión es de 6 decimales** (columna `numeric(13,6)`). Un valor con más de 6 decimales se rechaza con `400` (antes se redondeaba en silencio). Ver [handoff-frontend-cantidad-6-decimales.md](handoff-frontend-cantidad-6-decimales.md).
 - Todo lo demás sigue igual: snapshot de `batch` y `withholding_period_dias`, carencia automática en mesas (`carencia_hasta`) cuando el químico tiene período de carencia, validación de estados de bandejas (`en_nursery`) y mesas (`activa` / `en_cosecha`).
 
 ### Sugerencia de UX
@@ -228,7 +228,7 @@ Las aplicaciones creadas antes de este cambio **no se modificaron**. Tienen el m
 
 ## 10. Checklist de implementación
 
-- [ ] Agregar el campo `cantidad` al formulario de creación de aplicación química (número, obligatorio, > 0, hasta 3 decimales).
+- [ ] Agregar el campo `cantidad` al formulario de creación de aplicación química (número, obligatorio, > 0, hasta 6 decimales).
 - [ ] Sugerido: precargarlo con `dosis × cantidad_de_targets` y dejarlo editable.
 - [ ] Incluir `cantidad` en el body de **todos** los POST a `/aplicaciones-quimicas`.
 - [ ] En flujos con troceo por chunks, repartir el total entre los chunks y mandar el mismo `operation_group_id`.

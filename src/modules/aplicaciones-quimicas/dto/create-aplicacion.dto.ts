@@ -12,6 +12,7 @@ import {
   MaxLength,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { IsCantidadStock } from 'src/common/validators/cantidad-stock.validator';
 import { AplicacionContexto } from '../entities/aplicacion-quimica.entity';
 import { QuimicoRateUnidad } from 'src/modules/quimicos/entities/quimico.entity';
 
@@ -27,8 +28,7 @@ export class DetalleItemDto {
   @IsEnum(QuimicoRateUnidad)
   dosis_unidad?: QuimicoRateUnidad;
 
-  @IsNumber()
-  @IsPositive()
+  @IsCantidadStock()
   cantidad!: number;
 }
 
@@ -52,8 +52,9 @@ export class CreateAplicacionDto {
 
   // Descuento literal del lote primario — el backend no calcula dosis ×
   // targets ni valida coherencia; con operation_group_id el valor es por chunk.
-  @IsNumber()
-  @IsPositive()
+  // Hasta 6 decimales (numeric(13,6)): más se rechaza con 400 en vez de
+  // redondearse al persistir.
+  @IsCantidadStock()
   cantidad!: number;
 
   @IsOptional()

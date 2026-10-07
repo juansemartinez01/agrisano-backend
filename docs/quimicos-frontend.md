@@ -384,7 +384,7 @@ type LoteQuimico = {
   establecimiento_id: string;    // copiado del quimico al crear el lote
   proveedor_id: string;
   numero_lote: string;
-  cantidad_inicial: string | number;  // decimal, puede llegar como string segun el driver
+  cantidad_inicial: string | number;  // numeric(13,6): llega como string con 6 decimales ("10.000000")
   cantidad_actual: string | number;
   dom: string | null;                 // fecha de fabricacion/origen, "YYYY-MM-DD"
   fecha_vencimiento: string | null;   // "YYYY-MM-DD"
@@ -404,8 +404,8 @@ Ejemplo:
   "establecimiento_id": "1e4a93fd-8f72-4c13-b5c5-2c29bb0b5731",
   "proveedor_id": "7c1e2b4a-6f2d-4b5a-8e3f-1a2b3c4d5e6f",
   "numero_lote": "LQ-2026-001",
-  "cantidad_inicial": "10.000",
-  "cantidad_actual": "6.500",
+  "cantidad_inicial": "10.000000",
+  "cantidad_actual": "6.500000",
   "dom": "2026-01-15",
   "fecha_vencimiento": "2027-01-15",
   "created_at": "2026-06-04T19:03:01.913Z",
@@ -1287,7 +1287,7 @@ Campos:
 | `quimico_id` | uuid | Si | Debe existir en el tenant |
 | `proveedor_id` | uuid | Si | Debe existir en el tenant y pertenecer al mismo establecimiento del quimico |
 | `numero_lote` | string | Si | No vacio, maximo 100 caracteres |
-| `cantidad_inicial` | number | Si | Minimo `0.001` |
+| `cantidad_inicial` | number | Si | Mayor a `0`, **hasta 6 decimales** (minimo `0.000001`), maximo `9999999.999999`. Mas de 6 decimales responde `400` |
 | `dom` | date | No | Formato `YYYY-MM-DD` |
 | `fecha_vencimiento` | date | No | Formato `YYYY-MM-DD` |
 
@@ -1342,7 +1342,7 @@ Campos:
 
 | Campo | Tipo | Requerido | Validacion |
 | --- | --- | --- | --- |
-| `cantidad` | number | Si | Minimo `0.001` |
+| `cantidad` | number | Si | Mayor a `0`, **hasta 6 decimales** (minimo `0.000001`), maximo `9999999.999999`. Mas de 6 decimales responde `400` |
 | `observaciones` | string | No | Maximo 2000 caracteres |
 
 Importante: este endpoint **siempre resta** `cantidad` de `cantidad_actual` (no existe un modo de sumar/reponer stock via este endpoint). Si `cantidad_actual` es menor que `cantidad`, la operacion se rechaza atomicamente con `422 LOTE_QUIMICO_STOCK_INSUFICIENTE` (la resta se hace en un solo `UPDATE` condicionado, no hay lectura-luego-escritura).

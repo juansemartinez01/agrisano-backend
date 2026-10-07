@@ -59,7 +59,7 @@ Estos son los valores actuales (con esta capitalización exacta). Si no se enví
   lote_quimico_id: string;         // uuid, requerido — lote químico primario
   dosis: number;                   // requerido, > 0 — INFORMATIVA (por target); no afecta el stock
   dosis_unidad?: QuimicoRateUnidad; // opcional — default: rate_unidad del químico del lote primario
-  cantidad: number;                // ⭐ NUEVO — requerido, > 0. Es EXACTAMENTE lo que se
+  cantidad: number;                // ⭐ NUEVO — requerido, > 0, hasta 6 decimales (ver abajo). Es EXACTAMENTE lo que se
                                    // descuenta del lote primario; el backend ya no calcula
                                    // dosis × targets ni valida coherencia. Con requests
                                    // troceados (operation_group_id), la cantidad es POR CHUNK.
@@ -68,7 +68,7 @@ Estos son los valores actuales (con esta capitalización exacta). Si no se enví
     lote_quimico_id: string;       // uuid, requerido
     dosis: number;                 // requerido, > 0 — dosis real de ESTE lote (no se asume igual a la del primario)
     dosis_unidad?: QuimicoRateUnidad; // opcional — default: rate_unidad del químico de ESTE lote
-    cantidad: number;              // requerido, > 0
+    cantidad: number;              // requerido, > 0, hasta 6 decimales
   }>;                              // si se envía, debe tener al menos 1 elemento
   bandeja_ids?: string[];          // uuid[] — requerido si contexto = nursery
   mesa_ids?: string[];             // uuid[] — requerido si contexto = greenhouse
@@ -78,6 +78,8 @@ Estos son los valores actuales (con esta capitalización exacta). Si no se enví
 > ⚠️ **Cambio breaking**: antes de esta versión, cada item de `detalles[]` solo aceptaba `lote_quimico_id`/`cantidad`. Ahora `dosis` es **obligatoria** por item — un request que omita `dosis` en algún elemento de `detalles[]` recibirá `400` (validación). Motivo: la base nunca guardaba la dosis de los químicos adicionales, así que no había forma de mostrarla después en trazabilidad ni en el detalle de la aplicación. Si el frontend no captura hoy una dosis por lote adicional, debe agregar ese campo al formulario antes de actualizar contra este endpoint.
 
 > ⚠️ **Cambio breaking (cantidad del lote primario)**: `cantidad` es ahora **obligatoria en la raíz del body** y es exactamente lo que se descuenta del lote primario. El backend **ya no calcula** `dosis × cantidad_de_targets` ni valida coherencia entre `cantidad` y la dosis — el cálculo del total es 100% responsabilidad del frontend, igual que siempre lo fue para `detalles[]`. Un request sin `cantidad` (o con valor ≤ 0) recibe `400`. Con pedidos troceados en varios POST (`operation_group_id`), la `cantidad` se manda **por chunk**. Contrato completo: `specs/017-cantidad-primario-explicita/contracts/create-aplicacion.md`.
+
+> **Precisión de `cantidad` (6 decimales)**: todas las `cantidad` de este módulo (`POST`, `PATCH /:id` y `PATCH /operation-group/:id`) admiten **hasta 6 decimales** (mínimo `0.000001`, máximo `9999999.999999`). Más de 6 decimales responde `400` — también el ruido de punto flotante (`0.1 + 0.2` = `0.30000000000000004`), así que el front debe redondear con `Number(x.toFixed(6))` antes de enviar. Los valores de 3 decimales siguen funcionando igual. Detalle en [handoff-frontend-cantidad-6-decimales.md](handoff-frontend-cantidad-6-decimales.md).
 
 ### Reglas de negocio
 
@@ -163,7 +165,7 @@ Todos los campos son opcionales — se edita solo lo que se envía; lo que no se
     lote_quimico_id: string;       // uuid
     dosis: number;                 // > 0
     dosis_unidad?: QuimicoRateUnidad;
-    cantidad: number;              // > 0 — se descuenta literal, igual que en create
+    cantidad: number;              // > 0, hasta 6 decimales — se descuenta literal, igual que en create
   }>;                              // si se envía, al menos 1 elemento; [0] pasa a ser la línea primaria
   bandeja_ids?: string[];          // uuid[] — reemplaza TODOS los targets (solo si contexto = nursery)
   mesa_ids?: string[];             // uuid[] — reemplaza TODOS los targets (solo si contexto = greenhouse)
@@ -248,7 +250,7 @@ Corrige **todas** las filas físicas de un mismo `operation_group_id` en una sol
       lote_quimico_id: string;
       dosis: number;                // > 0
       dosis_unidad?: QuimicoRateUnidad;
-      cantidad: number;             // > 0 — se descuenta literal
+      cantidad: number;             // > 0, hasta 6 decimales — se descuenta literal
     }>;                             // requerido en create; opcional en update (solo si se
                                      // reemplazan las líneas de esa fila); prohibido en delete
 

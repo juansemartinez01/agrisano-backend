@@ -317,7 +317,61 @@
                 "aplicaciones-quimicas"
               ]
             },
-            "description": "Crea una aplicacion de contexto nursery. Requiere al menos una bandeja en estado en_nursery. `cantidad` (raiz) es lo que se descuenta del lote primario; `dosis` es informativa."
+            "description": "Crea una aplicacion de contexto nursery. Requiere al menos una bandeja en estado en_nursery. `cantidad` (raiz) es lo que se descuenta del lote primario; `dosis` es informativa. `cantidad` admite hasta 6 decimales (min 0.000001); mas de 6 decimales responde 400."
+          }
+        },
+        {
+          "name": "Crear aplicacion nursery (cantidad con 6 decimales)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Aplicacion creada con cantidad de 6 decimales', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "const detalles = (json.data && json.data.detalles) || [];",
+                  "pm.test('La cantidad se devuelve sin perder precision', function () {",
+                  "  pm.expect(detalles[0].cantidad).to.eql(0.000272);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"establecimiento_id\": \"{{establecimientoId}}\",\n  \"contexto\": \"nursery\",\n  \"lote_quimico_id\": \"{{loteQuimicoId}}\",\n  \"dosis\": {{dosis}},\n  \"cantidad\": 0.000272,\n  \"observaciones\": \"Cantidad con 6 decimales\",\n  \"bandeja_ids\": [\n    \"{{bandejaId}}\"\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/aplicaciones-quimicas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "aplicaciones-quimicas"
+              ]
+            },
+            "description": "Verifica la precision de 6 decimales en `cantidad` (columna numeric(13,6)). El stock del lote baja exactamente 0.000272. Valores de 3 decimales (ej. 0.125) siguen funcionando igual."
           }
         },
         {
@@ -998,6 +1052,58 @@
               ]
             },
             "description": "Caso negativo de DTO: detalles requiere ArrayMinSize(1). El ValidationPipe suele responder 400 BAD_REQUEST antes de llegar al service."
+          }
+        },
+        {
+          "name": "Error esperado - cantidad con mas de 6 decimales",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Debe fallar con 400 por exceso de decimales', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test('El mensaje menciona la cantidad y los 6 decimales', function () {",
+                  "  pm.expect(pm.response.text()).to.include('6 decimal places');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"establecimiento_id\": \"{{establecimientoId}}\",\n  \"contexto\": \"nursery\",\n  \"lote_quimico_id\": \"{{loteQuimicoId}}\",\n  \"dosis\": {{dosis}},\n  \"cantidad\": 0.0000001,\n  \"observaciones\": \"Caso negativo: 7 decimales\",\n  \"bandeja_ids\": [\n    \"{{bandejaId}}\"\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/aplicaciones-quimicas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "aplicaciones-quimicas"
+              ]
+            },
+            "description": "Caso negativo: `cantidad` con 7 decimales (1e-7). Se rechaza con 400 en la validacion del DTO; no se toca el stock. Tambien aplica al ruido de punto flotante (0.1 + 0.2 = 0.30000000000000004): el front debe redondear con Number(x.toFixed(6))."
           }
         },
         {

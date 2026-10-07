@@ -1,8 +1,8 @@
-import { IsNumber, Min, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsCantidadStock } from 'src/common/validators/cantidad-stock.validator';
 
 export class AjusteLoteQuimicoDto {
-  @IsNumber()
-  @Min(0.001)
+  @IsCantidadStock()
   cantidad!: number;
 
   @IsOptional()
