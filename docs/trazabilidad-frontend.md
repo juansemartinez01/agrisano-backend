@@ -345,6 +345,7 @@ type AplicacionDetalle = {
 - `lote_quimico_id`, `dosis`, `dosis_unidad`, `batch`, `withholding_period_dias` son el snapshot tomado al momento de la aplicación (a nivel cabecera, corresponden al químico **principal**; puede haber más de un químico si la aplicación tiene varios `detalles`).
 - `lote_quimico` (a nivel cabecera) enriquece el `lote_quimico_id` principal con el químico, su marca y su proveedor — mismo shape que el `lote_quimico` de cada `detalle`.
 - Cada item de `detalles` trae su propia `dosis`/`dosis_unidad` real (no se debe asumir que coincide con la del químico principal) y su propio `lote_quimico` enriquecido con la misma forma (una aplicación puede mezclar varios productos). `dosis`/`dosis_unidad` son `null` solo en detalles creados antes de que este campo existiera (dato histórico nunca capturado).
+- **Precisión de `dosis` (6 decimales)**: la columna es `numeric(13,6)`. La `dosis` de la **cabecera** llega como **string con 6 decimales** (`"2.000000"`, `"0.000273"`; antes `"2.000"`): si la parsean con `Number(...)` no cambia nada, pero si comparan el string literal o lo muestran tal cual, ahora trae ceros a la derecha. La `dosis` (y la `cantidad`) de cada item de `detalles` sale de un `json_build_object` de Postgres y llega como **number**. Por eso el tipo es `number | string`: no asuman uno solo. Ver [handoff-frontend-dosis-6-decimales.md](handoff-frontend-dosis-6-decimales.md).
 - `dosis_unidad` puede ser cualquiera de los 8 valores de `QuimicoRateUnidad` (ver [aplicaciones-quimicas-frontend.md](aplicaciones-quimicas-frontend.md)), de dos familias que **no son intercambiables**: concentración (`kg/L`, `g/L`, `mL/L`, `L/L`) y superficie (`mL/Ha`, `L/Ha`, `g/Ha`, `kg/Ha`). El backend no convierte entre unidades, así que `dosis` solo puede agregarse agrupando por `dosis_unidad` — nunca sumar en crudo. Lo mismo aplica a `cantidad` con `unidad_medida` (`kg` o `l`).
 - `carencia_hasta_calculada` = `fecha_hora` + `withholding_period_dias` días. Es `null` si la aplicación no tiene período de carencia definido. `withholding_period_dias` solo existe a nivel de cabecera (snapshot de la aplicación), no por detalle.
 
@@ -564,7 +565,7 @@ Respuesta `200`:
         "contexto": "greenhouse",
         "establecimiento_id": "1e4a93fd-8f72-4c13-b5c5-2c29bb0b5731",
         "lote_quimico_id": "7aab9d6e-a454-4135-9d7e-09973f33f801",
-        "dosis": "2.500",
+        "dosis": "2.500000",
         "dosis_unidad": "L/Ha",
         "batch": "LQ-2026-014",
         "withholding_period_dias": 3,
@@ -581,9 +582,9 @@ Respuesta `200`:
             "id": "b0ebf981-5890-4130-9592-60c0e4b11c65",
             "aplicacion_id": "35f8083d-5a3f-4a8d-88f4-df36e7e2b32a",
             "lote_quimico_id": "7aab9d6e-a454-4135-9d7e-09973f33f801",
-            "dosis": "2.500",
+            "dosis": 2.5,
             "dosis_unidad": "L/Ha",
-            "cantidad": "2.000",
+            "cantidad": 2,
             "unidad_medida": "l",
             "lote_quimico": {
               "id": "7aab9d6e-a454-4135-9d7e-09973f33f801",
@@ -597,9 +598,9 @@ Respuesta `200`:
             "id": "c1fc0a92-6a01-5241-a6a3-71d1f5c22d76",
             "aplicacion_id": "35f8083d-5a3f-4a8d-88f4-df36e7e2b32a",
             "lote_quimico_id": "9bcd1e7f-b565-4246-ae8f-1a084d44e912",
-            "dosis": "0.100",
+            "dosis": 0.1,
             "dosis_unidad": "L/L",
-            "cantidad": "0.500",
+            "cantidad": 0.5,
             "unidad_medida": "l",
             "lote_quimico": {
               "id": "9bcd1e7f-b565-4246-ae8f-1a084d44e912",

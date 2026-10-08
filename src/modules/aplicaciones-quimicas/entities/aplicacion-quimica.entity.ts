@@ -54,7 +54,7 @@ export class AplicacionQuimica {
   @Column({ type: 'uuid', nullable: true })
   lote_quimico_id!: string | null;
 
-  @Column({ type: 'decimal', precision: 10, scale: 3, nullable: true })
+  @Column({ type: 'decimal', precision: 13, scale: 6, nullable: true })
   dosis!: number | null;
 
   @Column({

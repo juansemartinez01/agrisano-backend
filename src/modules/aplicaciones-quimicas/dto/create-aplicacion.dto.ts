@@ -7,12 +7,11 @@ import {
   ArrayMinSize,
   ArrayMaxSize,
   ValidateNested,
-  IsNumber,
-  IsPositive,
   MaxLength,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { IsCantidadStock } from 'src/common/validators/cantidad-stock.validator';
+import { IsDosis } from 'src/common/validators/dosis.validator';
 import { AplicacionContexto } from '../entities/aplicacion-quimica.entity';
 import { QuimicoRateUnidad } from 'src/modules/quimicos/entities/quimico.entity';
 
@@ -20,8 +19,8 @@ export class DetalleItemDto {
   @IsUUID()
   lote_quimico_id!: string;
 
-  @IsNumber()
-  @IsPositive()
+  // Hasta 6 decimales (numeric(13,6)); más se rechaza con 400.
+  @IsDosis()
   dosis!: number;
 
   @IsOptional()
@@ -42,8 +41,9 @@ export class CreateAplicacionDto {
   @IsUUID()
   lote_quimico_id!: string;
 
-  @IsNumber()
-  @IsPositive()
+  // Hasta 6 decimales (numeric(13,6)): más se rechaza con 400 en vez de
+  // redondearse al persistir. La dosis es informativa, no descuenta stock.
+  @IsDosis()
   dosis!: number;
 
   @IsOptional()

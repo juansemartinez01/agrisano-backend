@@ -97,7 +97,7 @@ Cada elemento ya tiene como máximo 6 decimales, así que pasa la validación.
 ## 5. Compatibilidad y qué NO cambió
 
 - **Valores de 3 decimales** (`0.125`, `1.5`, `0.001`): funcionan idéntico. Los datos históricos no cambian (`1.500` pasa a `1.500000`).
-- Sin cambios: límite de 200 targets por chunk, `operation_group_id`, `dosis` (sigue en 3 decimales y es solo informativa), selección FEFO, período de carencia (WHP), validación de targets, roles, tenancy, y el rechazo `422 LOTE_QUIMICO_STOCK_INSUFICIENTE` cuando falta stock.
+- Sin cambios: límite de 200 targets por chunk, `operation_group_id`, `dosis` (es solo informativa; también pasó a 6 decimales, ver [handoff-frontend-dosis-6-decimales.md](handoff-frontend-dosis-6-decimales.md)), selección FEFO, período de carencia (WHP), validación de targets, roles, tenancy, y el rechazo `422 LOTE_QUIMICO_STOCK_INSUFICIENTE` cuando falta stock.
 - El `PATCH` de grupo mantiene su regla de que el grupo no puede quedar vacío (`422 APLICACION_TARGETS_VACIOS`).
 
 ---
@@ -128,4 +128,4 @@ Además, 112 tests unitarios pasan (incluye los DTOs reales pasados por un `Vali
 - [ ] Permitir hasta 6 decimales en los inputs de `cantidad` (y en `cantidad_inicial` / ajuste de lotes).
 - [ ] Manejar `400` con `error.details.validationErrors[].message` para mostrar el error de decimales.
 - [ ] Revisar cualquier formateo/comparación de `cantidad_inicial` / `cantidad_actual` de lotes: ahora son strings con 6 decimales (`"10.000000"`).
-- [ ] No cambiar nada de `dosis`: sigue siendo de 3 decimales.
+- [ ] `dosis` tiene su propio cambio (también 6 decimales, misma regla): ver [handoff-frontend-dosis-6-decimales.md](handoff-frontend-dosis-6-decimales.md).

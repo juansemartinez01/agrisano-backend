@@ -57,7 +57,7 @@ Estos son los valores actuales (con esta capitalización exacta). Si no se enví
   establecimiento_id: string;      // uuid, requerido
   contexto: AplicacionContexto;    // requerido
   lote_quimico_id: string;         // uuid, requerido — lote químico primario
-  dosis: number;                   // requerido, > 0 — INFORMATIVA (por target); no afecta el stock
+  dosis: number;                   // requerido, > 0, hasta 6 decimales — INFORMATIVA (por target); no afecta el stock
   dosis_unidad?: QuimicoRateUnidad; // opcional — default: rate_unidad del químico del lote primario
   cantidad: number;                // ⭐ NUEVO — requerido, > 0, hasta 6 decimales (ver abajo). Es EXACTAMENTE lo que se
                                    // descuenta del lote primario; el backend ya no calcula
@@ -66,7 +66,7 @@ Estos son los valores actuales (con esta capitalización exacta). Si no se enví
   observaciones?: string;          // opcional, máx 2000 caracteres
   detalles?: Array<{               // opcional — lotes/químicos adicionales aplicados junto al primario
     lote_quimico_id: string;       // uuid, requerido
-    dosis: number;                 // requerido, > 0 — dosis real de ESTE lote (no se asume igual a la del primario)
+    dosis: number;                 // requerido, > 0, hasta 6 decimales — dosis real de ESTE lote (no se asume igual a la del primario)
     dosis_unidad?: QuimicoRateUnidad; // opcional — default: rate_unidad del químico de ESTE lote
     cantidad: number;              // requerido, > 0, hasta 6 decimales
   }>;                              // si se envía, debe tener al menos 1 elemento
@@ -80,6 +80,8 @@ Estos son los valores actuales (con esta capitalización exacta). Si no se enví
 > ⚠️ **Cambio breaking (cantidad del lote primario)**: `cantidad` es ahora **obligatoria en la raíz del body** y es exactamente lo que se descuenta del lote primario. El backend **ya no calcula** `dosis × cantidad_de_targets` ni valida coherencia entre `cantidad` y la dosis — el cálculo del total es 100% responsabilidad del frontend, igual que siempre lo fue para `detalles[]`. Un request sin `cantidad` (o con valor ≤ 0) recibe `400`. Con pedidos troceados en varios POST (`operation_group_id`), la `cantidad` se manda **por chunk**. Contrato completo: `specs/017-cantidad-primario-explicita/contracts/create-aplicacion.md`.
 
 > **Precisión de `cantidad` (6 decimales)**: todas las `cantidad` de este módulo (`POST`, `PATCH /:id` y `PATCH /operation-group/:id`) admiten **hasta 6 decimales** (mínimo `0.000001`, máximo `9999999.999999`). Más de 6 decimales responde `400` — también el ruido de punto flotante (`0.1 + 0.2` = `0.30000000000000004`), así que el front debe redondear con `Number(x.toFixed(6))` antes de enviar. Los valores de 3 decimales siguen funcionando igual. Detalle en [handoff-frontend-cantidad-6-decimales.md](handoff-frontend-cantidad-6-decimales.md).
+
+> **Precisión de `dosis` (6 decimales)**: `dosis` (en la raíz, en `detalles[]` y en `chemical_lines[]` de ambos `PATCH`) tiene exactamente la misma regla que `cantidad`: **hasta 6 decimales** (mínimo `0.000001`, máximo `9999999.999999`) y más de 6 responde `400` con `dosis must be a number greater than 0 with at most 6 decimal places...`. Antes la columna guardaba 3 decimales y redondeaba en silencio (`0.00025` L/L quedaba en `0`, `0.0005` en `0.001`). Los valores históricos no cambian. Ojo con la lectura: la `dosis` de la **cabecera** en trazabilidad llega como string con 6 decimales (`"2.000000"`, antes `"2.000"`); en las aplicaciones (`detalles[].dosis`, `dose`) sigue llegando como number. Detalle en [handoff-frontend-dosis-6-decimales.md](handoff-frontend-dosis-6-decimales.md).
 
 ### Reglas de negocio
 
@@ -145,7 +147,7 @@ Estos son los valores actuales (con esta capitalización exacta). Si no se enví
 | `APLICACION_TARGETS_VACIOS` | 422 | Falta `bandeja_ids` (nursery) o `mesa_ids` (greenhouse) |
 | `LOTE_QUIMICO_STOCK_INSUFICIENTE` | 422 | Stock insuficiente en el lote primario o en algún lote de `detalles[]` |
 | `LOTE_QUIMICO_NOT_FOUND` | 404 | Un `lote_quimico_id` referenciado no existe |
-| 400 (validación) | 400 | Body inválido según las reglas de `class-validator` (uuid, enum, `dosis > 0`, `detalles` no vacío si se envía, etc.) |
+| 400 (validación) | 400 | Body inválido según las reglas de `class-validator` (uuid, enum, `dosis > 0` con hasta 6 decimales, `cantidad > 0` con hasta 6 decimales, `detalles` no vacío si se envía, etc.) |
 
 ## 5. Corregir aplicación — `PATCH /aplicaciones-quimicas/:id`
 
@@ -163,7 +165,7 @@ Todos los campos son opcionales — se edita solo lo que se envía; lo que no se
   observaciones?: string | null;   // null limpia el campo explícitamente
   chemical_lines?: Array<{         // reemplaza TODAS las líneas de químico (no hace merge parcial)
     lote_quimico_id: string;       // uuid
-    dosis: number;                 // > 0
+    dosis: number;                 // > 0, hasta 6 decimales
     dosis_unidad?: QuimicoRateUnidad;
     cantidad: number;              // > 0, hasta 6 decimales — se descuenta literal, igual que en create
   }>;                              // si se envía, al menos 1 elemento; [0] pasa a ser la línea primaria
@@ -248,7 +250,7 @@ Corrige **todas** las filas físicas de un mismo `operation_group_id` en una sol
 
     chemical_lines?: Array<{        // mismo shape que en create/PATCH de fila única
       lote_quimico_id: string;
-      dosis: number;                // > 0
+      dosis: number;                // > 0, hasta 6 decimales
       dosis_unidad?: QuimicoRateUnidad;
       cantidad: number;             // > 0, hasta 6 decimales — se descuenta literal
     }>;                             // requerido en create; opcional en update (solo si se
