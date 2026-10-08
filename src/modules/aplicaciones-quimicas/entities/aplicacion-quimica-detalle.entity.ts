@@ -12,7 +12,7 @@ export class AplicacionQuimicaDetalle {
   @Column({ type: 'uuid' })
   lote_quimico_id!: string;
 
-  @Column({ type: 'decimal', precision: 10, scale: 3, nullable: true })
+  @Column({ type: 'decimal', precision: 13, scale: 6, nullable: true })
   dosis!: number | null;
 
   @Column({

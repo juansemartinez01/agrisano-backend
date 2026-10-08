@@ -253,7 +253,7 @@ Query params: `page`, `limit`, `establecimiento_id`, `contexto` (`nursery`/`gree
       "usuario": { "id": "a7b9f76c-...", "email": "operario1@agrisano.com", "nombre": "Juan", "apellido": "Perez" },
       "fecha_hora": "2026-06-10T10:00:00.000Z",
       "lote_quimico_id": "lq1...",
-      "dosis": "5.000",
+      "dosis": "5.000000",
       "dosis_unidad": "ml_por_litro",
       "batch": "LOTE-Q-01",
       "withholding_period_dias": 7,

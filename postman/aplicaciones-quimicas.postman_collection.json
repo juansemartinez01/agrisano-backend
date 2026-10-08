@@ -375,6 +375,60 @@
           }
         },
         {
+          "name": "Crear aplicacion nursery (dosis con 6 decimales)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Aplicacion creada con dosis de 6 decimales', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "const detalles = (json.data && json.data.detalles) || [];",
+                  "pm.test('La dosis se devuelve sin perder precision', function () {",
+                  "  pm.expect(detalles[0].dosis).to.eql(0.000273);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"establecimiento_id\": \"{{establecimientoId}}\",\n  \"contexto\": \"nursery\",\n  \"lote_quimico_id\": \"{{loteQuimicoId}}\",\n  \"dosis\": 0.000273,\n  \"dosis_unidad\": \"L/L\",\n  \"cantidad\": 0.001,\n  \"observaciones\": \"Dosis con 6 decimales\",\n  \"bandeja_ids\": [\n    \"{{bandejaId}}\"\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/aplicaciones-quimicas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "aplicaciones-quimicas"
+              ]
+            },
+            "description": "Verifica la precision de 6 decimales en `dosis` (columna numeric(13,6)). Antes 0.000273 se guardaba como 0.000 sin error. La dosis es informativa: el stock baja solo por `cantidad`. Valores de 3 decimales (ej. 0.125) siguen funcionando igual."
+          }
+        },
+        {
           "name": "Crear aplicacion invernadero",
           "event": [
             {
@@ -1104,6 +1158,59 @@
               ]
             },
             "description": "Caso negativo: `cantidad` con 7 decimales (1e-7). Se rechaza con 400 en la validacion del DTO; no se toca el stock. Tambien aplica al ruido de punto flotante (0.1 + 0.2 = 0.30000000000000004): el front debe redondear con Number(x.toFixed(6))."
+          }
+        },
+        {
+          "name": "Error esperado - dosis con mas de 6 decimales",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Debe fallar con 400 por exceso de decimales en dosis', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test('El mensaje menciona la dosis y los 6 decimales', function () {",
+                  "  pm.expect(pm.response.text()).to.include('dosis must be a number');",
+                  "  pm.expect(pm.response.text()).to.include('6 decimal places');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-tenant-id",
+                "value": "{{tenantId}}"
+              },
+              {
+                "key": "x-tenant-key",
+                "value": "{{tenantKey}}",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"establecimiento_id\": \"{{establecimientoId}}\",\n  \"contexto\": \"nursery\",\n  \"lote_quimico_id\": \"{{loteQuimicoId}}\",\n  \"dosis\": 0.0000001,\n  \"cantidad\": 0.001,\n  \"observaciones\": \"Caso negativo: dosis con 7 decimales\",\n  \"bandeja_ids\": [\n    \"{{bandejaId}}\"\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/aplicaciones-quimicas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "aplicaciones-quimicas"
+              ]
+            },
+            "description": "Caso negativo: `dosis` con 7 decimales (1e-7). Se rechaza con 400 en la validacion del DTO; no se crea la aplicacion ni se toca el stock. Tambien aplica al ruido de punto flotante (0.1 + 0.2 = 0.30000000000000004): si el front calcula la dosis, debe redondear con Number(x.toFixed(6))."
           }
         },
         {

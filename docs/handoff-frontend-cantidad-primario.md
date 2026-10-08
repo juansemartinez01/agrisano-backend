@@ -142,7 +142,7 @@ El formulario ya pide `dosis`. Recomendamos precargar `cantidad` con `dosis × c
       usuario_apellido_snapshot: string | null;
       fecha_hora: string;                     // ISO
       lote_quimico_id: string;
-      dosis: string;                          // numeric → llega como string (ej. "0.100")
+      dosis: string;                          // numeric → llega como string con 6 decimales (ej. "0.100000")
       dosis_unidad: string | null;
       batch: string | null;                   // snapshot del número de lote
       withholding_period_dias: number | null; // snapshot de la carencia
@@ -167,7 +167,7 @@ El formulario ya pide `dosis`. Recomendamos precargar `cantidad` con `dosis × c
 }
 ```
 
-> Ojo con los `numeric` de Postgres: `aplicacion.dosis` llega como **string** (`"0.100"`), mientras que `detalles[].cantidad` y `detalles[].dosis` llegan como **number**. Es el comportamiento previo, no cambió — pero si tipan la respuesta, tenlo en cuenta.
+> Ojo con los `numeric` de Postgres: `aplicacion.dosis` llega como **string** (`"0.100000"`, 6 decimales desde el cambio de precisión de dosis), mientras que `detalles[].cantidad` y `detalles[].dosis` llegan como **number**. Es el comportamiento previo, no cambió — pero si tipan la respuesta, tenlo en cuenta.
 
 ### Verificación de que se descontó lo correcto
 
