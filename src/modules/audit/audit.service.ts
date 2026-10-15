@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Brackets, Repository } from 'typeorm';
+import { Brackets, EntityManager, Repository } from 'typeorm';
 import { PinoLogger } from 'nestjs-pino';
 import { AuditLog, AuditKind } from './entities/audit-log.entity';
 import { QueryAuditLogsDto } from './dto/query-audit-logs.dto';
@@ -51,6 +51,36 @@ export class AuditService {
         'audit_persist_failed',
       );
     }
+  }
+
+  /**
+   * Igual que write() pero dentro de la transaccion del llamador y SIN tragar
+   * errores: si la constancia no se puede guardar, la operacion entera se
+   * deshace. Pensado para operaciones compensatorias (reversiones) donde la
+   * fila de auditoria es el unico registro de lo que se borro.
+   */
+  async writeInTransaction(
+    manager: EntityManager,
+    kind: AuditKind,
+    data: Partial<AuditLog>,
+  ) {
+    const tenantId = data.tenant_id ?? currentTenantId() ?? null;
+    const row = manager.create(AuditLog, {
+      tenant_id: tenantId,
+      kind,
+      request_id: data.request_id ?? 'unknown',
+      method: data.method ?? null,
+      path: data.path ?? null,
+      status_code: data.status_code ?? null,
+      action: data.action ?? null,
+      entity: data.entity ?? null,
+      target_user_id: data.target_user_id ?? null,
+      target_role_id: data.target_role_id ?? null,
+      actor_user_id: data.actor_user_id ?? null,
+      actor_email: data.actor_email ?? null,
+      payload: redactPayload(kind, data.payload) ?? null,
+    });
+    await manager.save(AuditLog, row);
   }
 
   async list(q: QueryAuditLogsDto) {

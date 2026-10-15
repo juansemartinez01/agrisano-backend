@@ -115,6 +115,22 @@ export class TrasplanteService {
     try {
       const usuarioSnapshot = await fetchUsuarioSnapshot(qr.manager, userId, tenantId);
 
+      // Foto de la mesa antes de tocarla: es lo que permite deshacer este
+      // trasplante (modulo reversiones) sin tener que adivinar donde estaba.
+      // La fecha va como texto: timestamptz tiene microsegundos y un Date de JS
+      // los pierde, y la reversion tiene que poder restaurarla exacta.
+      const [mesaPrevia] = (await qr.query(
+        `SELECT estado, tunel_id, posicion_actual,
+                fecha_ultimo_trasplante::text AS fecha_ultimo_trasplante
+           FROM mesas WHERE id = $1 AND tenant_id = $2`,
+        [dto.mesa_id, tenantId],
+      )) as Array<{
+        estado: string;
+        tunel_id: string;
+        posicion_actual: number | null;
+        fecha_ultimo_trasplante: string | null;
+      }>;
+
       // 6. Calculate new FIFO position
       const result = (await qr.query(
         `SELECT MAX(posicion_actual) AS max FROM mesas WHERE tunel_id = $1 AND deleted_at IS NULL AND posicion_actual IS NOT NULL`,
@@ -174,6 +190,13 @@ export class TrasplanteService {
           posicion_actual: newPos,
           bandeja_ids: dto.bandeja_ids,
           observaciones: dto.observaciones ?? null,
+          estado_previo: {
+            estado: mesaPrevia?.estado ?? null,
+            tunel_id: mesaPrevia?.tunel_id ?? null,
+            posicion_actual: mesaPrevia?.posicion_actual ?? null,
+            fecha_ultimo_trasplante:
+              mesaPrevia?.fecha_ultimo_trasplante ?? null,
+          },
         },
       });
 
