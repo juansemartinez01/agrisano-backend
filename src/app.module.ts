@@ -32,6 +32,7 @@ import { CosechaModule } from './modules/cosecha/cosecha.module';
 import { PackingModule } from './modules/packing/packing.module';
 import { TrazabilidadModule } from './modules/trazabilidad/trazabilidad.module';
 import { TareasModule } from './modules/tareas/tareas.module';
+import { ReversionesModule } from './modules/reversiones/reversiones.module';
 
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { ObservabilityModule } from './infra/observability/observability.module';
@@ -80,6 +81,7 @@ import { ObservabilityModule } from './infra/observability/observability.module'
     PackingModule,
     TrazabilidadModule,
     TareasModule,
+    ReversionesModule,
     ObservabilityModule,
   ],
   controllers: [AppController],
