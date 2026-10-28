@@ -26,10 +26,16 @@ import {
   fetchUsuarioSnapshot,
   resolveUsuarioResumen,
 } from 'src/common/utils/usuario-resumen.util';
+import { calcularCarenciaHasta } from 'src/common/utils/carencia.util';
 import {
   AplicacionQuimica,
   AplicacionContexto,
 } from './entities/aplicacion-quimica.entity';
+import {
+  duracionSegundos,
+  resolverTiempoAplicacion,
+  type TiempoAplicacion,
+} from './utils/tiempo-aplicacion.util';
 import { AplicacionQuimicaDetalle } from './entities/aplicacion-quimica-detalle.entity';
 import { AplicacionQuimicaBandeja } from './entities/aplicacion-quimica-bandeja.entity';
 import { AplicacionQuimicaMesa } from './entities/aplicacion-quimica-mesa.entity';
@@ -324,9 +330,10 @@ export class AplicacionesQuimicasService {
     for (const r of rows) {
       const whp = whpByAplicacion.get(r.aplicacion_id) ?? null;
       if (whp !== null && whp > 0) {
-        const carenciaDate = new Date(r.fecha_hora);
-        carenciaDate.setDate(carenciaDate.getDate() + whp);
-        const carenciaHastaStr = carenciaDate.toISOString().split('T')[0];
+        const carenciaHastaStr = calcularCarenciaHasta(
+          new Date(r.fecha_hora),
+          whp,
+        );
         const current = result.get(r.target_id) ?? null;
         if (current === null || carenciaHastaStr > current) {
           result.set(r.target_id, carenciaHastaStr);
@@ -354,6 +361,14 @@ export class AplicacionesQuimicasService {
     userId: string,
   ): Promise<CreateAplicacionResult> {
     const tenantId = this.tenancy.requireTenantId();
+
+    // 0. Horarios: un rechazo no debe tocar nada (stock, carencia, historial).
+    // fecha_hora (ancla de carencia/orden/trazabilidad) se guarda siempre = fin.
+    const { inicio, fin } = resolverTiempoAplicacion({
+      inicio: dto.fecha_hora_inicio,
+      fin: dto.fecha_hora_fin,
+      ahora: new Date(),
+    });
 
     // 1. Validate establishment
     await this.estService.mustFindById(dto.establecimiento_id, {
@@ -480,7 +495,9 @@ export class AplicacionesQuimicasService {
         observaciones: dto.observaciones ?? null,
         usuario_id: userId,
         ...usuarioSnapshot,
-        fecha_hora: new Date(),
+        fecha_hora: fin,
+        fecha_hora_inicio: inicio,
+        fecha_hora_fin: fin,
         lote_quimico_id: dto.lote_quimico_id,
         dosis: dto.dosis,
         dosis_unidad: dto.dosis_unidad ?? primaryQuimico.rate_unidad ?? null,
@@ -567,7 +584,7 @@ export class AplicacionesQuimicasService {
 
       // Greenhouse mesa links + historial + carencia
       if (dto.contexto === AplicacionContexto.GREENHOUSE && dto.mesa_ids) {
-        const aplicacionDate = new Date();
+        const aplicacionDate = fin;
 
         await qr.manager.save(
           AplicacionQuimicaMesa,
@@ -588,6 +605,8 @@ export class AplicacionesQuimicasService {
             fecha_hora: aplicacionDate,
             detalle: {
               aplicacion_id: savedAplicacion.id,
+              fecha_hora_inicio: inicio.toISOString(),
+              fecha_hora_fin: fin.toISOString(),
               lote_quimico_id: dto.lote_quimico_id,
               dosis: dto.dosis,
               cantidad: dto.cantidad,
@@ -618,6 +637,8 @@ export class AplicacionesQuimicasService {
             fecha_hora: aplicacionDate,
             detalle: {
               aplicacion_id: savedAplicacion.id,
+              fecha_hora_inicio: inicio.toISOString(),
+              fecha_hora_fin: fin.toISOString(),
               lote_quimico_id: dto.lote_quimico_id,
               withholding_period_dias: ownWhp,
               carencia_hasta: carenciaByTarget.get(mesa_id),
@@ -818,12 +839,26 @@ export class AplicacionesQuimicasService {
         }
       }
 
-      // 6-7. fecha_hora / observaciones (observaciones admite null explícito
-      // para limpiarlas).
-      const fecha_hora =
-        dto.fecha_hora !== undefined
-          ? new Date(dto.fecha_hora)
-          : current.fecha_hora;
+      // 6-7. horarios / observaciones (observaciones admite null explícito
+      // para limpiarlas). fecha_hora se mantiene igual al fin.
+      const tocaHorarios =
+        dto.fecha_hora_inicio !== undefined || dto.fecha_hora_fin !== undefined;
+      const horarios = tocaHorarios
+        ? resolverTiempoAplicacion({
+            inicio: dto.fecha_hora_inicio,
+            fin: dto.fecha_hora_fin,
+            ahora: new Date(),
+            actual: {
+              inicio: current.fecha_hora_inicio,
+              fin: current.fecha_hora_fin,
+            },
+          })
+        : null;
+      const fecha_hora = horarios ? horarios.fin : current.fecha_hora;
+      const fecha_hora_inicio = horarios
+        ? horarios.inicio
+        : current.fecha_hora_inicio;
+      const fecha_hora_fin = horarios ? horarios.fin : current.fecha_hora_fin;
       const observaciones =
         dto.observaciones !== undefined
           ? dto.observaciones
@@ -841,17 +876,20 @@ export class AplicacionesQuimicasService {
       await qr.query(
         `UPDATE aplicaciones_quimicas
             SET lote_quimico_id = $1, dosis = $2, dosis_unidad = $3, batch = $4,
-                fecha_hora = $5, observaciones = $6,
-                updated_by = $7, updated_by_email_snapshot = $8,
-                updated_by_nombre_snapshot = $9, updated_by_apellido_snapshot = $10,
+                fecha_hora = $5, fecha_hora_inicio = $6, fecha_hora_fin = $7,
+                observaciones = $8,
+                updated_by = $9, updated_by_email_snapshot = $10,
+                updated_by_nombre_snapshot = $11, updated_by_apellido_snapshot = $12,
                 updated_at = now()
-          WHERE id = $11 AND tenant_id = $12`,
+          WHERE id = $13 AND tenant_id = $14`,
         [
           lote_quimico_id,
           dosis,
           dosis_unidad,
           batch,
           fecha_hora,
+          fecha_hora_inicio,
+          fecha_hora_fin,
           observaciones,
           userId,
           usuarioSnapshot.usuario_email_snapshot,
@@ -865,7 +903,7 @@ export class AplicacionesQuimicasService {
       // 8. Recalcular carencia para la unión de targets antes ∪ después,
       // solo si algo que puede afectarla cambió.
       const tocaCarencia =
-        dto.fecha_hora !== undefined ||
+        tocaHorarios ||
         dto.chemical_lines !== undefined ||
         targetIdsNuevos !== undefined;
 
@@ -894,6 +932,8 @@ export class AplicacionesQuimicasService {
               detalle: {
                 aplicacion_id: id,
                 carencia_hasta: carenciaByTarget.get(targetId),
+                fecha_hora_inicio: fecha_hora_inicio?.toISOString() ?? null,
+                fecha_hora_fin: fecha_hora_fin?.toISOString() ?? null,
               },
             }));
           if (enCarenciaEntries.length > 0) {
@@ -1107,6 +1147,40 @@ export class AplicacionesQuimicasService {
         tenantId,
       );
 
+      // Horarios del grupo, resueltos UNA vez antes de mutar nada (un 422
+      // acá no deja stock tocado). La referencia es la primera fila del grupo
+      // con horarios (created_at, id): completa el extremo que falte y es de
+      // donde hereda un ítem create sin horarios propios.
+      const referencia = [...headerRows]
+        .sort(
+          (a, b) =>
+            a.created_at.getTime() - b.created_at.getTime() ||
+            a.id.localeCompare(b.id),
+        )
+        .find((r) => r.fecha_hora_inicio && r.fecha_hora_fin);
+      const tocaHorariosGrupo =
+        dto.fecha_hora_inicio !== undefined || dto.fecha_hora_fin !== undefined;
+      const horariosDelGrupo: TiempoAplicacion | null =
+        tocaHorariosGrupo || createCount > 0
+          ? resolverTiempoAplicacion({
+              inicio: dto.fecha_hora_inicio,
+              fin: dto.fecha_hora_fin,
+              ahora: new Date(),
+              actual: {
+                inicio: referencia?.fecha_hora_inicio ?? null,
+                fin: referencia?.fecha_hora_fin ?? null,
+              },
+            })
+          : null;
+      const horariosEvento: TiempoAplicacion | null =
+        horariosDelGrupo ??
+        (referencia
+          ? {
+              inicio: referencia.fecha_hora_inicio as Date,
+              fin: referencia.fecha_hora_fin as Date,
+            }
+          : null);
+
       // 7-8. Fase A+B: revertir stock y borrar (hijos antes que padre) de
       // cada fila marcada delete.
       for (const item of dto.items) {
@@ -1238,10 +1312,16 @@ export class AplicacionesQuimicasService {
           }
         }
 
-        const fecha_hora =
-          dto.fecha_hora !== undefined
-            ? new Date(dto.fecha_hora)
-            : current.fecha_hora;
+        // Horarios de nivel grupo: pisan los de la fila solo si se enviaron.
+        const fecha_hora = tocaHorariosGrupo
+          ? (horariosDelGrupo as TiempoAplicacion).fin
+          : current.fecha_hora;
+        const fecha_hora_inicio = tocaHorariosGrupo
+          ? (horariosDelGrupo as TiempoAplicacion).inicio
+          : current.fecha_hora_inicio;
+        const fecha_hora_fin = tocaHorariosGrupo
+          ? (horariosDelGrupo as TiempoAplicacion).fin
+          : current.fecha_hora_fin;
         const observaciones =
           dto.observaciones !== undefined
             ? dto.observaciones
@@ -1250,17 +1330,20 @@ export class AplicacionesQuimicasService {
         await qr.query(
           `UPDATE aplicaciones_quimicas
               SET lote_quimico_id = $1, dosis = $2, dosis_unidad = $3, batch = $4,
-                  fecha_hora = $5, observaciones = $6,
-                  updated_by = $7, updated_by_email_snapshot = $8,
-                  updated_by_nombre_snapshot = $9, updated_by_apellido_snapshot = $10,
+                  fecha_hora = $5, fecha_hora_inicio = $6, fecha_hora_fin = $7,
+                  observaciones = $8,
+                  updated_by = $9, updated_by_email_snapshot = $10,
+                  updated_by_nombre_snapshot = $11, updated_by_apellido_snapshot = $12,
                   updated_at = now()
-            WHERE id = $11 AND tenant_id = $12`,
+            WHERE id = $13 AND tenant_id = $14`,
           [
             lote_quimico_id,
             dosis,
             dosis_unidad,
             batch,
             fecha_hora,
+            fecha_hora_inicio,
+            fecha_hora_fin,
             observaciones,
             userId,
             usuarioSnapshot.usuario_email_snapshot,
@@ -1279,6 +1362,8 @@ export class AplicacionesQuimicasService {
       for (const item of dto.items) {
         if (item.op !== OperationGroupOp.CREATE) continue;
 
+        // Siempre resuelto cuando hay ítems create (ver paso de horarios).
+        const horariosGrupo = horariosDelGrupo as TiempoAplicacion;
         const chemicalLines = item.chemical_lines as DetalleItemDto[];
         const targetIdsNuevos = (item.bandeja_ids ?? item.mesa_ids) as string[];
 
@@ -1318,10 +1403,9 @@ export class AplicacionesQuimicasService {
             dto.observaciones !== undefined ? dto.observaciones : null,
           usuario_id: userId,
           ...usuarioSnapshot,
-          fecha_hora:
-            dto.fecha_hora !== undefined
-              ? new Date(dto.fecha_hora)
-              : new Date(),
+          fecha_hora: horariosGrupo.fin,
+          fecha_hora_inicio: horariosGrupo.inicio,
+          fecha_hora_fin: horariosGrupo.fin,
           lote_quimico_id: primary.line.lote_quimico_id,
           dosis: primary.line.dosis,
           dosis_unidad:
@@ -1381,6 +1465,8 @@ export class AplicacionesQuimicasService {
                 lote_quimico_id: primary.line.lote_quimico_id,
                 dosis: primary.line.dosis,
                 cantidad: primary.line.cantidad,
+                fecha_hora_inicio: horariosGrupo.inicio.toISOString(),
+                fecha_hora_fin: horariosGrupo.fin.toISOString(),
                 batch: primary.lote.numero_lote ?? null,
                 quimicos_adicionales: lineEntries.slice(1).map((e) => ({
                   lote_quimico_id: e.line.lote_quimico_id,
@@ -1433,6 +1519,8 @@ export class AplicacionesQuimicasService {
             detalle: {
               operation_group_id: operationGroupId,
               carencia_hasta: carenciaByTarget.get(targetId),
+              fecha_hora_inicio: horariosEvento?.inicio.toISOString() ?? null,
+              fecha_hora_fin: horariosEvento?.fin.toISOString() ?? null,
             },
           }));
         if (enCarenciaEntries.length > 0) {
@@ -1490,7 +1578,7 @@ export class AplicacionesQuimicasService {
     tenantId: string,
   ): Promise<{ items: AplicacionListItem[]; total: number }> {
     const { skip, limit } = clampPagination(q.page, q.limit, 200);
-    const SORT_ALLOWED = ['fecha_hora', 'created_at'];
+    const SORT_ALLOWED = ['fecha_hora', 'fecha_hora_inicio', 'created_at'];
     const sortBy = SORT_ALLOWED.includes(q.sortBy ?? '')
       ? (q.sortBy as string)
       : 'fecha_hora';
@@ -1523,7 +1611,14 @@ export class AplicacionesQuimicasService {
         .andWhere('lq.quimico_id = :quimico_id', { quimico_id: q.quimico_id });
     }
 
-    qb.orderBy(`a.${sortBy}`, sortOrder).skip(skip).take(limit);
+    // Las filas anteriores a la feature tienen fecha_hora_inicio NULL: van al
+    // final en cualquier sentido para no taparlas con vacíos.
+    if (sortBy === 'fecha_hora_inicio') {
+      qb.orderBy(`a.${sortBy}`, sortOrder, 'NULLS LAST');
+    } else {
+      qb.orderBy(`a.${sortBy}`, sortOrder);
+    }
+    qb.skip(skip).take(limit);
 
     const [items, total] = await qb.getManyAndCount();
     const enriched = await this.enrichAplicaciones(items, tenantId);
@@ -1555,10 +1650,19 @@ export class AplicacionesQuimicasService {
       usuariosMap.get(aplicacion.usuario_id),
     );
 
+    const aplicacionConDuracion = {
+      ...aplicacion,
+      duracion_segundos: duracionSegundos(
+        aplicacion.fecha_hora_inicio,
+        aplicacion.fecha_hora_fin,
+      ),
+      usuario,
+    };
+
     if (aplicacion.contexto === AplicacionContexto.NURSERY) {
       const { targets, bandejaIds } = await this.buildNurseryTargets(id);
       return {
-        aplicacion: { ...aplicacion, usuario },
+        aplicacion: aplicacionConDuracion,
         detalles,
         bandeja_ids: bandejaIds,
         targets,
@@ -1566,7 +1670,7 @@ export class AplicacionesQuimicasService {
     } else {
       const { targets, mesaIds } = await this.buildGreenhouseTargets(id);
       return {
-        aplicacion: { ...aplicacion, usuario },
+        aplicacion: aplicacionConDuracion,
         detalles,
         mesa_ids: mesaIds,
         targets,
@@ -1641,6 +1745,10 @@ export class AplicacionesQuimicasService {
           : seedings.reduce((sum, s) => sum + s.tray_count, 0);
       return {
         ...a,
+        duracion_segundos: duracionSegundos(
+          a.fecha_hora_inicio,
+          a.fecha_hora_fin,
+        ),
         usuario: resolveUsuarioResumen(
           a.usuario_id,
           a,
@@ -1663,6 +1771,10 @@ export class AplicacionesQuimicasService {
     const usuarios = await buildUsuariosMap(this.dataSource, userIds, tenantId);
     return aplicaciones.map((a) => ({
       ...a,
+      duracion_segundos: duracionSegundos(
+        a.fecha_hora_inicio,
+        a.fecha_hora_fin,
+      ),
       usuario: resolveUsuarioResumen(
         a.usuario_id,
         a,

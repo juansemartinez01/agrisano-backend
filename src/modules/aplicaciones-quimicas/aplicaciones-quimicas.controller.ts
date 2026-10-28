@@ -84,7 +84,8 @@ export class AplicacionesQuimicasController {
     @Req() req: AuthRequest,
   ) {
     const ALLOWED = new Set([
-      'fecha_hora',
+      'fecha_hora_inicio',
+      'fecha_hora_fin',
       'observaciones',
       'chemical_lines',
       'bandeja_ids',
@@ -96,7 +97,7 @@ export class AplicacionesQuimicasController {
       throw new AppError({
         code: ErrorCodes.APLICACION_FIELD_IMMUTABLE,
         message:
-          'Solo se pueden modificar fecha_hora, observaciones, chemical_lines, bandeja_ids y mesa_ids',
+          'Solo se pueden modificar fecha_hora_inicio, fecha_hora_fin, observaciones, chemical_lines, bandeja_ids y mesa_ids',
         status: 400,
       });
     }
@@ -118,13 +119,19 @@ export class AplicacionesQuimicasController {
     @Body() dto: UpdateOperationGroupDto,
     @Req() req: AuthRequest,
   ) {
-    const ALLOWED = new Set(['fecha_hora', 'observaciones', 'items']);
+    const ALLOWED = new Set([
+      'fecha_hora_inicio',
+      'fecha_hora_fin',
+      'observaciones',
+      'items',
+    ]);
     const body = req.body as Record<string, unknown>;
     const bodyKeys = Object.keys(body ?? {});
     if (bodyKeys.some((k) => !ALLOWED.has(k))) {
       throw new AppError({
         code: ErrorCodes.APLICACION_FIELD_IMMUTABLE,
-        message: 'Solo se pueden enviar fecha_hora, observaciones e items',
+        message:
+          'Solo se pueden enviar fecha_hora_inicio, fecha_hora_fin, observaciones e items',
         status: 400,
       });
     }
