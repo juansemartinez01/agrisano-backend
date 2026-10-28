@@ -44,6 +44,7 @@ const createBase = {
   contexto: 'greenhouse',
   lote_quimico_id: UUID,
   cantidad: 0.5,
+  fecha_hora_inicio: '2026-10-28T10:00:00-03:00',
   mesa_ids: [UUID_2],
 };
 

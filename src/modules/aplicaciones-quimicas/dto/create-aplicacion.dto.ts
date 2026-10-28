@@ -12,6 +12,7 @@ import {
 import { Type } from 'class-transformer';
 import { IsCantidadStock } from 'src/common/validators/cantidad-stock.validator';
 import { IsDosis } from 'src/common/validators/dosis.validator';
+import { IsFechaHoraConZona } from 'src/common/validators/fecha-hora-con-zona.validator';
 import { AplicacionContexto } from '../entities/aplicacion-quimica.entity';
 import { QuimicoRateUnidad } from 'src/modules/quimicos/entities/quimico.entity';
 
@@ -56,6 +57,17 @@ export class CreateAplicacionDto {
   // redondearse al persistir.
   @IsCantidadStock()
   cantidad!: number;
+
+  // Cuándo empezó el operario. ISO-8601 con hora y zona (una fecha sola se
+  // rechaza). Con operation_group_id, cada chunk manda el mismo inicio y fin.
+  @IsFechaHoraConZona()
+  fecha_hora_inicio!: string;
+
+  // Cuándo terminó. Si se omite, el momento del registro. No puede estar más
+  // de 5 min en el futuro ni distar del inicio más de 24 h (422).
+  @IsOptional()
+  @IsFechaHoraConZona()
+  fecha_hora_fin?: string;
 
   @IsOptional()
   @IsString()

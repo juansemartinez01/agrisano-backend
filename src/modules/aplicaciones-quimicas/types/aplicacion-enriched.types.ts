@@ -81,7 +81,13 @@ export interface TargetSummary {
   seedings: SeedingSummary[];
 }
 
-export interface AplicacionListItem extends AplicacionQuimica {
+/** Segundos entre inicio y fin; se calcula al leer (null si la fila es anterior a la feature). */
+export interface DuracionAplicacion {
+  duracion_segundos: number | null;
+}
+
+export interface AplicacionListItem
+  extends AplicacionQuimica, DuracionAplicacion {
   usuario: UsuarioResumen | null;
   target_count: number;
   target_summary: TargetSummary;
@@ -134,7 +140,8 @@ export interface NurseryTargets {
 }
 
 export interface AplicacionDetalleEnriquecida {
-  aplicacion: AplicacionQuimica & { usuario: UsuarioResumen | null };
+  aplicacion: AplicacionQuimica &
+    DuracionAplicacion & { usuario: UsuarioResumen | null };
   detalles: AplicacionDetalleLine[];
   bandeja_ids?: string[];
   mesa_ids?: string[];

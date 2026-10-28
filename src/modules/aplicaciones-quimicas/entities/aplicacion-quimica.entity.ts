@@ -50,6 +50,15 @@ export class AplicacionQuimica {
   @Column({ type: 'timestamptz', default: () => 'now()' })
   fecha_hora!: Date;
 
+  // Cuándo empezó y terminó el operario. `fecha_hora` es siempre igual a
+  // `fecha_hora_fin` (CHECK en base). Null en aplicaciones anteriores a la
+  // feature; ambas null o ambas con valor.
+  @Column({ type: 'timestamptz', nullable: true })
+  fecha_hora_inicio!: Date | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  fecha_hora_fin!: Date | null;
+
   // Primary chemical lot applied
   @Column({ type: 'uuid', nullable: true })
   lote_quimico_id!: string | null;

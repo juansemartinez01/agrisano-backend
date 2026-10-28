@@ -59,6 +59,8 @@ Estos son los valores actuales (con esta capitalización exacta). Si no se enví
   lote_quimico_id: string;         // uuid, requerido — lote químico primario
   dosis: number;                   // requerido, > 0, hasta 6 decimales — INFORMATIVA (por target); no afecta el stock
   dosis_unidad?: QuimicoRateUnidad; // opcional — default: rate_unidad del químico del lote primario
+  fecha_hora_inicio: string;       // ⭐ NUEVO — requerido. ISO 8601 con hora Y zona horaria (ver abajo)
+  fecha_hora_fin?: string;         // ⭐ NUEVO — opcional, mismo formato. Si no se envía, el backend usa "ahora"
   cantidad: number;                // ⭐ NUEVO — requerido, > 0, hasta 6 decimales (ver abajo). Es EXACTAMENTE lo que se
                                    // descuenta del lote primario; el backend ya no calcula
                                    // dosis × targets ni valida coherencia. Con requests
@@ -83,8 +85,11 @@ Estos son los valores actuales (con esta capitalización exacta). Si no se enví
 
 > **Precisión de `dosis` (6 decimales)**: `dosis` (en la raíz, en `detalles[]` y en `chemical_lines[]` de ambos `PATCH`) tiene exactamente la misma regla que `cantidad`: **hasta 6 decimales** (mínimo `0.000001`, máximo `9999999.999999`) y más de 6 responde `400` con `dosis must be a number greater than 0 with at most 6 decimal places...`. Antes la columna guardaba 3 decimales y redondeaba en silencio (`0.00025` L/L quedaba en `0`, `0.0005` en `0.001`). Los valores históricos no cambian. Ojo con la lectura: la `dosis` de la **cabecera** en trazabilidad llega como string con 6 decimales (`"2.000000"`, antes `"2.000"`); en las aplicaciones (`detalles[].dosis`, `dose`) sigue llegando como number. Detalle en [handoff-frontend-dosis-6-decimales.md](handoff-frontend-dosis-6-decimales.md).
 
+> ⚠️ **Cambio breaking (inicio y fin de la aplicación)**: `fecha_hora_inicio` es **obligatoria** en `POST`; un request sin ella recibe `400`. `fecha_hora_fin` es opcional y, si se omite, el backend usa el instante de la request. Ambas deben venir como ISO 8601 **con hora y zona horaria** (`2026-10-28T10:00:00-03:00` o `2026-10-28T13:00:00Z`); una fecha sola (`2026-10-28`) o un datetime sin zona (`2026-10-28T10:00:00`) responde `400`. Detalle de reglas y migración del front en [handoff-frontend-tiempo-aplicacion.md](handoff-frontend-tiempo-aplicacion.md).
+
 ### Reglas de negocio
 
+0. **Horarios**: `fecha_hora_inicio <= fecha_hora_fin` (iguales se aceptan); `fecha_hora_fin` no puede estar más de 5 minutos en el futuro; la duración (fin − inicio) no puede superar 24 h. Si se rompe alguna → `APLICACION_HORARIO_INVALIDO` / `APLICACION_DURACION_EXCESIVA` (422). El campo legado `fecha_hora` pasa a ser siempre igual a `fecha_hora_fin` (el backend lo mantiene; no se envía).
 1. El `establecimiento_id` debe existir y pertenecer al tenant actual.
 2. El `lote_quimico_id` primario debe existir, y el químico asociado debe pertenecer al mismo `establecimiento_id` del body.
 3. Según `contexto`:
@@ -94,7 +99,7 @@ Estos son los valores actuales (con esta capitalización exacta). Si no se enví
 5. **Descuento de stock**: el lote primario descuenta exactamente la `cantidad` de la raíz del body; los lotes de `detalles[]` descuentan exactamente la `cantidad` indicada en cada item. En ningún caso el backend multiplica por targets ni ajusta el valor — `dosis` es un dato informativo (por mesa/bandeja) que se guarda como snapshot pero no interviene en el stock.
 6. Si el stock de cualquier lote (primario o de `detalles[]`) es insuficiente para el descuento, la operación completa se revierte (transacción) y se responde `LOTE_QUIMICO_STOCK_INSUFICIENTE` (422).
 7. **Snapshot / recálculo**: al crear la aplicación, se copia `batch` (número de lote) desde el lote primario — ese campo sí queda fijo (snapshot histórico). `withholding_period_dias`, en cambio, **no es un snapshot fijo**: es el MAX entre la carencia del químico primario y la de todos los químicos de `detalles[]`, y se **recalcula** (junto con `carencia_hasta` de cada target afectado) cada vez que esta aplicación o cualquier otra que comparta un target se crea o se edita — ver sección 5 (`PATCH`).
-8. **Carencia (`nursery` y `greenhouse`)**: si la carencia efectiva (MAX entre primario y `detalles[]`, ver regla 7) es `> 0`, cada target afectado recibe `carencia_hasta = fecha_aplicación + withholding_period_dias` (columna `carencia_hasta` en `bandejas` o `mesas`, según el contexto). En `greenhouse` además se registra un evento de historial `en_carencia` en la mesa (además del evento `aplicacion_quimica`); `bandejas` no tiene historial equivalente.
+8. **Carencia (`nursery` y `greenhouse`)**: si la carencia efectiva (MAX entre primario y `detalles[]`, ver regla 7) es `> 0`, cada target afectado recibe `carencia_hasta = día UTC de fecha_hora_fin + withholding_period_dias` (formato `YYYY-MM-DD`; el cálculo es siempre en UTC, ya no depende de la zona del servidor) (columna `carencia_hasta` en `bandejas` o `mesas`, según el contexto). En `greenhouse` además se registra un evento de historial `en_carencia` en la mesa (además del evento `aplicacion_quimica`); `bandejas` no tiene historial equivalente.
 9. Toda la operación (crear aplicación, detalles, descuentos de stock, links a bandejas/mesas, historial, carencia) ocurre dentro de una única transacción.
 
 ### Response `201`
@@ -109,7 +114,9 @@ Estos son los valores actuales (con esta capitalización exacta). Si no se enví
       contexto: AplicacionContexto;
       observaciones: string | null;
       usuario_id: string;
-      fecha_hora: string;             // ISO timestamp
+      fecha_hora: string;             // ISO timestamp — legado; siempre == fecha_hora_fin
+      fecha_hora_inicio: string | null; // ISO timestamp — null solo en aplicaciones anteriores a esta feature
+      fecha_hora_fin: string | null;    // ISO timestamp — ídem
       lote_quimico_id: string;
       dosis: number;
       dosis_unidad: QuimicoRateUnidad | null;
@@ -147,7 +154,9 @@ Estos son los valores actuales (con esta capitalización exacta). Si no se enví
 | `APLICACION_TARGETS_VACIOS` | 422 | Falta `bandeja_ids` (nursery) o `mesa_ids` (greenhouse) |
 | `LOTE_QUIMICO_STOCK_INSUFICIENTE` | 422 | Stock insuficiente en el lote primario o en algún lote de `detalles[]` |
 | `LOTE_QUIMICO_NOT_FOUND` | 404 | Un `lote_quimico_id` referenciado no existe |
-| 400 (validación) | 400 | Body inválido según las reglas de `class-validator` (uuid, enum, `dosis > 0` con hasta 6 decimales, `cantidad > 0` con hasta 6 decimales, `detalles` no vacío si se envía, etc.) |
+| `APLICACION_HORARIO_INVALIDO` | 422 | `fecha_hora_inicio` posterior a `fecha_hora_fin`, o `fecha_hora_fin` más de 5 min en el futuro |
+| `APLICACION_DURACION_EXCESIVA` | 422 | `fecha_hora_fin − fecha_hora_inicio` supera 24 h |
+| 400 (validación) | 400 | Body inválido según las reglas de `class-validator` (uuid, enum, `fecha_hora_inicio` ausente o sin hora/zona, `dosis > 0` con hasta 6 decimales, `cantidad > 0` con hasta 6 decimales, `detalles` no vacío si se envía, etc.) |
 
 ## 5. Corregir aplicación — `PATCH /aplicaciones-quimicas/:id`
 
@@ -161,7 +170,8 @@ Todos los campos son opcionales — se edita solo lo que se envía; lo que no se
 
 ```ts
 {
-  fecha_hora?: string;             // ISO 8601
+  fecha_hora_inicio?: string;      // ISO 8601 con hora y zona — reemplaza al viejo `fecha_hora`
+  fecha_hora_fin?: string;         // ídem. `fecha_hora` YA NO se acepta en PATCH (400 BAD_REQUEST: "property fecha_hora should not exist")
   observaciones?: string | null;   // null limpia el campo explícitamente
   chemical_lines?: Array<{         // reemplaza TODAS las líneas de químico (no hace merge parcial)
     lote_quimico_id: string;       // uuid
@@ -197,9 +207,15 @@ Notas sobre `bandeja_ids` / `mesa_ids`:
 - Solo se puede enviar el campo que corresponde al `contexto` real de la aplicación: mandar `mesa_ids` en una aplicación `nursery`, o `bandeja_ids` en una `greenhouse`, responde `APLICACION_TARGET_INVALIDO` (422).
 - Los targets nuevos se validan igual que en `create` (estado, establecimiento).
 
+Notas sobre `fecha_hora_inicio` / `fecha_hora_fin`:
+
+- Se puede mandar uno solo o los dos. Si se manda uno solo, se valida contra el otro **ya guardado** (inicio ≤ fin, duración ≤ 24 h). El campo legado `fecha_hora` se actualiza solo para quedar igual a `fecha_hora_fin`.
+- La regla "fin no más de 5 min en el futuro" solo se evalúa cuando se envía `fecha_hora_fin`; editar solo `fecha_hora_inicio` o `observaciones` en una aplicación vieja no la dispara.
+- En aplicaciones **anteriores a esta feature** (inicio/fin en `null`), si se quiere corregir el horario hay que enviar **ambos** campos: no hay valor guardado contra el cual validar uno solo.
+
 ### Comportamiento de carencia (WHP)
 
-`withholding_period_dias` y `carencia_hasta` **no son un valor fijo de creación**: cada vez que se edita `fecha_hora`, `chemical_lines`, `bandeja_ids` o `mesa_ids`, el backend recalcula la carencia de **todos los targets afectados** (los que tenía antes de la edición, unión con los que tiene después) considerando el **histórico completo** de aplicaciones que siguen ligadas a cada uno — no solo esta fila.
+`withholding_period_dias` y `carencia_hasta` **no son un valor fijo de creación**: cada vez que se edita `fecha_hora_inicio`, `fecha_hora_fin`, `chemical_lines`, `bandeja_ids` o `mesa_ids`, el backend recalcula la carencia de **todos los targets afectados** (los que tenía antes de la edición, unión con los que tiene después) considerando el **histórico completo** de aplicaciones que siguen ligadas a cada uno — no solo esta fila.
 
 Ejemplo: una mesa tiene dos aplicaciones — A (carencia hasta 15/10) y B (carencia hasta 20/10). Si se edita o se acorta la carencia de A, la mesa **sigue bloqueada hasta el 20/10** porque B sigue vigente; `carencia_hasta` es siempre el MAX entre todas las aplicaciones que siguen ligadas al target, no un valor que "pertenece" a una sola aplicación.
 
@@ -220,7 +236,9 @@ Mismo shape que `GET /aplicaciones-quimicas/:id` (sección 7) — incluye `aplic
 | Código | Status | Causa |
 |---|---|---|
 | `APLICACION_NOT_FOUND` | 404 | No existe una aplicación con ese id en el tenant actual |
-| `APLICACION_FIELD_IMMUTABLE` | 400 | Se envió `contexto`, `establecimiento_id`, o cualquier campo fuera de `{fecha_hora, observaciones, chemical_lines, bandeja_ids, mesa_ids}`; o el body está vacío |
+| `APLICACION_FIELD_IMMUTABLE` | 400 | Se envió `contexto`, `establecimiento_id`, o cualquier campo fuera de `{fecha_hora_inicio, fecha_hora_fin, observaciones, chemical_lines, bandeja_ids, mesa_ids}`; o el body está vacío |
+| `APLICACION_HORARIO_INVALIDO` | 422 | Inicio posterior al fin (considerando el valor guardado si solo se mandó uno), fin más de 5 min en el futuro, o aplicación legacy con un solo extremo enviado |
+| `APLICACION_DURACION_EXCESIVA` | 422 | La duración resultante supera 24 h |
 | `APLICACION_TARGET_INVALIDO` | 422 | Se envió `mesa_ids` en una aplicación `nursery` (o `bandeja_ids` en `greenhouse`); un target/lote no pertenece al establecimiento; o un target no está en estado válido |
 | `LOTE_QUIMICO_STOCK_INSUFICIENTE` | 422 | Stock insuficiente en alguna línea nueva de `chemical_lines` (la reversión de las líneas viejas también se deshace) |
 | `LOTE_QUIMICO_NOT_FOUND` | 404 | Un `lote_quimico_id` de `chemical_lines` no existe |
@@ -238,9 +256,10 @@ Corrige **todas** las filas físicas de un mismo `operation_group_id` en una sol
 
 ```ts
 {
-  fecha_hora?: string;              // ISO 8601 — nivel grupo: aplica a TODA fila creada o
-                                     // actualizada por este request; nunca a las borradas, nunca
-                                     // a filas del grupo ausentes de items[]
+  fecha_hora_inicio?: string;       // ISO 8601 con hora y zona — nivel grupo: aplica a TODA fila
+  fecha_hora_fin?: string;          // creada o actualizada por este request; nunca a las borradas,
+                                     // nunca a filas del grupo ausentes de items[]. `fecha_hora` ya
+                                     // no se acepta.
   observaciones?: string | null;    // ídem, nivel grupo
 
   items: Array<{                    // requerido, 1 a 50 elementos — un ítem por fila física
@@ -267,7 +286,7 @@ Corrige **todas** las filas físicas de un mismo `operation_group_id` en una sol
 Reglas de forma por `op` (se validan contra el `contexto` real del grupo, no contra lo que declare el body):
 
 - `create`: sin `id`. Requiere `chemical_lines` y el campo de target que corresponde al contexto del grupo (`bandeja_ids` en `nursery`, `mesa_ids` en `greenhouse`).
-- `update`: requiere `id` de una fila que pertenezca a este grupo. Todo lo demás es opcional — un `update` sin `chemical_lines` ni targets simplemente re-estampa `fecha_hora`/`observaciones` de nivel grupo (si vinieron) y quién hizo la corrección.
+- `update`: requiere `id` de una fila que pertenezca a este grupo. Todo lo demás es opcional — un `update` sin `chemical_lines` ni targets simplemente re-estampa `fecha_hora_inicio`/`fecha_hora_fin`/`observaciones` de nivel grupo (si vinieron) y quién hizo la corrección.
 - `delete`: requiere `id`; no debe traer `chemical_lines`, `bandeja_ids` ni `mesa_ids`.
 - Ningún `id` puede repetirse entre ítems.
 - Una fila del grupo que no aparece en `items[]` queda intacta (no se borra ni se toca).
@@ -280,7 +299,8 @@ Reglas de forma por `op` (se validan contra el `contexto` real del grupo, no con
 4. El grupo no puede quedar en 0 filas tras aplicar creates/updates/deletes — si quedaría vacío, `APLICACION_TARGETS_VACIOS` (422), sin aplicar ningún cambio.
 5. Descuento/reversión de stock: igual que en `PATCH` de fila única, por cada línea de `chemical_lines` tocada (reemplazada en un `update`, agregada en un `create`, revertida en un `delete`). Si falta stock en cualquier línea de cualquier ítem, **toda la operación se revierte** — ninguna fila del grupo cambia, aunque otros ítems del mismo request fueran válidos.
 6. Cada fila `create` nace con el mismo shape que un `POST` normal (`usuario_id` = quien ejecuta el PATCH, `updated_by` = `null`). Cada fila `update` siempre re-estampa `updated_by` + snapshot, sin importar qué campo puntual cambió.
-7. Carencia (WHP): se recalcula, **siempre y sin excepción**, para la unión de todos los targets que el grupo tenía antes del request y los que tiene después — no solo los targets tocados por un ítem en particular. Mismo criterio que la sección "Comportamiento de carencia" de arriba (MAX entre todas las aplicaciones que siguen ligadas a cada target).
+7. Horarios: se resuelven **una sola vez** para el grupo, antes de tocar nada. Las filas `update` usan los valores enviados (o los suyos guardados si no se enviaron); las filas `create` usan los enviados o, si no vinieron, **heredan** los de la fila de referencia del grupo (la primera por `created_at` que tenga horarios). Si no hay con qué resolver (grupo legacy sin horarios y sin inicio/fin en el body) → `APLICACION_HORARIO_INVALIDO` (422) y no se cambia nada.
+8. Carencia (WHP): se recalcula, **siempre y sin excepción**, para la unión de todos los targets que el grupo tenía antes del request y los que tiene después — no solo los targets tocados por un ítem en particular. Mismo criterio que la sección "Comportamiento de carencia" de arriba (MAX entre todas las aplicaciones que siguen ligadas a cada target).
 
 ### Response `200`
 
@@ -310,8 +330,10 @@ No existe un shape "agregado" (totales de químicos/targets fusionados de todo e
 | `LOTE_QUIMICO_STOCK_INSUFICIENTE` | 422 | Stock insuficiente en alguna línea de `chemical_lines` de cualquier ítem |
 | `LOTE_QUIMICO_NOT_FOUND` | 404 | Un `lote_quimico_id` referenciado no existe |
 | `CONFLICT` | 409 | El grupo lockeado tiene filas con `contexto`/`establecimiento_id` no uniforme (dato pre-existente inconsistente) |
+| `APLICACION_HORARIO_INVALIDO` | 422 | Inicio > fin, fin más de 5 min en el futuro, o un ítem `create` que no puede heredar horarios del grupo |
+| `APLICACION_DURACION_EXCESIVA` | 422 | La duración resultante supera 24 h |
 | `BAD_REQUEST` | 400 | `id` duplicado entre ítems, o la forma de un ítem no es consistente con su `op` (ej. `create` con `id`, `delete` con `chemical_lines`) |
-| 400 (validación) | 400 | Body inválido según `class-validator` — ej. `items` vacío/ausente o con más de 50 elementos, o una key fuera de `{fecha_hora, observaciones, items}` en el body (incluyendo `contexto`/`establecimiento_id`) |
+| 400 (validación) | 400 | Body inválido según `class-validator` — ej. `items` vacío/ausente o con más de 50 elementos, o `fecha_hora_inicio`/`fecha_hora_fin` sin hora o zona, o una key fuera de `{fecha_hora_inicio, fecha_hora_fin, observaciones, items}` en el body (incluyendo el viejo `fecha_hora`, `contexto` y `establecimiento_id`) |
 
 ## 6. Listar aplicaciones — `GET /aplicaciones-quimicas`
 
@@ -324,7 +346,9 @@ No existe un shape "agregado" (totales de químicos/targets fusionados de todo e
   quimico_id?: string;           // uuid — filtra por el químico usado en algún detalle de la aplicación
   fecha_desde?: string;          // ISO 8601
   fecha_hasta?: string;          // ISO 8601
-  sortBy?: string;               // 'fecha_hora' | 'created_at' (default: 'fecha_hora')
+  sortBy?: string;               // 'fecha_hora' | 'fecha_hora_inicio' | 'created_at' (default: 'fecha_hora').
+                                 // 'fecha_hora_inicio' deja las filas sin inicio (anteriores a la feature) al final.
+                                 // fecha_desde/fecha_hasta siguen filtrando por fecha_hora (== fin).
   sortOrder?: 'ASC' | 'DESC';    // default: 'DESC'
   page?: number;
   limit?: number;                // tope 200
@@ -339,6 +363,8 @@ Paginado (`{ data: AplicacionListItem[], meta: { page, limit, total } }`). Cada 
 
 ```ts
 type AplicacionListItem = AplicacionQuimica & {
+  duracion_segundos: number | null;  // fin − inicio en segundos; se calcula al leer. null si la fila es anterior a la feature
+
   usuario: {                     // null si el usuario ya no puede resolverse
     id: string;
     nombre: string | null;
@@ -395,6 +421,7 @@ Contrato completo con ejemplos: `specs/016-enrich-aplicaciones-quimicas/contract
 {
   data: {
     aplicacion: AplicacionQuimica & {
+      duracion_segundos: number | null;  // fin − inicio; null en aplicaciones anteriores a la feature
       usuario: { id: string; nombre: string | null; apellido: string | null; email: string } | null;
       // Quién creó la aplicación (arriba) vs. quién hizo la última corrección (abajo).
       // updated_by y los 3 snapshots quedan en null mientras la fila nunca fue editada
@@ -479,7 +506,12 @@ Lista paginada (mismos query params de la sección 6 salvo `establecimiento_id`/
 
 Análogo al anterior, pero para bandejas y aplicaciones `nursery`. Valida que la bandeja exista antes de listar.
 
+Ambos listados devuelven los mismos items que la sección 6, incluyendo `fecha_hora_inicio`, `fecha_hora_fin` y `duracion_segundos`.
+
 ## 10. Notas para el frontend
+
+- **Inicio y fin**: `fecha_hora_inicio` y `fecha_hora_fin` marcan cuánto tardó el operario. `duracion_segundos` no se guarda: se calcula al leer (`null` en aplicaciones anteriores a la feature, que tienen ambos extremos en `null`). Trazabilidad (`aplicaciones_nursery` / `aplicaciones_greenhouse`) y los eventos `aplicacion_quimica` / `en_carencia` del historial de mesa también los exponen. `carencia_hasta` se cuenta desde el día UTC de `fecha_hora_fin`.
+- **Chunks (`operation_group_id`)**: al trocear una operación en varios `POST`, enviar el **mismo** `fecha_hora_inicio`/`fecha_hora_fin` en cada chunk (si se omite el fin, cada chunk tomaría su propio "ahora").
 
 - El campo `dosis` es la dosis **por target** (por mesa o por bandeja) y es puramente informativo. El descuento del lote primario es la `cantidad` de la raíz del body: **el frontend calcula el total** (típicamente `dosis × targets`, pero puede diferir si el consumo real fue otro) y el backend descuenta ese valor tal cual, sin validarlo contra la dosis.
 - `batch` es un *snapshot*: refleja el lote al momento de la aplicación, no su estado actual. `withholding_period_dias`, en cambio, se recalcula con cada `PATCH` (propio o de otra aplicación que comparta target) — ver sección 4, regla 7. Para ver el estado actual del químico/lote hay que consultar `GET /lotes-quimicos/:id` o `GET /quimicos/:id`.

@@ -8,6 +8,7 @@ import {
   AplicacionDetalleLine,
   LoteQuimicoEnriquecido,
 } from 'src/modules/aplicaciones-quimicas/types/aplicacion-enriched.types';
+import { duracionSegundos } from 'src/modules/aplicaciones-quimicas/utils/tiempo-aplicacion.util';
 
 // ---------------------------------------------------------------------------
 // Shared enrichment shapes
@@ -139,6 +140,8 @@ interface BandejaCicloRow {
 interface AplicacionRawRow {
   id: string;
   fecha_hora: string;
+  fecha_hora_inicio: string | null;
+  fecha_hora_fin: string | null;
   observaciones: string | null;
   usuario_id: string;
   contexto: string;
@@ -166,6 +169,9 @@ interface AplicacionRawRow {
 interface AplicacionRow {
   id: string;
   fecha_hora: string;
+  fecha_hora_inicio: string | null;
+  fecha_hora_fin: string | null;
+  duracion_segundos: number | null;
   observaciones: string | null;
   usuario_id: string;
   usuario: UsuarioResumen | null;
@@ -290,7 +296,7 @@ export interface TrazabilidadMesaResult {
 // ---------------------------------------------------------------------------
 
 const APLICACION_SELECT = `
-  a.id, a.fecha_hora, a.observaciones, a.usuario_id, a.contexto, a.establecimiento_id,
+  a.id, a.fecha_hora, a.fecha_hora_inicio, a.fecha_hora_fin, a.observaciones, a.usuario_id, a.contexto, a.establecimiento_id,
   a.lote_quimico_id, a.dosis, a.dosis_unidad, a.batch, a.withholding_period_dias,
   a.operation_group_id,
   COALESCE(a.usuario_email_snapshot, au.email) AS au_email,
@@ -377,6 +383,9 @@ function mapAplicacionRow(r: AplicacionRawRow): AplicacionRow {
   return {
     id: r.id,
     fecha_hora: r.fecha_hora,
+    fecha_hora_inicio: r.fecha_hora_inicio,
+    fecha_hora_fin: r.fecha_hora_fin,
+    duracion_segundos: duracionSegundos(r.fecha_hora_inicio, r.fecha_hora_fin),
     observaciones: r.observaciones,
     usuario_id: r.usuario_id,
     usuario: toUsuarioResumen(r.usuario_id, r.au_email, r.au_nombre, r.au_apellido),

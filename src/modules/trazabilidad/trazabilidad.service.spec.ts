@@ -47,9 +47,11 @@ describe('TrazabilidadService — lote de vermiculita en el ciclo', () => {
   let service: TrazabilidadService;
   let query: jest.Mock;
   let bandejaRows: Record<string, unknown>[];
+  let aplicacionNurseryRows: Record<string, unknown>[];
 
   beforeEach(() => {
     bandejaRows = [rawBandeja()];
+    aplicacionNurseryRows = [];
 
     // El servicio dispara varias queries crudas en paralelo; despachamos por el
     // texto del SQL para devolverle a cada una su forma esperada.
@@ -59,6 +61,8 @@ describe('TrazabilidadService — lote de vermiculita en el ciclo', () => {
         return Promise.resolve([{ cycle_date: CYCLE_DATE }]);
       if (sql.includes('SELECT mb.bandeja_id'))
         return Promise.resolve(bandejaRows);
+      if (sql.includes('JOIN aplicacion_quimica_bandeja'))
+        return Promise.resolve(aplicacionNurseryRows);
       return Promise.resolve([]);
     });
 
@@ -107,6 +111,47 @@ describe('TrazabilidadService — lote de vermiculita en el ciclo', () => {
       numero_lote: 'LV-001',
       tipo: 'vermiculita',
       grado: 2,
+    });
+  });
+
+  describe('horarios de las aplicaciones', () => {
+    const rawAplicacion = (overrides: Record<string, unknown> = {}) => ({
+      id: 'a1',
+      fecha_hora: new Date('2026-01-15T10:45:00Z'),
+      fecha_hora_inicio: new Date('2026-01-15T10:00:00Z'),
+      fecha_hora_fin: new Date('2026-01-15T10:45:00Z'),
+      usuario_id: USER_ID,
+      contexto: 'nursery',
+      withholding_period_dias: 3,
+      detalles: null,
+      ...overrides,
+    });
+
+    it('expone inicio, fin y duracion_segundos', async () => {
+      aplicacionNurseryRows = [rawAplicacion()];
+
+      const res = await service.getTrazabilidadByCosecha(COSECHA_ID);
+
+      expect(res.aplicaciones_nursery[0]).toMatchObject({
+        fecha_hora_inicio: new Date('2026-01-15T10:00:00Z'),
+        fecha_hora_fin: new Date('2026-01-15T10:45:00Z'),
+        duracion_segundos: 2700,
+      });
+    });
+
+    it('en filas anteriores a la feature da null y mantiene la carencia', async () => {
+      aplicacionNurseryRows = [
+        rawAplicacion({ fecha_hora_inicio: null, fecha_hora_fin: null }),
+      ];
+
+      const res = await service.getTrazabilidadByCosecha(COSECHA_ID);
+
+      expect(res.aplicaciones_nursery[0]).toMatchObject({
+        fecha_hora_inicio: null,
+        fecha_hora_fin: null,
+        duracion_segundos: null,
+        carencia_hasta_calculada: '2026-01-18T10:45:00.000Z',
+      });
     });
   });
 
